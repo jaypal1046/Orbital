@@ -35,4 +35,8 @@
     <string name="provider_together">Together</string>
     <string name="provider_fireworks">Fireworks</string>
     <string name="provider_gemini_free">Gemini Free</string>
+    <string name="status_connected">Connected</string>
+    <string name="status_connecting">Connecting…</string>
+    <string name="status_disconnected">Disconnected</string>
+    <string name="status_error">Error</string>
 </resources>

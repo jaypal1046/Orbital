@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="connection_connected">#4CAF50</color>
+    <color name="connection_connecting">#FFC107</color>
+    <color name="connection_disconnected">#9E9E9E</color>
+    <color name="connection_error">#F44336</color>
+
+    <color name="voice_listening">#2196F3</color>
+    <color name="voice_speaking">#FF9800</color>
+    <color name="voice_error">#F44336</color>
+    <color name="voice_idle">@android:color/transparent</color>
+</resources>

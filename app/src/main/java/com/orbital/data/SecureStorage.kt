@@ -13,6 +13,8 @@ class SecureStorage(context: Context) {
         private const val KEY_PROVIDER = "provider"
         private const val KEY_CHARACTER = "character"
         private const val KEY_SAFETY_ACTION = "safety_action"
+        private const val KEY_SELECTED_CHARACTER = "selected_character"
+        private const val KEY_SETUP_COMPLETE = "setup_complete"
     }
 
     private val masterKey = MasterKey.Builder(context)
@@ -57,6 +59,22 @@ class SecureStorage(context: Context) {
 
     fun getSafetyAction(): String? {
         return sharedPreferences.getString(KEY_SAFETY_ACTION, null)
+    }
+
+    fun saveSelectedCharacter(characterId: String) {
+        sharedPreferences.edit().putString(KEY_SELECTED_CHARACTER, characterId).apply()
+    }
+
+    fun getSelectedCharacter(): String? {
+        return sharedPreferences.getString(KEY_SELECTED_CHARACTER, null)
+    }
+
+    fun isSetupComplete(): Boolean {
+        return sharedPreferences.getBoolean(KEY_SETUP_COMPLETE, false)
+    }
+
+    fun markSetupComplete() {
+        sharedPreferences.edit().putBoolean(KEY_SETUP_COMPLETE, true).apply()
     }
 
     fun clearAll() {

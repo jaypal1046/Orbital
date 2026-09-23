@@ -2,9 +2,9 @@ package com.orbital.safety
 
 import android.app.usage.UsageStatsManager
 import android.content.Context
+import android.content.pm.PackageInfo
 import android.content.pm.PackageManager
 import android.os.Build
-import android.os.Process
 import android.util.Log
 
 class SafetyManager(private val context: Context) {
@@ -27,19 +27,18 @@ class SafetyManager(private val context: Context) {
         )
     }
 
-    private val usageStatsManager: UsageStatsManager? by lazy {
+    private val usageStatsManager: UsageStatsManager? =
         context.getSystemService(Context.USAGE_STATS_SERVICE) as? UsageStatsManager
-    }
 
     fun isPaymentAppInForeground(): Boolean {
-        if (usageStatsManager == null) {
+        usageStatsManager ?: run {
             Log.e(TAG, "UsageStatsManager not available")
             return false
         }
 
         val time = System.currentTimeMillis()
         val usageStats = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
-            usageStatsManager.queryUsageStats(
+            usageStatsManager!!.queryUsageStats(
                 UsageStatsManager.INTERVAL_DAILY,
                 time - 1000 * 60 * 60, // 1 hour ago
                 time

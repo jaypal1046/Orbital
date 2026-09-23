@@ -2,13 +2,18 @@ package com.orbital.voice
 
 import android.content.Context
 import android.content.Intent
+import android.os.Bundle
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
 import android.util.Log
-import java.util.*
+import com.orbital.overlay.OverlayService
+import java.util.Locale
 
+/**
+ * Manages voice capabilities including speech-to-text and text-to-speech
+ */
 class VoiceManager(private val context: Context) {
 
     companion object {
@@ -17,132 +22,151 @@ class VoiceManager(private val context: Context) {
 
     private var speechRecognizer: SpeechRecognizer? = null
     private var textToSpeech: TextToSpeech? = null
-    private var isInitialized = false
+    private var isListening = false
+    private var isSpeaking = false
+    private var voiceCallback: VoiceCallback? = null
 
-    private var onSpeechResult: ((String) -> Unit)? = null
-    private var onSpeechError: ((String) -> Unit)? = null
+    interface VoiceCallback {
+        fun onSpeechRecognized(text: String)
+        fun onSpeechError(error: String)
+        fun onSpeechStart()
+        fun onSpeechEnd()
+        fun onSpeechPartialResult(text: String)
+        fun onTtsStart()
+        fun onTtsEnd()
+    }
 
-    fun initialize() {
-        if (!SpeechRecognizer.isRecognitionAvailable(context)) {
-            Log.e(TAG, "Speech recognition not available")
-            return
-        }
+    init {
+        initSpeechRecognizer()
+        initTextToSpeech()
+    }
 
-        speechRecognizer = SpeechRecognizer.createSpeechRecognizer(context)
-        speechRecognizer?.setRecognitionListener(object : RecognitionListener {
-            override fun onReadyForSpeech(params: Bundle?) {
-                Log.d(TAG, "Ready for speech")
-            }
-
-            override fun onBeginningOfSpeech() {
-                Log.d(TAG, "Beginning of speech")
-            }
-
-            override fun onRmsChanged(rmsdB: Float) {
-                // Optional: Show volume indicator
-            }
-
-            override fun onBufferReceived(buffer: ByteArray?) {
-                // Not used
-            }
-
-            override fun onEndOfSpeech() {
-                Log.d(TAG, "End of speech")
-            }
-
-            override fun onError(error: Int) {
-                val errorMessage = when (error) {
-                    SpeechRecognizer.ERROR_AUDIO -> "Audio recording error"
-                    SpeechRecognizer.ERROR_CLIENT -> "Client side error"
-                    SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "Insufficient permissions"
-                    SpeechRecognizer.ERROR_NETWORK -> "Network error"
-                    SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "Network timeout"
-                    SpeechRecognizer.ERROR_NO_MATCH -> "No match"
-                    SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "Recognizer busy"
-                    SpeechRecognizer.ERROR_SERVER -> "Error from server"
-                    SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "No speech input"
-                    else -> "Unknown error"
+    private fun initSpeechRecognizer() {
+        if (SpeechRecognizer.isRecognitionAvailable(context)) {
+            speechRecognizer = SpeechRecognizer.createSpeechRecognizer(context)
+            speechRecognizer?.setRecognitionListener(object : RecognitionListener {
+                override fun onReadyForSpeech(params: Bundle?) {
+                    isListening = true
+                    voiceCallback?.onSpeechStart()
+                    updateOverlayStatus("listening")
                 }
-                Log.e(TAG, "Speech recognition error: $errorMessage")
-                onSpeechError?.invoke(errorMessage)
-            }
 
-            override fun onResults(results: Bundle?) {
-                val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                val bestMatch = matches?.getOrNull(0)
-                if (bestMatch != null) {
-                    Log.d(TAG, "Speech result: $bestMatch")
-                    onSpeechResult?.invoke(bestMatch)
+                override fun onBeginningOfSpeech() {
+                    // No action needed
                 }
-            }
 
-            override fun onPartialResults(partialResults: Bundle?) {
-                // Optional: Show partial results
-            }
+                override fun onRmsChanged(rmsdB: Float) {
+                    // No action needed
+                }
 
-            override fun onEvent(eventType: Int, params: Bundle?) {
-                // Not used
-            }
-        })
+                override fun onBufferReceived(buffer: ByteArray?) {
+                    // No action needed
+                }
 
-        textToSpeech = TextToSpeech(context, object : TextToSpeech.OnInitListener {
-            override fun onInit(status: Int) {
-                if (status == TextToSpeech.SUCCESS) {
-                    val result = textToSpeech?.setLanguage(Locale.getDefault())
-                    if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
-                        Log.e(TAG, "Language not supported")
-                    } else {
-                        isInitialized = true
+                override fun onEndOfSpeech() {
+                    isListening = false
+                    voiceCallback?.onSpeechEnd()
+                    updateOverlayStatus("idle")
+                }
+
+                override fun onError(error: Int) {
+                    isListening = false
+                    val errorMessage = when (error) {
+                        SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "Network timeout"
+                        SpeechRecognizer.ERROR_NETWORK -> "Network error"
+                        SpeechRecognizer.ERROR_AUDIO -> "Audio error"
+                        SpeechRecognizer.ERROR_SERVER -> "Server error"
+                        SpeechRecognizer.ERROR_CLIENT -> "Client error"
+                        SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "Speech timeout"
+                        SpeechRecognizer.ERROR_NO_MATCH -> "No match"
+                        SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "Recognizer busy"
+                        SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "Insufficient permissions"
+                        else -> "Unknown error"
                     }
-                } else {
-                    Log.e(TAG, "TextToSpeech initialization failed")
+
+                    voiceCallback?.onSpeechError(errorMessage)
+                    updateOverlayStatus("error")
+                    Log.e(TAG, "Speech recognition error: $errorMessage")
                 }
+
+                override fun onResults(results: Bundle?) {
+                    val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                    if (!matches.isNullOrEmpty()) {
+                        voiceCallback?.onSpeechRecognized(matches[0])
+                    }
+                }
+
+                override fun onPartialResults(partialResults: Bundle?) {
+                    val matches = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                    if (!matches.isNullOrEmpty()) {
+                        voiceCallback?.onSpeechPartialResult(matches[0])
+                    }
+                }
+
+                override fun onEvent(eventType: Int, params: Bundle?) {
+                    // No action needed
+                }
+            })
+        } else {
+            Log.e(TAG, "Speech recognition not available")
+        }
+    }
+
+    private fun initTextToSpeech() {
+        textToSpeech = TextToSpeech(context) { status ->
+            if (status == TextToSpeech.SUCCESS) {
+                textToSpeech?.language = Locale.getDefault()
+            } else {
+                Log.e(TAG, "TextToSpeech initialization failed")
             }
-        })
+        }
+    }
+
+    fun setVoiceCallback(callback: VoiceCallback) {
+        this.voiceCallback = callback
     }
 
     fun startListening() {
-        if (!isInitialized || speechRecognizer == null) {
-            Log.e(TAG, "Voice manager not initialized")
-            return
+        if (speechRecognizer != null && !isListening) {
+            val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+            }
+            speechRecognizer?.startListening(intent)
         }
-
-        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
-            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
-        }
-
-        speechRecognizer?.startListening(intent)
     }
 
     fun stopListening() {
-        speechRecognizer?.stopListening()
-    }
-
-    fun speak(text: String, onDone: (() -> Unit)? = null) {
-        if (!isInitialized || textToSpeech == null) {
-            Log.e(TAG, "TextToSpeech not initialized")
-            return
+        if (isListening) {
+            speechRecognizer?.stopListening()
+            isListening = false
+            voiceCallback?.onSpeechEnd()
+            updateOverlayStatus("idle")
         }
-
-        textToSpeech?.speak(text, TextToSpeech.QUEUE_ADD, null, "utteranceId")
-        onDone?.invoke()
     }
 
-    fun setOnSpeechResult(callback: (String) -> Unit) {
-        onSpeechResult = callback
+    fun speak(text: String, queueMode: Int = TextToSpeech.QUEUE_ADD) {
+        if (textToSpeech != null && !isSpeaking) {
+            isSpeaking = true
+            voiceCallback?.onTtsStart()
+            updateOverlayStatus("speaking")
+
+            textToSpeech?.speak(text, queueMode, null, text)
+        }
     }
 
-    fun setOnSpeechError(callback: (String) -> Unit) {
-        onSpeechError = callback
-    }
-
-    fun release() {
+    fun shutdown() {
         speechRecognizer?.destroy()
-        speechRecognizer = null
         textToSpeech?.shutdown()
-        textToSpeech = null
-        isInitialized = false
+        isListening = false
+        isSpeaking = false
+    }
+
+    private fun updateOverlayStatus(status: String) {
+        val intent = Intent(context, OverlayService::class.java).apply {
+            action = OverlayService.ACTION_UPDATE_VOICE_STATUS
+            putExtra("status", status)
+        }
+        context.startService(intent)
     }
 }
