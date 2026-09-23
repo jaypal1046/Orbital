@@ -6,10 +6,13 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.orbital.data.LlmRepository
@@ -25,19 +28,21 @@ class SetupWizardActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         secureStorage = SecureStorage(this)
-        llmRepository = LlmRepository()
+        llmRepository = LlmRepository(secureStorage)
 
         setContent {
             MaterialTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
-                    color = MaterialTheme.colorScheme.background
+                    color = Color(0xFF0F172A)
                 ) {
-                    SetupWizardScreen(
-                        onComplete = { apiKey, modelProvider ->
-                            saveApiKey(apiKey)
-                            saveProvider(modelProvider)
-                            testConnection(modelProvider)
+                    KeyManagementScreen(
+                        secureStorage = secureStorage,
+                        llmRepository = llmRepository,
+                        onBack = { finish() },
+                        onContinue = {
+                            secureStorage.markSetupComplete()
+                            finishSetup()
                         }
                     )
                 }
@@ -62,7 +67,7 @@ class SetupWizardActivity : ComponentActivity() {
             "OpenRouter" -> "https://openrouter.ai/api/v1/chat/completions"
             "Together" -> "https://api.together.xyz/v1/chat/completions"
             "Fireworks" -> "https://api.fireworks.ai/inference/v1/chat/completions"
-            "Gemini Free" -> "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent"
+            "Gemini Free" -> "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:streamGenerateContent?alt=sse"
             else -> "https://api.openai.com/v1/chat/completions"
         }
 
@@ -90,6 +95,12 @@ class SetupWizardActivity : ComponentActivity() {
             }
         }
 
+        val onErrorCallback: (Throwable) -> Unit = { error ->
+            runOnUiThread {
+                Toast.makeText(this, error.message ?: "Connection failed", Toast.LENGTH_LONG).show()
+            }
+        }
+
         // Test with a simple message
         if (modelProvider == "Gemini Free") {
             llmRepository.streamCompletion(
@@ -100,7 +111,7 @@ class SetupWizardActivity : ComponentActivity() {
                     "parts" to listOf(mapOf("text" to "Hello"))
                 )),
                 onChunk = { _ -> }, // Ignore chunks for test
-                onError = { _ -> }
+                onError = onErrorCallback
             )
         } else {
             llmRepository.streamCompletion(
@@ -108,7 +119,7 @@ class SetupWizardActivity : ComponentActivity() {
                 apiKey,
                 listOf(mapOf("role" to "user", "content" to "Hello")),
                 onChunk = { _ -> }, // Ignore chunks for test
-                onError = { _ -> }
+                onError = onErrorCallback
             )
         }
     }
@@ -141,7 +152,8 @@ class SetupWizardActivity : ComponentActivity() {
 @Composable
 fun SetupWizardScreen(onComplete: (String, String) -> Unit) {
     var apiKey by remember { mutableStateOf("") }
-    var modelProvider by remember { mutableStateOf("OpenAI") }
+    var modelProvider by remember { mutableStateOf("Orbital Auto-Router") }
+    var customServerUrl by remember { mutableStateOf("http://127.0.0.1:3001") }
     val context = LocalContext.current
 
     Column(
@@ -157,62 +169,78 @@ fun SetupWizardScreen(onComplete: (String, String) -> Unit) {
             modifier = Modifier.padding(bottom = 16.dp)
         )
 
-        OutlinedTextField(
-            value = apiKey,
-            onValueChange = { apiKey = it },
-            label = { Text("API Key") },
-            modifier = Modifier.fillMaxWidth()
-        )
-
-        Spacer(modifier = Modifier.height(16.dp))
-
+        // Provider selection
         Text(
-            text = "Model Provider",
-            style = MaterialTheme.typography.bodyMedium,
+            text = "Select LLM Provider",
+            style = MaterialTheme.typography.titleMedium,
             modifier = Modifier.padding(bottom = 8.dp)
         )
 
-        Row(
+        // Default provider options
+        Column(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceEvenly
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Button(onClick = { modelProvider = "OpenAI" }) {
-                Text("OpenAI")
-            }
-            Button(onClick = { modelProvider = "Mistral" }) {
-                Text("Mistral")
-            }
-            Button(onClick = { modelProvider = "Groq" }) {
-                Text("Groq")
+            ProviderOption(
+                title = "Orbital Auto-Router (Free Multi-Provider)",
+                description = "Automatic failover between Groq, Gemini, Mistral, and OpenRouter",
+                isSelected = modelProvider == "Orbital Auto-Router",
+                onClick = { modelProvider = "Orbital Auto-Router" }
+            )
+
+            ProviderOption(
+                title = "Google Gemini Free",
+                description = "Use Google's free Gemini models",
+                isSelected = modelProvider == "Gemini Free",
+                onClick = { modelProvider = "Gemini Free" }
+            )
+
+            ProviderOption(
+                title = "Groq Free",
+                description = "Use Groq's free Llama 3.3 models",
+                isSelected = modelProvider == "Groq",
+                onClick = { modelProvider = "Groq" }
+            )
+
+            ProviderOption(
+                title = "Mistral Free",
+                description = "Use Mistral's free models",
+                isSelected = modelProvider == "Mistral",
+                onClick = { modelProvider = "Mistral" }
+            )
+
+            // Custom server option
+            Column(
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                ProviderOption(
+                    title = "Custom / FreeLLMAPI Server",
+                    description = "Connect to a custom OpenAI-compatible server",
+                    isSelected = modelProvider == "Custom",
+                    onClick = { modelProvider = "Custom" }
+                )
+
+                if (modelProvider == "Custom") {
+                    OutlinedTextField(
+                        value = customServerUrl,
+                        onValueChange = { customServerUrl = it },
+                        label = { Text("Server URL") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
             }
         }
 
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(16.dp))
 
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceEvenly
-        ) {
-            Button(onClick = { modelProvider = "OpenRouter" }) {
-                Text("OpenRouter")
-            }
-            Button(onClick = { modelProvider = "Together" }) {
-                Text("Together")
-            }
-            Button(onClick = { modelProvider = "Fireworks" }) {
-                Text("Fireworks")
-            }
-        }
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceEvenly
-        ) {
-            Button(onClick = { modelProvider = "Gemini Free" }) {
-                Text("Gemini Free")
-            }
+        // API Key field (only shown for non-auto-router options)
+        if (modelProvider != "Orbital Auto-Router") {
+            OutlinedTextField(
+                value = apiKey,
+                onValueChange = { apiKey = it },
+                label = { Text("API Key") },
+                modifier = Modifier.fillMaxWidth()
+            )
         }
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -225,15 +253,82 @@ fun SetupWizardScreen(onComplete: (String, String) -> Unit) {
 
         Button(
             onClick = {
-                if (apiKey.isNotBlank()) {
-                    onComplete(apiKey, modelProvider)
-                } else {
-                    Toast.makeText(context, "Please enter an API key", Toast.LENGTH_SHORT).show()
+                when {
+                    modelProvider == "Orbital Auto-Router" -> {
+                        onComplete("", modelProvider)
+                    }
+                    modelProvider == "Custom" -> {
+                        if (customServerUrl.isNotBlank()) {
+                            onComplete(customServerUrl, modelProvider)
+                        } else {
+                            Toast.makeText(context, "Please enter a server URL", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                    else -> {
+                        if (apiKey.isNotBlank()) {
+                            onComplete(apiKey, modelProvider)
+                        } else {
+                            Toast.makeText(context, "Please enter an API key", Toast.LENGTH_SHORT).show()
+                        }
+                    }
                 }
             },
             modifier = Modifier.fillMaxWidth()
         ) {
             Text("Complete Setup")
+        }
+    }
+}
+
+@Composable
+fun ProviderOption(
+    title: String,
+    description: String,
+    isSelected: Boolean,
+    onClick: () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        onClick = onClick,
+        elevation = CardDefaults.cardElevation(defaultElevation = if (isSelected) 4.dp else 2.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer
+            else MaterialTheme.colorScheme.surfaceVariant
+        )
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.titleMedium,
+                        color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer
+                        else MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = description,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 4.dp)
+                    )
+                }
+                if (isSelected) {
+                    Icon(
+                        imageVector = Icons.Default.Check,
+                        contentDescription = "Selected",
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
         }
     }
 }

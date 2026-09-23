@@ -116,6 +116,21 @@ class VoiceManager(private val context: Context) {
         textToSpeech = TextToSpeech(context) { status ->
             if (status == TextToSpeech.SUCCESS) {
                 textToSpeech?.language = Locale.getDefault()
+                textToSpeech?.setOnUtteranceProgressListener(object : android.speech.tts.UtteranceProgressListener() {
+                    override fun onStart(utteranceId: String?) {
+                        isSpeaking = true
+                    }
+                    override fun onDone(utteranceId: String?) {
+                        isSpeaking = false
+                        voiceCallback?.onTtsEnd()
+                        updateOverlayStatus("idle")
+                    }
+                    override fun onError(utteranceId: String?) {
+                        isSpeaking = false
+                        voiceCallback?.onTtsEnd()
+                        updateOverlayStatus("idle")
+                    }
+                })
             } else {
                 Log.e(TAG, "TextToSpeech initialization failed")
             }

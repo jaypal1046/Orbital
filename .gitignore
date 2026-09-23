@@ -37,14 +37,16 @@ captures/
 .externalNativeBuild
 .cxx
 
-# Secrets & Keystores
+# Secrets, Environment & Keystores
 *.jks
 *.keystore
 *.key
 *.p12
-
-# Google Services (if containing private API keys)
-# google-services.json
+.env
+.env.*
+*.env
+local.properties
+secret.properties
 
 # Log files
 *.log

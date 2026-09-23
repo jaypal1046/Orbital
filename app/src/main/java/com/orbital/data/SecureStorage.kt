@@ -37,6 +37,59 @@ class SecureStorage(context: Context) {
         return sharedPreferences.getString(KEY_API_KEY, null)
     }
 
+    fun saveProviderApiKey(provider: String, apiKey: String) {
+        val clean = apiKey.trim()
+        sharedPreferences.edit().putString("api_key_${provider.lowercase()}", clean).apply()
+        if (provider.equals("gemini", ignoreCase = true) || provider.equals("google", ignoreCase = true)) {
+            sharedPreferences.edit().putString("api_key_gemini", clean).apply()
+            sharedPreferences.edit().putString("api_key_google", clean).apply()
+        }
+        if (clean.isNotBlank()) {
+            sharedPreferences.edit().putString(KEY_API_KEY, clean).apply()
+        }
+    }
+
+    fun getProviderApiKey(provider: String): String? {
+        val key = sharedPreferences.getString("api_key_${provider.lowercase()}", null)
+        if (!key.isNullOrBlank()) return key.trim()
+
+        if (provider.equals("gemini", ignoreCase = true) || provider.equals("google", ignoreCase = true) || provider.contains("gemini", ignoreCase = true)) {
+            val gKey = sharedPreferences.getString("api_key_gemini", null)
+                ?: sharedPreferences.getString("api_key_google", null)
+            if (!gKey.isNullOrBlank()) return gKey.trim()
+        }
+
+        return null
+    }
+
+    fun saveProviderEnabled(provider: String, enabled: Boolean) {
+        sharedPreferences.edit().putBoolean("enabled_${provider.lowercase()}", enabled).apply()
+    }
+
+    fun isProviderEnabled(provider: String): Boolean {
+        return sharedPreferences.getBoolean("enabled_${provider.lowercase()}", true)
+    }
+
+    fun saveProviderSelectedModel(provider: String, model: String) {
+        sharedPreferences.edit().putString("model_${provider.lowercase()}", model).apply()
+    }
+
+    fun getProviderSelectedModel(provider: String): String? {
+        return sharedPreferences.getString("model_${provider.lowercase()}", null)
+    }
+
+    fun saveProviderModelScope(provider: String, models: Set<String>?) {
+        if (models == null) {
+            sharedPreferences.edit().remove("scope_${provider.lowercase()}").apply()
+        } else {
+            sharedPreferences.edit().putStringSet("scope_${provider.lowercase()}", models).apply()
+        }
+    }
+
+    fun getProviderModelScope(provider: String): Set<String>? {
+        return sharedPreferences.getStringSet("scope_${provider.lowercase()}", null)
+    }
+
     fun saveProvider(provider: String) {
         sharedPreferences.edit().putString(KEY_PROVIDER, provider).apply()
     }

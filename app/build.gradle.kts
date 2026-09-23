@@ -63,6 +63,14 @@ dependencies {
     // Network
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
+    // Ktor Embedded Server
+    implementation("io.ktor:ktor-server-core:2.3.10")
+    implementation("io.ktor:ktor-server-cio:2.3.10")
+    implementation("io.ktor:ktor-server-content-negotiation:2.3.10")
+    implementation("io.ktor:ktor-serialization-kotlinx-json:2.3.10")
+    implementation("io.ktor:ktor-server-call-logging:2.3.10")
+    implementation("io.ktor:ktor-server-call-id:2.3.10")
+
     // Security
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
 

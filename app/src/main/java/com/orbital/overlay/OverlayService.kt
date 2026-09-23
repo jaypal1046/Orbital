@@ -12,6 +12,8 @@ import android.graphics.Color
 import android.graphics.PixelFormat
 import android.os.Build
 import android.os.IBinder
+import android.provider.Settings
+import android.util.Log
 import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.MotionEvent
@@ -23,8 +25,30 @@ import android.widget.ImageView
 import android.widget.TextView
 import androidx.core.content.ContextCompat
 import com.orbital.R
+import com.orbital.action.ActionParser
+import com.orbital.action.ActionResult
+import com.orbital.action.DeviceActionExecutor
+import com.orbital.data.ChatChoice
+import com.orbital.data.ChatMessage
+import com.orbital.data.ChatRequest
+import com.orbital.data.ChatResponse
 import com.orbital.data.LlmRepository
+import com.orbital.data.RouterConfig
 import com.orbital.data.SecureStorage
+import com.orbital.data.ServerConfig
+import com.orbital.data.ServerMode
+import io.ktor.http.*
+import io.ktor.serialization.kotlinx.json.*
+import io.ktor.server.application.*
+import io.ktor.server.cio.*
+import io.ktor.server.engine.*
+import io.ktor.server.plugins.contentnegotiation.*
+import io.ktor.server.request.*
+import io.ktor.server.response.*
+import io.ktor.server.routing.*
+import kotlinx.coroutines.*
+import org.json.JSONObject
+import java.util.concurrent.atomic.AtomicBoolean
 
 class OverlayService : Service() {
 
@@ -40,20 +64,43 @@ class OverlayService : Service() {
 
     private lateinit var windowManager: WindowManager
     private lateinit var overlayView: View
-    private lateinit var connectionStatusText: TextView
+    private lateinit var bubbleAvatarContainer: View
+    private lateinit var chatPanel: View
+    private lateinit var chatResponseText: TextView
+    private lateinit var chatScrollView: android.widget.ScrollView
+    private lateinit var chatInputEditText: android.widget.EditText
+    private lateinit var chatSendButton: View
+    private lateinit var chatMicButton: View
+    private lateinit var chatCloseButton: View
+    private lateinit var chatCompanionName: TextView
     private lateinit var connectionIndicator: View
     private lateinit var voiceStatusIndicator: View
     private lateinit var characterImage: ImageView
-    private var currentStatus: ConnectionStatus = ConnectionStatus.DISCONNECTED
+
+    private var isOverlayAttached = false
+    private lateinit var windowParams: WindowManager.LayoutParams
+    private lateinit var voiceManager: com.orbital.voice.VoiceManager
+    private lateinit var actionExecutor: DeviceActionExecutor
+    private val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    private var actionDebounceJob: Job? = null
+
+    private var currentStatus: ConnectionStatus = ConnectionStatus.CONNECTED
     private var currentVoiceStatus: String = "idle"
     private var currentCharacter: String = "aether"
+
+    // Server-related fields
+    private var server: ApplicationEngine? = null
+    private val isServerRunning = AtomicBoolean(false)
+    private lateinit var serverConfig: ServerConfig
+    private lateinit var routerConfig: RouterConfig
+    private lateinit var llmRepository: LlmRepository
 
     private val statusReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             intent?.action?.let {
                 when (it) {
                     ACTION_UPDATE_CONNECTION_STATUS -> {
-                        val status = intent.getStringExtra("status") ?: "disconnected"
+                        val status = intent.getStringExtra("status") ?: "connected"
                         updateConnectionStatus(status)
                     }
                     ACTION_UPDATE_VOICE_STATUS -> {
@@ -85,18 +132,91 @@ class OverlayService : Service() {
         // Load the selected character from storage
         val secureStorage = SecureStorage(this)
         currentCharacter = secureStorage.getSelectedCharacter() ?: "aether"
+
+        // Initialize server & router with multi-provider secure storage
+        serverConfig = ServerConfig(enableEmbeddedServer = true)
+        routerConfig = RouterConfig()
+        llmRepository = LlmRepository(secureStorage)
+        actionExecutor = DeviceActionExecutor(this)
+
+        initVoiceManager()
+
+        // Start embedded server on port 3001 if enabled
+        if (serverConfig.enableEmbeddedServer) {
+            startEmbeddedServer()
+        }
+    }
+
+    private fun initVoiceManager() {
+        voiceManager = com.orbital.voice.VoiceManager(this)
+        voiceManager.setVoiceCallback(object : com.orbital.voice.VoiceManager.VoiceCallback {
+            override fun onSpeechRecognized(text: String) {
+                if (text.isNotBlank()) {
+                    chatInputEditText.setText(text)
+                    sendPromptToCompanion(text, speakResult = true)
+                }
+            }
+
+            override fun onSpeechError(error: String) {
+                updateVoiceStatus("idle")
+            }
+
+            override fun onSpeechStart() {
+                updateVoiceStatus("listening")
+            }
+
+            override fun onSpeechEnd() {
+                updateVoiceStatus("idle")
+            }
+
+            override fun onSpeechPartialResult(text: String) {
+                if (chatPanel.visibility == View.VISIBLE) {
+                    chatInputEditText.setText(text)
+                }
+            }
+
+            override fun onTtsStart() {
+                updateVoiceStatus("speaking")
+            }
+
+            override fun onTtsEnd() {
+                updateVoiceStatus("idle")
+            }
+        })
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        val charExtra = intent?.getStringExtra("character")
+        if (!charExtra.isNullOrBlank()) {
+            currentCharacter = charExtra
+            updateCharacter(charExtra)
+        }
+
         when (intent?.action) {
-            ACTION_START -> startOverlay()
             ACTION_STOP -> stopOverlay()
+            ACTION_UPDATE_CHARACTER -> {
+                startOverlay()
+                charExtra?.let { updateCharacter(it) }
+            }
+            ACTION_START -> startOverlay()
+            else -> startOverlay()
         }
         return START_STICKY
     }
 
     private fun startOverlay() {
-        val params = WindowManager.LayoutParams(
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this)) {
+            Log.w("OverlayService", "Cannot start overlay: SYSTEM_ALERT_WINDOW permission not granted")
+            return
+        }
+
+        // Enforce strictly 1 overlay avatar at a time
+        if (isOverlayAttached && ::overlayView.isInitialized && overlayView.isAttachedToWindow) {
+            updateCharacter(currentCharacter)
+            return
+        }
+
+        windowParams = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -109,39 +229,94 @@ class OverlayService : Service() {
         ).apply {
             gravity = Gravity.TOP or Gravity.START
             x = 100
-            y = 100
+            y = 300
         }
 
         overlayView = LayoutInflater.from(this).inflate(R.layout.overlay_bubble, null)
-        connectionStatusText = overlayView.findViewById(R.id.connectionStatusText)
+        bubbleAvatarContainer = overlayView.findViewById(R.id.bubbleAvatarContainer)
+        chatPanel = overlayView.findViewById(R.id.chatPanel)
+        chatResponseText = overlayView.findViewById(R.id.chatResponseText)
+        chatScrollView = overlayView.findViewById(R.id.chatScrollView)
+        chatInputEditText = overlayView.findViewById(R.id.chatInputEditText)
+        chatSendButton = overlayView.findViewById(R.id.chatSendButton)
+        chatMicButton = overlayView.findViewById(R.id.chatMicButton)
+        chatCloseButton = overlayView.findViewById(R.id.chatCloseButton)
+        chatCompanionName = overlayView.findViewById(R.id.chatCompanionName)
         connectionIndicator = overlayView.findViewById(R.id.connectionIndicator)
         voiceStatusIndicator = overlayView.findViewById(R.id.voiceStatusIndicator)
         characterImage = overlayView.findViewById(R.id.characterImage)
 
-        windowManager.addView(overlayView, params)
+        // Setup Chat buttons
+        chatCloseButton.setOnClickListener {
+            toggleChatPanel(false)
+        }
 
-        overlayView.setOnTouchListener(object : View.OnTouchListener {
+        chatSendButton.setOnClickListener {
+            val text = chatInputEditText.text.toString().trim()
+            if (text.isNotBlank()) {
+                sendPromptToCompanion(text, speakResult = false)
+                chatInputEditText.setText("")
+            }
+        }
+
+        chatMicButton.setOnClickListener {
+            voiceManager.startListening()
+        }
+
+        chatInputEditText.setOnEditorActionListener { _, actionId, _ ->
+            if (actionId == android.view.inputmethod.EditorInfo.IME_ACTION_SEND) {
+                val text = chatInputEditText.text.toString().trim()
+                if (text.isNotBlank()) {
+                    sendPromptToCompanion(text, speakResult = false)
+                    chatInputEditText.setText("")
+                }
+                true
+            } else false
+        }
+
+        // Touch & gesture handling on Avatar Bubble
+        bubbleAvatarContainer.setOnTouchListener(object : View.OnTouchListener {
             private var initialX = 0
             private var initialY = 0
             private var initialTouchX = 0f
             private var initialTouchY = 0f
+            private var touchDownTime = 0L
 
             override fun onTouch(v: View?, event: MotionEvent): Boolean {
                 when (event.action) {
                     MotionEvent.ACTION_DOWN -> {
-                        initialX = params.x
-                        initialY = params.y
+                        initialX = windowParams.x
+                        initialY = windowParams.y
                         initialTouchX = event.rawX
                         initialTouchY = event.rawY
+                        touchDownTime = System.currentTimeMillis()
                         return true
                     }
                     MotionEvent.ACTION_MOVE -> {
-                        params.x = initialX + (event.rawX - initialTouchX).toInt()
-                        params.y = initialY + (event.rawY - initialTouchY).toInt()
-                        windowManager.updateViewLayout(overlayView, params)
+                        val dx = (event.rawX - initialTouchX).toInt()
+                        val dy = (event.rawY - initialTouchY).toInt()
+                        if (Math.abs(dx) > 10 || Math.abs(dy) > 10) {
+                            windowParams.x = initialX + dx
+                            windowParams.y = initialY + dy
+                            windowManager.updateViewLayout(overlayView, windowParams)
+                        }
                         return true
                     }
                     MotionEvent.ACTION_UP -> {
+                        val duration = System.currentTimeMillis() - touchDownTime
+                        val dx = Math.abs(event.rawX - initialTouchX)
+                        val dy = Math.abs(event.rawY - initialTouchY)
+
+                        if (dx < 15 && dy < 15) {
+                            if (duration >= 500) {
+                                // Long Press -> Whisper Mode (Voice)
+                                voiceManager.startListening()
+                            } else {
+                                // Tap / Click -> Toggle Chat Panel
+                                val shouldOpen = chatPanel.visibility != View.VISIBLE
+                                toggleChatPanel(shouldOpen)
+                            }
+                        }
                         return true
                     }
                 }
@@ -149,78 +324,151 @@ class OverlayService : Service() {
             }
         })
 
+        try {
+            windowManager.addView(overlayView, windowParams)
+            isOverlayAttached = true
+        } catch (e: Exception) {
+            android.util.Log.e("OverlayService", "Failed to add view to windowManager", e)
+        }
+
         // Initial status updates
-        updateConnectionStatus("disconnected")
+        updateConnectionStatus("connected")
         updateVoiceStatus("idle")
         updateCharacter(currentCharacter)
     }
 
+    private fun toggleChatPanel(open: Boolean) {
+        if (open) {
+            chatPanel.visibility = View.VISIBLE
+            windowParams.flags = WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
+        } else {
+            chatPanel.visibility = View.GONE
+            windowParams.flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+        }
+        if (::overlayView.isInitialized && overlayView.isAttachedToWindow) {
+            windowManager.updateViewLayout(overlayView, windowParams)
+        }
+    }
+
+    private fun sendPromptToCompanion(prompt: String, speakResult: Boolean) {
+        toggleChatPanel(true)
+        chatResponseText.text = "You: $prompt\n\nThinking & Executing..."
+        val responseBuilder = StringBuilder()
+        var hasExecutedAction = false
+
+        val messages = listOf(
+            com.orbital.data.ChatMessage(role = "system", content = ActionParser.buildSystemPrompt(currentCharacter)),
+            com.orbital.data.ChatMessage(role = "user", content = prompt)
+        )
+
+        fun finalizeResponse() {
+            if (hasExecutedAction) return
+            hasExecutedAction = true
+            val fullText = responseBuilder.toString()
+            val parsed = ActionParser.parse(fullText)
+            
+            var actionStatus = ""
+            if (parsed.action != null) {
+                val actionResult = actionExecutor.execute(parsed.action)
+                actionStatus = when (actionResult) {
+                    is ActionResult.Success -> "\n\n⚡ ${actionResult.message}"
+                    is ActionResult.Error -> "\n\n⚠️ ${actionResult.errorMessage}"
+                }
+            }
+
+            serviceScope.launch {
+                chatResponseText.text = "You: $prompt\n\n$currentCharacter:\n${parsed.userDisplayText}$actionStatus"
+                chatScrollView.fullScroll(View.FOCUS_DOWN)
+                if (speakResult && parsed.userDisplayText.isNotBlank()) {
+                    voiceManager.speak(parsed.userDisplayText)
+                }
+            }
+        }
+
+        llmRepository.streamCompletion(
+            model = "auto",
+            messages = messages,
+            onChunk = { chunk ->
+                responseBuilder.append(chunk)
+                serviceScope.launch {
+                    val currentText = responseBuilder.toString()
+                    val parsedCurrent = ActionParser.parse(currentText)
+                    chatResponseText.text = "You: $prompt\n\n$currentCharacter:\n${parsedCurrent.userDisplayText}"
+                    chatScrollView.fullScroll(View.FOCUS_DOWN)
+                }
+
+                // Debounce action execution when chunk stream pauses
+                actionDebounceJob?.cancel()
+                actionDebounceJob = serviceScope.launch {
+                    delay(1200)
+                    finalizeResponse()
+                }
+            },
+            onError = { error ->
+                actionDebounceJob?.cancel()
+                serviceScope.launch {
+                    chatResponseText.text = "You: $prompt\n\nError: ${error.message}"
+                }
+            }
+        )
+    }
+
     private fun stopOverlay() {
         try {
-            if (::overlayView.isInitialized) {
+            if (::overlayView.isInitialized && overlayView.isAttachedToWindow) {
                 windowManager.removeView(overlayView)
-                unregisterReceiver(statusReceiver)
             }
+            isOverlayAttached = false
+            unregisterReceiver(statusReceiver)
+            voiceManager.shutdown()
         } catch (_: Exception) {}
         stopSelf()
     }
 
     private fun updateConnectionStatus(status: String) {
-        when (status.lowercase()) {
-            "connected" -> {
-                currentStatus = ConnectionStatus.CONNECTED
-                connectionStatusText.text = getString(R.string.status_connected)
-                connectionStatusText.setTextColor(ContextCompat.getColor(this, R.color.connection_connected))
-                connectionIndicator.setBackgroundColor(ContextCompat.getColor(this, R.color.connection_connected))
-            }
-            "connecting" -> {
-                currentStatus = ConnectionStatus.CONNECTING
-                connectionStatusText.text = getString(R.string.status_connecting)
-                connectionStatusText.setTextColor(ContextCompat.getColor(this, R.color.connection_connecting))
-                connectionIndicator.setBackgroundColor(ContextCompat.getColor(this, R.color.connection_connecting))
-            }
-            "error" -> {
-                currentStatus = ConnectionStatus.ERROR
-                connectionStatusText.text = getString(R.string.status_error)
-                connectionStatusText.setTextColor(ContextCompat.getColor(this, R.color.connection_error))
-                connectionIndicator.setBackgroundColor(ContextCompat.getColor(this, R.color.connection_error))
-            }
-            else -> {
-                currentStatus = ConnectionStatus.DISCONNECTED
-                connectionStatusText.text = getString(R.string.status_disconnected)
-                connectionStatusText.setTextColor(ContextCompat.getColor(this, R.color.connection_disconnected))
-                connectionIndicator.setBackgroundColor(ContextCompat.getColor(this, R.color.connection_disconnected))
-            }
+        val colorRes = when (status.lowercase()) {
+            "connected" -> Color.parseColor("#10B981") // Green
+            "connecting" -> Color.parseColor("#F59E0B") // Amber
+            "error" -> Color.parseColor("#EF4444") // Red
+            else -> Color.parseColor("#10B981")
+        }
+        if (::connectionIndicator.isInitialized) {
+            connectionIndicator.setBackgroundColor(colorRes)
         }
     }
 
     private fun updateVoiceStatus(status: String) {
         currentVoiceStatus = status
-        when (status) {
-            "listening" -> {
-                voiceStatusIndicator.setBackgroundColor(ContextCompat.getColor(this, R.color.voice_listening))
-            }
-            "speaking" -> {
-                voiceStatusIndicator.setBackgroundColor(ContextCompat.getColor(this, R.color.voice_speaking))
-            }
-            "error" -> {
-                voiceStatusIndicator.setBackgroundColor(ContextCompat.getColor(this, R.color.voice_error))
-            }
-            else -> {
-                voiceStatusIndicator.setBackgroundColor(Color.TRANSPARENT)
-            }
+        val colorRes = when (status) {
+            "listening" -> Color.parseColor("#06B6D4") // Cyan
+            "speaking" -> Color.parseColor("#8B5CF6") // Purple
+            "error" -> Color.parseColor("#EF4444")
+            else -> Color.TRANSPARENT
+        }
+        if (::voiceStatusIndicator.isInitialized) {
+            voiceStatusIndicator.setBackgroundColor(colorRes)
         }
     }
 
     private fun updateCharacter(character: String) {
         currentCharacter = character
-        val drawableRes = when (character) {
-            "aether" -> R.drawable.ic_character_aether
-            "lumy" -> R.drawable.ic_character_lumy
-            "volo" -> R.drawable.ic_character_volo
-            else -> R.drawable.ic_character_aether
+        val (drawableRes, name) = when (character.lowercase()) {
+            "aether" -> Pair(R.drawable.ic_character_aether, "Aether")
+            "lumy" -> Pair(R.drawable.ic_character_lumy, "Lumy")
+            "nexus" -> Pair(R.drawable.ic_character_aether, "Nexus")
+            "spark" -> Pair(R.drawable.ic_character_lumy, "Spark")
+            "volo" -> Pair(R.drawable.ic_character_volo, "Volo")
+            "pico" -> Pair(R.drawable.ic_character_lumy, "Pico")
+            "guardian" -> Pair(R.drawable.ic_character_aether, "Guardian")
+            "echo" -> Pair(R.drawable.ic_character_volo, "Echo")
+            else -> Pair(R.drawable.ic_character_aether, "Aether")
         }
-        characterImage.setImageResource(drawableRes)
+        if (::characterImage.isInitialized) {
+            characterImage.setImageResource(drawableRes)
+        }
+        if (::chatCompanionName.isInitialized) {
+            chatCompanionName.text = "$name (AI Companion)"
+        }
     }
 
     private fun createNotificationChannel() {
@@ -249,7 +497,86 @@ class OverlayService : Service() {
                 windowManager.removeView(overlayView)
                 unregisterReceiver(statusReceiver)
             }
+            stopEmbeddedServer()
         } catch (_: Exception) {}
         super.onDestroy()
+    }
+
+    // Embedded server functionality
+    private fun startEmbeddedServer() {
+        if (isServerRunning.get()) return
+
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                server = embeddedServer(CIO, port = serverConfig.embeddedServerPort) {
+                    install(ContentNegotiation) {
+                        json()
+                    }
+
+                    routing {
+                        post("/v1/chat/completions") {
+                            val request = call.receive<ChatRequest>()
+                            if (request.stream) {
+                                call.respondTextWriter(contentType = ContentType.Text.EventStream) {
+                                    val channel = kotlinx.coroutines.channels.Channel<String>(kotlinx.coroutines.channels.Channel.UNLIMITED)
+                                    llmRepository.streamCompletion(
+                                        request.model,
+                                        request.messages,
+                                        onChunk = { chunk ->
+                                            val escaped = JSONObject.quote(chunk)
+                                            val sseData = "data: {\"choices\":[{\"delta\":{\"content\":$escaped}}]}\n\n"
+                                            channel.trySend(sseData)
+                                        },
+                                        onError = { _ ->
+                                            channel.trySend("data: [DONE]\n\n")
+                                            channel.close()
+                                        }
+                                    )
+                                    for (msg in channel) {
+                                        write(msg)
+                                        flush()
+                                    }
+                                }
+                            } else {
+                                val fullContent = CompletableDeferred<String>()
+                                val sb = StringBuilder()
+                                llmRepository.streamCompletion(
+                                    request.model,
+                                    request.messages,
+                                    onChunk = { chunk -> sb.append(chunk) },
+                                    onError = { _ -> fullContent.complete(sb.toString()) }
+                                )
+                                val text = withTimeoutOrNull(30000L) { fullContent.await() } ?: sb.toString()
+                                call.respond(
+                                    HttpStatusCode.OK,
+                                    ChatResponse(
+                                        id = "chatcmpl-" + System.currentTimeMillis(),
+                                        model = request.model,
+                                        choices = listOf(
+                                            ChatChoice(
+                                                index = 0,
+                                                message = ChatMessage(role = "assistant", content = text),
+                                                delta = null,
+                                                finish_reason = "stop"
+                                            )
+                                        )
+                                    )
+                                )
+                            }
+                        }
+                    }
+                }.start(wait = false)
+                isServerRunning.set(true)
+            } catch (e: Exception) {
+                isServerRunning.set(false)
+            }
+        }
+    }
+
+    private fun stopEmbeddedServer() {
+        if (isServerRunning.get()) {
+            server?.stop(1000, 2000)
+            isServerRunning.set(false)
+        }
     }
 }
