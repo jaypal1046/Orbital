@@ -141,6 +141,13 @@ class OverlayService : Service() {
 
         initVoiceManager()
 
+        // Observe global MascotEventBus state changes
+        serviceScope.launch {
+            com.orbital.ui.MascotEventBus.currentState.collect { state ->
+                setMascotState(state)
+            }
+        }
+
         // Start embedded server on port 3001 if enabled
         if (serverConfig.enableEmbeddedServer) {
             startEmbeddedServer()
@@ -204,6 +211,100 @@ class OverlayService : Service() {
         return START_STICKY
     }
 
+    private var currentMascotState: com.orbital.ui.MascotState = com.orbital.ui.MascotState.IDLE
+    private var idleTimerJob: Job? = null
+    private var floatAnimator: android.animation.ObjectAnimator? = null
+    private var breatheAnimator: android.animation.ObjectAnimator? = null
+
+    private fun startFloatingBreathingAnimation() {
+        if (!::characterImage.isInitialized) return
+        
+        floatAnimator?.cancel()
+        breatheAnimator?.cancel()
+
+        // Subtle vertical floating bob
+        floatAnimator = android.animation.ObjectAnimator.ofFloat(characterImage, "translationY", -6f, 6f).apply {
+            duration = 1800
+            repeatCount = android.animation.ValueAnimator.INFINITE
+            repeatMode = android.animation.ValueAnimator.REVERSE
+            interpolator = android.view.animation.AccelerateDecelerateInterpolator()
+            start()
+        }
+
+        // Gentle breathing scale
+        breatheAnimator = android.animation.ObjectAnimator.ofFloat(characterImage, "scaleX", 0.98f, 1.03f).apply {
+            duration = 1600
+            repeatCount = android.animation.ValueAnimator.INFINITE
+            repeatMode = android.animation.ValueAnimator.REVERSE
+            interpolator = android.view.animation.AccelerateDecelerateInterpolator()
+            start()
+        }
+    }
+
+    private fun playMascotJumpAnimation(onComplete: (() -> Unit)? = null) {
+        if (!::characterImage.isInitialized) return
+        
+        setMascotState(com.orbital.ui.MascotState.JUMP)
+
+        val jumpY = android.animation.ObjectAnimator.ofFloat(characterImage, "translationY", 0f, -24f, 0f).apply {
+            duration = 450
+            interpolator = android.view.animation.OvershootInterpolator(2.0f)
+        }
+        val scaleX = android.animation.ObjectAnimator.ofFloat(characterImage, "scaleX", 1f, 1.18f, 1f).apply {
+            duration = 450
+        }
+        val scaleY = android.animation.ObjectAnimator.ofFloat(characterImage, "scaleY", 1f, 1.18f, 1f).apply {
+            duration = 450
+        }
+
+        android.animation.AnimatorSet().apply {
+            playTogether(jumpY, scaleX, scaleY)
+            addListener(object : android.animation.AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: android.animation.Animator) {
+                    onComplete?.invoke()
+                    startFloatingBreathingAnimation()
+                }
+            })
+            start()
+        }
+    }
+
+    private fun setMascotState(state: com.orbital.ui.MascotState) {
+        currentMascotState = state
+        resetInactivityTimer()
+
+        if (::characterImage.isInitialized) {
+            val spriteRes = com.orbital.ui.MascotSpriteHelper.getSprite(currentCharacter, state)
+            
+            // Quick cross-scale transition for smooth sprite switch
+            characterImage.animate()
+                .scaleX(0.85f)
+                .scaleY(0.85f)
+                .alpha(0.6f)
+                .setDuration(120)
+                .withEndAction {
+                    characterImage.setImageResource(spriteRes)
+                    characterImage.animate()
+                        .scaleX(1.0f)
+                        .scaleY(1.0f)
+                        .alpha(1.0f)
+                        .setDuration(160)
+                        .start()
+                }
+                .start()
+        }
+    }
+
+    private fun resetInactivityTimer() {
+        idleTimerJob?.cancel()
+        idleTimerJob = serviceScope.launch {
+            delay(50000) // 50 seconds of idle
+            if (currentMascotState == com.orbital.ui.MascotState.IDLE) {
+                setMascotState(com.orbital.ui.MascotState.SLEEPING)
+            }
+        }
+    }
+
     private fun startOverlay() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this)) {
             Log.w("OverlayService", "Cannot start overlay: SYSTEM_ALERT_WINDOW permission not granted")
@@ -249,6 +350,7 @@ class OverlayService : Service() {
         // Setup Chat buttons
         chatCloseButton.setOnClickListener {
             toggleChatPanel(false)
+            com.orbital.ui.MascotEventBus.postEvent(com.orbital.ui.MascotEvent.ResetToIdle)
         }
 
         chatSendButton.setOnClickListener {
@@ -260,6 +362,7 @@ class OverlayService : Service() {
         }
 
         chatMicButton.setOnClickListener {
+            com.orbital.ui.MascotEventBus.postEvent(com.orbital.ui.MascotEvent.VoiceListening)
             voiceManager.startListening()
         }
 
@@ -310,11 +413,15 @@ class OverlayService : Service() {
                         if (dx < 15 && dy < 15) {
                             if (duration >= 500) {
                                 // Long Press -> Whisper Mode (Voice)
+                                com.orbital.ui.MascotEventBus.postEvent(com.orbital.ui.MascotEvent.VoiceListening)
                                 voiceManager.startListening()
                             } else {
-                                // Tap / Click -> Toggle Chat Panel
-                                val shouldOpen = chatPanel.visibility != View.VISIBLE
-                                toggleChatPanel(shouldOpen)
+                                // Tap / Click -> Trigger Tap Event + Jump Animation + Toggle Chat Panel
+                                com.orbital.ui.MascotEventBus.postEvent(com.orbital.ui.MascotEvent.Tap)
+                                playMascotJumpAnimation {
+                                    val shouldOpen = chatPanel.visibility != View.VISIBLE
+                                    toggleChatPanel(shouldOpen)
+                                }
                             }
                         }
                         return true
@@ -327,6 +434,8 @@ class OverlayService : Service() {
         try {
             windowManager.addView(overlayView, windowParams)
             isOverlayAttached = true
+            startFloatingBreathingAnimation()
+            resetInactivityTimer()
         } catch (e: Exception) {
             android.util.Log.e("OverlayService", "Failed to add view to windowManager", e)
         }
@@ -353,6 +462,7 @@ class OverlayService : Service() {
     private fun sendPromptToCompanion(prompt: String, speakResult: Boolean) {
         toggleChatPanel(true)
         chatResponseText.text = "You: $prompt\n\nThinking & Executing..."
+        com.orbital.ui.MascotEventBus.postEvent(com.orbital.ui.MascotEvent.PromptSent(prompt))
         val responseBuilder = StringBuilder()
         var hasExecutedAction = false
 
@@ -369,11 +479,21 @@ class OverlayService : Service() {
             
             var actionStatus = ""
             if (parsed.action != null) {
+                // Post working event
+                com.orbital.ui.MascotEventBus.postEvent(com.orbital.ui.MascotEvent.ActionExecuting(parsed.action.javaClass.simpleName))
                 val actionResult = actionExecutor.execute(parsed.action)
                 actionStatus = when (actionResult) {
-                    is ActionResult.Success -> "\n\n⚡ ${actionResult.message}"
-                    is ActionResult.Error -> "\n\n⚠️ ${actionResult.errorMessage}"
+                    is ActionResult.Success -> {
+                        com.orbital.ui.MascotEventBus.postEvent(com.orbital.ui.MascotEvent.ActionSuccess(actionResult.message))
+                        "\n\n⚡ ${actionResult.message}"
+                    }
+                    is ActionResult.Error -> {
+                        com.orbital.ui.MascotEventBus.postEvent(com.orbital.ui.MascotEvent.ActionFailed(actionResult.errorMessage))
+                        "\n\n⚠️ ${actionResult.errorMessage}"
+                    }
                 }
+            } else {
+                com.orbital.ui.MascotEventBus.postEvent(com.orbital.ui.MascotEvent.ResetToIdle)
             }
 
             serviceScope.launch {
@@ -390,6 +510,9 @@ class OverlayService : Service() {
             messages = messages,
             onChunk = { chunk ->
                 responseBuilder.append(chunk)
+                if (currentMascotState != com.orbital.ui.MascotState.THINKING) {
+                    setMascotState(com.orbital.ui.MascotState.THINKING)
+                }
                 serviceScope.launch {
                     val currentText = responseBuilder.toString()
                     val parsedCurrent = ActionParser.parse(currentText)
@@ -406,6 +529,7 @@ class OverlayService : Service() {
             },
             onError = { error ->
                 actionDebounceJob?.cancel()
+                setMascotState(com.orbital.ui.MascotState.SAD)
                 serviceScope.launch {
                     chatResponseText.text = "You: $prompt\n\nError: ${error.message}"
                 }
@@ -415,6 +539,9 @@ class OverlayService : Service() {
 
     private fun stopOverlay() {
         try {
+            floatAnimator?.cancel()
+            breatheAnimator?.cancel()
+            idleTimerJob?.cancel()
             if (::overlayView.isInitialized && overlayView.isAttachedToWindow) {
                 windowManager.removeView(overlayView)
             }
@@ -440,9 +567,18 @@ class OverlayService : Service() {
     private fun updateVoiceStatus(status: String) {
         currentVoiceStatus = status
         val colorRes = when (status) {
-            "listening" -> Color.parseColor("#06B6D4") // Cyan
-            "speaking" -> Color.parseColor("#8B5CF6") // Purple
-            "error" -> Color.parseColor("#EF4444")
+            "listening" -> {
+                setMascotState(com.orbital.ui.MascotState.CURIOUS)
+                Color.parseColor("#06B6D4") // Cyan
+            }
+            "speaking" -> {
+                setMascotState(com.orbital.ui.MascotState.HAPPY)
+                Color.parseColor("#8B5CF6") // Purple
+            }
+            "error" -> {
+                setMascotState(com.orbital.ui.MascotState.SAD)
+                Color.parseColor("#EF4444")
+            }
             else -> Color.TRANSPARENT
         }
         if (::voiceStatusIndicator.isInitialized) {
@@ -452,20 +588,8 @@ class OverlayService : Service() {
 
     private fun updateCharacter(character: String) {
         currentCharacter = character
-        val (drawableRes, name) = when (character.lowercase()) {
-            "aether" -> Pair(R.drawable.ic_character_aether, "Aether")
-            "lumy" -> Pair(R.drawable.ic_character_lumy, "Lumy")
-            "nexus" -> Pair(R.drawable.ic_character_aether, "Nexus")
-            "spark" -> Pair(R.drawable.ic_character_lumy, "Spark")
-            "volo" -> Pair(R.drawable.ic_character_volo, "Volo")
-            "pico" -> Pair(R.drawable.ic_character_lumy, "Pico")
-            "guardian" -> Pair(R.drawable.ic_character_aether, "Guardian")
-            "echo" -> Pair(R.drawable.ic_character_volo, "Echo")
-            else -> Pair(R.drawable.ic_character_aether, "Aether")
-        }
-        if (::characterImage.isInitialized) {
-            characterImage.setImageResource(drawableRes)
-        }
+        setMascotState(com.orbital.ui.MascotState.IDLE)
+        val name = if (character.equals("lumy", ignoreCase = true)) "Lumy" else "Aether"
         if (::chatCompanionName.isInitialized) {
             chatCompanionName.text = "$name (AI Companion)"
         }

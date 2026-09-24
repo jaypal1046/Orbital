@@ -114,6 +114,8 @@ fun InAppChatScreen(
         tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "companion_tts")
     }
 
+    val currentMascotState by MascotEventBus.currentState.collectAsState()
+
     // When stream finishes (or on complete response)
     fun finalizeStreamedResponse() {
         if (!isStreaming || currentStreamContent.isBlank()) return
@@ -123,18 +125,23 @@ fun InAppChatScreen(
         var actionDetails: String? = null
 
         if (parsed.action != null) {
+            MascotEventBus.postEvent(MascotEvent.ActionExecuting(parsed.action.javaClass.simpleName))
             val result = actionExecutor.execute(parsed.action)
             when (result) {
                 is ActionResult.Success -> {
+                    MascotEventBus.postEvent(MascotEvent.ActionSuccess(result.message))
                     actionBadge = "⚡ Executed: ${result.message}"
                     actionDetails = result.details
                     Toast.makeText(context, result.message, Toast.LENGTH_SHORT).show()
                 }
                 is ActionResult.Error -> {
+                    MascotEventBus.postEvent(MascotEvent.ActionFailed(result.errorMessage))
                     actionBadge = "⚠️ Action Failed: ${result.errorMessage}"
                     Toast.makeText(context, result.errorMessage, Toast.LENGTH_SHORT).show()
                 }
             }
+        } else {
+            MascotEventBus.postEvent(MascotEvent.ResetToIdle)
         }
 
         val assistantMsg = UiMessage(
@@ -158,6 +165,7 @@ fun InAppChatScreen(
         inputText = ""
         isStreaming = true
         currentStreamContent = ""
+        MascotEventBus.postEvent(MascotEvent.PromptSent(cleanText))
 
         val activeType = llmRepository.getCurrentProviderType() ?: ProviderType.GROQ
         activeServingProvider = activeType.name
@@ -192,6 +200,7 @@ fun InAppChatScreen(
             onError = { error ->
                 debounceJob?.cancel()
                 isStreaming = false
+                MascotEventBus.postEvent(MascotEvent.ActionFailed(error.message ?: "Request failed"))
                 val errText = error.message ?: "Request failed"
                 val assistantMsg = UiMessage(
                     role = "assistant",
@@ -214,24 +223,15 @@ fun InAppChatScreen(
             TopAppBar(
                 title = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            modifier = Modifier
-                                .size(36.dp)
-                                .clip(CircleShape)
-                                .background(
-                                    Brush.linearGradient(
-                                        listOf(Color(0xFF8B5CF6), Color(0xFF6D28D9))
-                                    )
-                                ),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = characterName.firstOrNull()?.toString() ?: "A",
-                                color = Color.White,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 16.sp
-                            )
-                        }
+                        AnimatedMascotView(
+                            characterId = secureStorage.getSelectedCharacter() ?: "aether",
+                            currentState = currentMascotState,
+                            size = 38.dp,
+                            showGlow = false,
+                            onClick = {
+                                MascotEventBus.postEvent(MascotEvent.Tap)
+                            }
+                        )
                         Spacer(modifier = Modifier.width(10.dp))
                         Column {
                             Text(
@@ -641,20 +641,16 @@ fun ChatBubbleItem(
             horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start
         ) {
             if (!isUser) {
-                Box(
+                val spriteRes = MascotSpriteHelper.getSprite(characterName, MascotState.HAPPY)
+                androidx.compose.foundation.Image(
+                    painter = androidx.compose.ui.res.painterResource(id = spriteRes),
+                    contentDescription = characterName,
                     modifier = Modifier
-                        .size(28.dp)
+                        .size(32.dp)
                         .clip(CircleShape)
-                        .background(Color(0xFF7C3AED)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = characterName.firstOrNull()?.toString() ?: "A",
-                        color = Color.White,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 12.sp
-                    )
-                }
+                        .background(Color(0xFF2E1065))
+                        .padding(2.dp)
+                )
                 Spacer(modifier = Modifier.width(8.dp))
             }
 

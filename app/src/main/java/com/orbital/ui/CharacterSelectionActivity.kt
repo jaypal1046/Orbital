@@ -254,11 +254,19 @@ fun CharacterSelectionScreen(
                 }
             }
 
+            // Real-Time Animated Mascot Interactive State Showcase
+            InteractiveMascotPreview(
+                characterId = selectedId,
+                characterName = characters.find { it.id == selectedId }?.name ?: "Aether",
+                modifier = Modifier.padding(bottom = 14.dp)
+            )
+
             Text(
-                text = "Select a companion to activate floating avatar overlay & in-app chat personality:",
+                text = "Choose Companion Mascot:",
                 color = Color(0xFF94A3B8),
                 fontSize = 13.sp,
-                modifier = Modifier.padding(bottom = 12.dp)
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(bottom = 8.dp)
             )
 
             LazyColumn(
@@ -280,19 +288,23 @@ fun CharacterSelectionScreen(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(14.dp),
+                                .padding(12.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Box(
                                 modifier = Modifier
-                                    .size(54.dp)
+                                    .size(56.dp)
                                     .clip(CircleShape)
                                     .background(Brush.linearGradient(char.gradientColors)),
                                 contentAlignment = Alignment.Center
                             ) {
-                                Text(
-                                    text = char.emoji,
-                                    fontSize = 26.sp
+                                val spriteRes = MascotSpriteHelper.getSprite(char.id, MascotState.IDLE)
+                                androidx.compose.foundation.Image(
+                                    painter = androidx.compose.ui.res.painterResource(id = spriteRes),
+                                    contentDescription = char.name,
+                                    modifier = Modifier
+                                        .size(46.dp)
+                                        .padding(2.dp)
                                 )
                             }
 
