@@ -23,6 +23,7 @@ import android.view.WindowManager
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.TextView
+import android.widget.Toast
 import androidx.core.content.ContextCompat
 import com.orbital.R
 import com.orbital.action.ActionParser
@@ -223,8 +224,8 @@ class OverlayService : Service() {
         breatheAnimator?.cancel()
 
         // Subtle vertical floating bob
-        floatAnimator = android.animation.ObjectAnimator.ofFloat(characterImage, "translationY", -6f, 6f).apply {
-            duration = 1800
+        floatAnimator = android.animation.ObjectAnimator.ofFloat(characterImage, "translationY", -5f, 5f).apply {
+            duration = 2000
             repeatCount = android.animation.ValueAnimator.INFINITE
             repeatMode = android.animation.ValueAnimator.REVERSE
             interpolator = android.view.animation.AccelerateDecelerateInterpolator()
@@ -232,8 +233,8 @@ class OverlayService : Service() {
         }
 
         // Gentle breathing scale
-        breatheAnimator = android.animation.ObjectAnimator.ofFloat(characterImage, "scaleX", 0.98f, 1.03f).apply {
-            duration = 1600
+        breatheAnimator = android.animation.ObjectAnimator.ofFloat(characterImage, "scaleX", 0.98f, 1.02f).apply {
+            duration = 1800
             repeatCount = android.animation.ValueAnimator.INFINITE
             repeatMode = android.animation.ValueAnimator.REVERSE
             interpolator = android.view.animation.AccelerateDecelerateInterpolator()
@@ -243,18 +244,17 @@ class OverlayService : Service() {
 
     private fun playMascotJumpAnimation(onComplete: (() -> Unit)? = null) {
         if (!::characterImage.isInitialized) return
-        
         setMascotState(com.orbital.ui.MascotState.JUMP)
 
-        val jumpY = android.animation.ObjectAnimator.ofFloat(characterImage, "translationY", 0f, -24f, 0f).apply {
-            duration = 450
-            interpolator = android.view.animation.OvershootInterpolator(2.0f)
+        val jumpY = android.animation.ObjectAnimator.ofFloat(characterImage, "translationY", 0f, -22f, 0f).apply {
+            duration = 420
+            interpolator = android.view.animation.OvershootInterpolator(1.8f)
         }
-        val scaleX = android.animation.ObjectAnimator.ofFloat(characterImage, "scaleX", 1f, 1.18f, 1f).apply {
-            duration = 450
+        val scaleX = android.animation.ObjectAnimator.ofFloat(characterImage, "scaleX", 1f, 1.15f, 1f).apply {
+            duration = 420
         }
-        val scaleY = android.animation.ObjectAnimator.ofFloat(characterImage, "scaleY", 1f, 1.18f, 1f).apply {
-            duration = 450
+        val scaleY = android.animation.ObjectAnimator.ofFloat(characterImage, "scaleY", 1f, 1.15f, 1f).apply {
+            duration = 420
         }
 
         android.animation.AnimatorSet().apply {
@@ -263,24 +263,25 @@ class OverlayService : Service() {
                 override fun onAnimationEnd(animation: android.animation.Animator) {
                     onComplete?.invoke()
                     startFloatingBreathingAnimation()
+                    serviceScope.launch {
+                        delay(600)
+                        if (currentMascotState == com.orbital.ui.MascotState.JUMP) {
+                            setMascotState(com.orbital.ui.MascotState.IDLE)
+                        }
+                    }
                 }
             })
             start()
         }
     }
 
-    private fun setMascotState(state: com.orbital.ui.MascotState) {
-        currentMascotState = state
-        resetInactivityTimer()
-
+    private fun setMascotSpriteInternal(state: com.orbital.ui.MascotState) {
         if (::characterImage.isInitialized) {
             val spriteRes = com.orbital.ui.MascotSpriteHelper.getSprite(currentCharacter, state)
-            
-            // Quick cross-scale transition for smooth sprite switch
             characterImage.animate()
-                .scaleX(0.85f)
-                .scaleY(0.85f)
-                .alpha(0.6f)
+                .scaleX(0.90f)
+                .scaleY(0.90f)
+                .alpha(0.7f)
                 .setDuration(120)
                 .withEndAction {
                     characterImage.setImageResource(spriteRes)
@@ -295,14 +296,64 @@ class OverlayService : Service() {
         }
     }
 
+    private fun setMascotState(state: com.orbital.ui.MascotState) {
+        currentMascotState = state
+        resetInactivityTimer()
+        setMascotSpriteInternal(state)
+    }
+
     private fun resetInactivityTimer() {
         idleTimerJob?.cancel()
         idleTimerJob = serviceScope.launch {
-            delay(50000) // 50 seconds of idle
+            delay(150000) // 2.5 minutes of inactivity -> gentle sleep mode
             if (currentMascotState == com.orbital.ui.MascotState.IDLE) {
                 setMascotState(com.orbital.ui.MascotState.SLEEPING)
             }
         }
+    }
+
+    private var snapAnimator: android.animation.ValueAnimator? = null
+
+    private fun getScreenDimensions(): Pair<Int, Int> {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val metrics = windowManager.currentWindowMetrics
+            val bounds = metrics.bounds
+            Pair(bounds.width(), bounds.height())
+        } else {
+            val dm = android.util.DisplayMetrics()
+            @Suppress("DEPRECATION")
+            windowManager.defaultDisplay.getMetrics(dm)
+            Pair(dm.widthPixels, dm.heightPixels)
+        }
+    }
+
+    private fun animateToPosition(targetX: Int, targetY: Int? = null) {
+        snapAnimator?.cancel()
+        val startX = windowParams.x
+        val startY = windowParams.y
+        snapAnimator = android.animation.ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = 240
+            interpolator = android.view.animation.DecelerateInterpolator()
+            addUpdateListener { anim ->
+                val frac = anim.animatedValue as Float
+                windowParams.x = (startX + (targetX - startX) * frac).toInt()
+                if (targetY != null) {
+                    windowParams.y = (startY + (targetY - startY) * frac).toInt()
+                }
+                if (::overlayView.isInitialized && overlayView.isAttachedToWindow) {
+                    windowManager.updateViewLayout(overlayView, windowParams)
+                }
+            }
+            start()
+        }
+    }
+
+    private fun snapToNearestEdge() {
+        val (screenWidth, _) = getScreenDimensions()
+        val bubbleSize = if (::bubbleAvatarContainer.isInitialized && bubbleAvatarContainer.width > 0) bubbleAvatarContainer.width else (52 * resources.displayMetrics.density).toInt()
+        val snapToLeft = (windowParams.x + bubbleSize / 2) < (screenWidth / 2)
+        val targetX = if (snapToLeft) 16 else (screenWidth - bubbleSize - 16).coerceAtLeast(0)
+        animateToPosition(targetX)
     }
 
     private fun startOverlay() {
@@ -362,8 +413,13 @@ class OverlayService : Service() {
         }
 
         chatMicButton.setOnClickListener {
-            com.orbital.ui.MascotEventBus.postEvent(com.orbital.ui.MascotEvent.VoiceListening)
-            voiceManager.startListening()
+            if (voiceManager.isListening()) {
+                voiceManager.stopListening()
+            } else {
+                com.orbital.ui.MascotEventBus.postEvent(com.orbital.ui.MascotEvent.VoiceListening)
+                voiceManager.startListening()
+                Toast.makeText(this@OverlayService, "🎙️ Listening with Whisper STT...", Toast.LENGTH_SHORT).show()
+            }
         }
 
         chatInputEditText.setOnEditorActionListener { _, actionId, _ ->
@@ -377,40 +433,62 @@ class OverlayService : Service() {
             } else false
         }
 
-        // Touch & gesture handling on Avatar Bubble
+        // Touch & gesture handling on Avatar Bubble with full screen freedom
         bubbleAvatarContainer.setOnTouchListener(object : View.OnTouchListener {
             private var initialX = 0
             private var initialY = 0
             private var initialTouchX = 0f
             private var initialTouchY = 0f
             private var touchDownTime = 0L
+            private var isDragging = false
 
             override fun onTouch(v: View?, event: MotionEvent): Boolean {
                 when (event.action) {
                     MotionEvent.ACTION_DOWN -> {
+                        snapAnimator?.cancel()
                         initialX = windowParams.x
                         initialY = windowParams.y
                         initialTouchX = event.rawX
                         initialTouchY = event.rawY
                         touchDownTime = System.currentTimeMillis()
+                        isDragging = false
+                        floatAnimator?.pause()
+                        breatheAnimator?.pause()
+                        bubbleAvatarContainer.animate().scaleX(1.1f).scaleY(1.1f).setDuration(120).start()
                         return true
                     }
                     MotionEvent.ACTION_MOVE -> {
                         val dx = (event.rawX - initialTouchX).toInt()
                         val dy = (event.rawY - initialTouchY).toInt()
-                        if (Math.abs(dx) > 10 || Math.abs(dy) > 10) {
-                            windowParams.x = initialX + dx
-                            windowParams.y = initialY + dy
-                            windowManager.updateViewLayout(overlayView, windowParams)
+                        if (Math.abs(dx) > 6 || Math.abs(dy) > 6) {
+                            isDragging = true
+                            val (screenWidth, screenHeight) = getScreenDimensions()
+                            val viewW = overlayView.width.coerceAtLeast(bubbleAvatarContainer.width)
+                            val viewH = overlayView.height.coerceAtLeast(bubbleAvatarContainer.height)
+
+                            val minX = 0
+                            val maxX = (screenWidth - viewW).coerceAtLeast(0)
+                            val minY = 40 // Below status bar
+                            val maxY = (screenHeight - viewH - 60).coerceAtLeast(minY)
+
+                            windowParams.x = (initialX + dx).coerceIn(minX, maxX)
+                            windowParams.y = (initialY + dy).coerceIn(minY, maxY)
+                            if (::overlayView.isInitialized && overlayView.isAttachedToWindow) {
+                                windowManager.updateViewLayout(overlayView, windowParams)
+                            }
                         }
                         return true
                     }
-                    MotionEvent.ACTION_UP -> {
+                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                        bubbleAvatarContainer.animate().scaleX(1.0f).scaleY(1.0f).setDuration(120).start()
+                        floatAnimator?.resume()
+                        breatheAnimator?.resume()
+
                         val duration = System.currentTimeMillis() - touchDownTime
                         val dx = Math.abs(event.rawX - initialTouchX)
                         val dy = Math.abs(event.rawY - initialTouchY)
 
-                        if (dx < 15 && dy < 15) {
+                        if (!isDragging && dx < 15 && dy < 15) {
                             if (duration >= 500) {
                                 // Long Press -> Whisper Mode (Voice)
                                 com.orbital.ui.MascotEventBus.postEvent(com.orbital.ui.MascotEvent.VoiceListening)
@@ -423,6 +501,8 @@ class OverlayService : Service() {
                                     toggleChatPanel(shouldOpen)
                                 }
                             }
+                        } else if (isDragging && chatPanel.visibility != View.VISIBLE) {
+                            snapToNearestEdge()
                         }
                         return true
                     }
@@ -450,9 +530,22 @@ class OverlayService : Service() {
         if (open) {
             chatPanel.visibility = View.VISIBLE
             windowParams.flags = WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
+            
+            // Adjust position so chat panel does not get cut off by screen borders
+            val (screenWidth, screenHeight) = getScreenDimensions()
+            val panelWidthPx = (320 * resources.displayMetrics.density).toInt()
+            val maxX = (screenWidth - panelWidthPx - 24).coerceAtLeast(16)
+            if (windowParams.x > maxX) {
+                animateToPosition(maxX)
+            }
+            val maxY = (screenHeight - (320 * resources.displayMetrics.density).toInt()).coerceAtLeast(80)
+            if (windowParams.y > maxY) {
+                windowParams.y = maxY
+            }
         } else {
             chatPanel.visibility = View.GONE
             windowParams.flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+            snapToNearestEdge()
         }
         if (::overlayView.isInitialized && overlayView.isAttachedToWindow) {
             windowManager.updateViewLayout(overlayView, windowParams)
@@ -467,7 +560,7 @@ class OverlayService : Service() {
         var hasExecutedAction = false
 
         val messages = listOf(
-            com.orbital.data.ChatMessage(role = "system", content = ActionParser.buildSystemPrompt(currentCharacter)),
+            com.orbital.data.ChatMessage(role = "system", content = ActionParser.buildSystemPrompt(currentCharacter, actionExecutor.getCapabilityManager().buildDeviceCapabilitiesPrompt())),
             com.orbital.data.ChatMessage(role = "user", content = prompt)
         )
 
@@ -554,13 +647,18 @@ class OverlayService : Service() {
 
     private fun updateConnectionStatus(status: String) {
         val colorRes = when (status.lowercase()) {
-            "connected" -> Color.parseColor("#10B981") // Green
+            "connected" -> Color.parseColor("#10B981") // Crisp Emerald Green
             "connecting" -> Color.parseColor("#F59E0B") // Amber
             "error" -> Color.parseColor("#EF4444") // Red
             else -> Color.parseColor("#10B981")
         }
         if (::connectionIndicator.isInitialized) {
-            connectionIndicator.setBackgroundColor(colorRes)
+            val bg = connectionIndicator.background
+            if (bg is android.graphics.drawable.GradientDrawable) {
+                bg.setColor(colorRes)
+            } else {
+                connectionIndicator.backgroundTintList = android.content.res.ColorStateList.valueOf(colorRes)
+            }
         }
     }
 

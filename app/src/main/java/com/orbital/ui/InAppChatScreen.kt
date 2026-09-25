@@ -42,9 +42,7 @@ import com.orbital.overlay.OverlayService
 import kotlinx.coroutines.launch
 import java.util.Locale
 
-import com.orbital.action.ActionParser
-import com.orbital.action.ActionResult
-import com.orbital.action.DeviceActionExecutor
+import com.orbital.action.*
 
 data class UiMessage(
     val id: String = java.util.UUID.randomUUID().toString(),
@@ -54,6 +52,7 @@ data class UiMessage(
     val modelName: String? = null,
     val actionLabel: String? = null,
     val actionDetails: String? = null,
+    val nextStepSuggestions: List<String> = emptyList(),
     val timestamp: Long = System.currentTimeMillis()
 )
 
@@ -94,7 +93,6 @@ fun InAppChatScreen(
     var activeServingProvider by remember { mutableStateOf<String?>("Auto-Router") }
     var debounceJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
 
-    // Text to Speech
     var tts: TextToSpeech? by remember { mutableStateOf(null) }
     DisposableEffect(Unit) {
         val ttsInstance = TextToSpeech(context) { status ->
@@ -116,6 +114,20 @@ fun InAppChatScreen(
 
     val currentMascotState by MascotEventBus.currentState.collectAsState()
 
+    var quickSuggestions by remember {
+        mutableStateOf(
+            listOf(
+                "✉️ Open Gmail",
+                "▶️ Open YouTube",
+                "💬 Open WhatsApp",
+                "⚙️ Open Settings",
+                "🔋 Check Battery Status",
+                "⏱️ Set 5m Timer",
+                "🌐 Search AI News"
+            )
+        )
+    }
+
     // When stream finishes (or on complete response)
     fun finalizeStreamedResponse() {
         if (!isStreaming || currentStreamContent.isBlank()) return
@@ -133,6 +145,19 @@ fun InAppChatScreen(
                     actionBadge = "⚡ Executed: ${result.message}"
                     actionDetails = result.details
                     Toast.makeText(context, result.message, Toast.LENGTH_SHORT).show()
+
+                    // When performing device actions (e.g. Open Gmail / YouTube), ensure floating companion overlay is active so user can chain next steps on top of the app!
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && Settings.canDrawOverlays(context)) {
+                        val overlayIntent = Intent(context, OverlayService::class.java).apply {
+                            action = OverlayService.ACTION_START
+                            putExtra("character", characterName.lowercase())
+                        }
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                            context.startForegroundService(overlayIntent)
+                        } else {
+                            context.startService(overlayIntent)
+                        }
+                    }
                 }
                 is ActionResult.Error -> {
                     MascotEventBus.postEvent(MascotEvent.ActionFailed(result.errorMessage))
@@ -144,13 +169,17 @@ fun InAppChatScreen(
             MascotEventBus.postEvent(MascotEvent.ResetToIdle)
         }
 
+        val suggestions = NextStepSuggester.getSuggestions(parsed.action, parsed.userDisplayText)
+        quickSuggestions = suggestions
+
         val assistantMsg = UiMessage(
             role = "assistant",
             content = parsed.userDisplayText,
             providerName = activeServingProvider ?: "Auto-Router",
             modelName = "executive",
             actionLabel = actionBadge,
-            actionDetails = actionDetails
+            actionDetails = actionDetails,
+            nextStepSuggestions = suggestions
         )
         messages = messages + assistantMsg
         currentStreamContent = ""
@@ -172,7 +201,7 @@ fun InAppChatScreen(
 
         // Build history with executive system prompt
         val chatHistory = mutableListOf<ChatMessage>()
-        chatHistory.add(ChatMessage(role = "system", content = ActionParser.buildSystemPrompt(characterName)))
+        chatHistory.add(ChatMessage(role = "system", content = ActionParser.buildSystemPrompt(characterName, actionExecutor.getCapabilityManager().buildDeviceCapabilitiesPrompt())))
         
         messages.takeLast(10).forEach { msg ->
             chatHistory.add(ChatMessage(role = msg.role, content = msg.content))
@@ -217,6 +246,50 @@ fun InAppChatScreen(
     var showRoutingSheet by remember { mutableStateOf(false) }
     var currentRoutingMode by remember { mutableStateOf(llmRepository.getRoutingMode()) }
     var selectedPinnedProvider by remember { mutableStateOf(llmRepository.getCurrentProviderType()) }
+
+    // Voice Manager with high-speed Whisper STT
+    var isVoiceListening by remember { mutableStateOf(false) }
+    val voiceManager = remember {
+        com.orbital.voice.VoiceManager(context).apply {
+            setVoiceCallback(object : com.orbital.voice.VoiceManager.VoiceCallback {
+                override fun onSpeechRecognized(text: String) {
+                    isVoiceListening = false
+                    if (text.isNotBlank()) {
+                        inputText = text
+                        sendMessage(text)
+                    }
+                }
+
+                override fun onSpeechError(error: String) {
+                    isVoiceListening = false
+                    Toast.makeText(context, "Whisper STT: $error", Toast.LENGTH_SHORT).show()
+                }
+
+                override fun onSpeechStart() {
+                    isVoiceListening = true
+                }
+
+                override fun onSpeechEnd() {
+                    isVoiceListening = false
+                }
+
+                override fun onSpeechPartialResult(text: String) {
+                    inputText = text
+                }
+
+                override fun onTtsStart() {}
+                override fun onTtsEnd() {}
+            })
+        }
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            voiceManager.shutdown()
+        }
+    }
+
+    var showActionTemplatesSheet by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -314,6 +387,66 @@ fun InAppChatScreen(
         },
         containerColor = Color(0xFF0A0C14)
     ) { innerPadding ->
+        if (showActionTemplatesSheet) {
+            ModalBottomSheet(
+                onDismissRequest = { showActionTemplatesSheet = false },
+                containerColor = Color(0xFF131722),
+                contentColor = Color.White
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp, vertical = 12.dp)
+                ) {
+                    Text(
+                        text = "⚡ Add Action or Next Step",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                    Text(
+                        text = "Select a quick action template to insert into your command:",
+                        fontSize = 12.sp,
+                        color = Color(0xFF94A3B8)
+                    )
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    listOf(
+                        "🔍 Search YouTube for " to "Search YouTube for ",
+                        "🎵 Play music on Spotify: " to "Play music on Spotify: ",
+                        "💬 Send WhatsApp message to " to "Send WhatsApp message to ",
+                        "✉️ Compose email to " to "Compose email to ",
+                        "🧭 Navigate to " to "Navigate to ",
+                        "⏱️ Set timer for " to "Set a timer for ",
+                        "🔋 Check battery status" to "Check my device battery and hardware status"
+                    ).forEach { (label, template) ->
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp)
+                                .clickable {
+                                    inputText = if (inputText.isBlank()) template else "$inputText and then $template"
+                                    showActionTemplatesSheet = false
+                                },
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFF1E2235)),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(text = label, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
+                                Icon(Icons.Default.Add, contentDescription = "Add", tint = Color(0xFFA855F7), modifier = Modifier.size(18.dp))
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(20.dp))
+                }
+            }
+        }
+
         if (showRoutingSheet) {
             ModalBottomSheet(
                 onDismissRequest = { showRoutingSheet = false },
@@ -475,7 +608,7 @@ fun InAppChatScreen(
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
-            // Executive Action Suggestion Chips
+            // Dynamic Contextual Next Step Quick Action Bar
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -483,15 +616,7 @@ fun InAppChatScreen(
                     .padding(horizontal = 12.dp, vertical = 6.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                listOf(
-                    "✉️ Open Gmail",
-                    "▶️ Open YouTube",
-                    "💬 Open WhatsApp",
-                    "⚙️ Open Settings",
-                    "🔋 Check Battery Status",
-                    "⏱️ Set 5m Timer",
-                    "🌐 Search AI News"
-                ).forEach { prompt ->
+                quickSuggestions.forEach { prompt ->
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(20.dp))
@@ -522,7 +647,17 @@ fun InAppChatScreen(
                             clipboardManager.setText(AnnotatedString(msg.content))
                             Toast.makeText(context, "Copied to clipboard", Toast.LENGTH_SHORT).show()
                         },
-                        onSpeak = { speak(msg.content) }
+                        onSpeak = { speak(msg.content) },
+                        onSuggestionClick = { suggestion ->
+                            val clean = NextStepSuggester.cleanPromptForInput(suggestion)
+                            inputText = clean
+                            Toast.makeText(context, "✏️ Template ready in input! Add details and tap Send", Toast.LENGTH_SHORT).show()
+                        },
+                        onAddStepToInput = { step ->
+                            val clean = NextStepSuggester.cleanPromptForInput(step)
+                            inputText = if (inputText.isBlank()) clean else "$inputText and then $clean"
+                            Toast.makeText(context, "➕ Added step to prompt!", Toast.LENGTH_SHORT).show()
+                        }
                     )
                 }
 
@@ -539,7 +674,9 @@ fun InAppChatScreen(
                             characterName = characterName,
                             isStreaming = true,
                             onCopy = {},
-                            onSpeak = {}
+                            onSpeak = {},
+                            onSuggestionClick = {},
+                            onAddStepToInput = {}
                         )
                     }
                 } else if (isStreaming && currentStreamContent.isBlank()) {
@@ -555,7 +692,7 @@ fun InAppChatScreen(
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "Routing prompt & checking device executive tasks...",
+                                text = "Routing prompt & executing device actions...",
                                 fontSize = 12.sp,
                                 color = Color(0xFF94A3B8)
                             )
@@ -564,7 +701,7 @@ fun InAppChatScreen(
                 }
             }
 
-            // Bottom Input Bar
+            // Bottom Input Bar with Next Step Action Trigger
             Surface(
                 color = Color(0xFF131625),
                 modifier = Modifier.fillMaxWidth(),
@@ -573,13 +710,31 @@ fun InAppChatScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                        .padding(horizontal = 10.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    // Quick Action Template Button
+                    IconButton(
+                        onClick = { showActionTemplatesSheet = true },
+                        modifier = Modifier
+                            .size(38.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFF1F2438))
+                    ) {
+                        Icon(
+                            Icons.Default.Add,
+                            contentDescription = "Add Action Template",
+                            tint = Color(0xFFA78BFA),
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(6.dp))
+
                     OutlinedTextField(
                         value = inputText,
                         onValueChange = { inputText = it },
-                        placeholder = { Text("Ask or command anything (e.g. open gmail)...", color = Color(0xFF64748B), fontSize = 14.sp) },
+                        placeholder = { Text("Ask or command anything (e.g. open youtube)...", color = Color(0xFF64748B), fontSize = 13.sp) },
                         modifier = Modifier
                             .weight(1f)
                             .heightIn(min = 46.dp, max = 120.dp),
@@ -595,8 +750,40 @@ fun InAppChatScreen(
                         )
                     )
 
-                    Spacer(modifier = Modifier.width(8.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
 
+                    // Whisper Voice Button
+                    IconButton(
+                        onClick = {
+                            if (isVoiceListening) {
+                                voiceManager.stopListening()
+                            } else {
+                                MascotEventBus.postEvent(MascotEvent.VoiceListening)
+                                voiceManager.startListening()
+                                Toast.makeText(context, "🎙️ Listening with Whisper STT...", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        modifier = Modifier
+                            .size(44.dp)
+                            .clip(CircleShape)
+                            .background(
+                                if (isVoiceListening)
+                                    Brush.linearGradient(listOf(Color(0xFFEF4444), Color(0xFFDC2626)))
+                                else
+                                    Brush.linearGradient(listOf(Color(0xFF231D38), Color(0xFF1B162C)))
+                            )
+                    ) {
+                        Icon(
+                            painter = androidx.compose.ui.res.painterResource(id = com.orbital.R.drawable.ic_mic),
+                            contentDescription = "Whisper Voice Input",
+                            tint = if (isVoiceListening) Color.White else Color(0xFFA78BFA),
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(6.dp))
+
+                    // Send Button
                     IconButton(
                         onClick = { sendMessage(inputText) },
                         enabled = inputText.isNotBlank() && !isStreaming,
@@ -628,7 +815,9 @@ fun ChatBubbleItem(
     characterName: String,
     isStreaming: Boolean = false,
     onCopy: () -> Unit,
-    onSpeak: () -> Unit
+    onSpeak: () -> Unit,
+    onSuggestionClick: (String) -> Unit = {},
+    onAddStepToInput: (String) -> Unit = {}
 ) {
     val isUser = message.role == "user"
 
@@ -692,8 +881,66 @@ fun ChatBubbleItem(
                         }
                     }
 
-                    if (!isUser && !isStreaming) {
+                    // Contextual Interactive Next Step Options
+                    if (!isUser && !isStreaming && message.nextStepSuggestions.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Text(
+                            text = "💡 What would you like to do next?",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color(0xFFA78BFA)
+                        )
                         Spacer(modifier = Modifier.height(6.dp))
+
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            message.nextStepSuggestions.forEach { suggestion ->
+                                Surface(
+                                    color = Color(0xFF1E2338),
+                                    shape = RoundedCornerShape(12.dp),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF333D66)),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = suggestion,
+                                            fontSize = 12.sp,
+                                            color = Color(0xFFE2E8F0),
+                                            fontWeight = FontWeight.Medium,
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .clickable { onSuggestionClick(suggestion) }
+                                        )
+
+                                        Spacer(modifier = Modifier.width(6.dp))
+
+                                        // Plus button to append to input box
+                                        Box(
+                                            modifier = Modifier
+                                                .clip(CircleShape)
+                                                .background(Color(0xFF2E1065))
+                                                .clickable { onAddStepToInput(suggestion) }
+                                                .padding(4.dp)
+                                        ) {
+                                            Icon(
+                                                Icons.Default.Add,
+                                                contentDescription = "Add to input",
+                                                tint = Color(0xFFC084FC),
+                                                modifier = Modifier.size(14.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if (!isUser && !isStreaming) {
+                        Spacer(modifier = Modifier.height(8.dp))
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween,

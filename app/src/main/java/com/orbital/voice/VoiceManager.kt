@@ -11,8 +11,13 @@ import android.util.Log
 import com.orbital.overlay.OverlayService
 import java.util.Locale
 
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+
 /**
- * Manages voice capabilities including speech-to-text and text-to-speech
+ * Manages voice capabilities including ultra-fast Whisper STT and Text-To-Speech
  */
 class VoiceManager(private val context: Context) {
 
@@ -22,8 +27,12 @@ class VoiceManager(private val context: Context) {
 
     private var speechRecognizer: SpeechRecognizer? = null
     private var textToSpeech: TextToSpeech? = null
+    private val whisperTranscriber = WhisperTranscriber(context)
+    private val voiceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+
     private var isListening = false
     private var isSpeaking = false
+    private var isUsingWhisper = false
     private var voiceCallback: VoiceCallback? = null
 
     interface VoiceCallback {
@@ -46,66 +55,65 @@ class VoiceManager(private val context: Context) {
             speechRecognizer = SpeechRecognizer.createSpeechRecognizer(context)
             speechRecognizer?.setRecognitionListener(object : RecognitionListener {
                 override fun onReadyForSpeech(params: Bundle?) {
-                    isListening = true
-                    voiceCallback?.onSpeechStart()
-                    updateOverlayStatus("listening")
+                    if (!isUsingWhisper) {
+                        isListening = true
+                        voiceCallback?.onSpeechStart()
+                        updateOverlayStatus("listening")
+                    }
                 }
 
-                override fun onBeginningOfSpeech() {
-                    // No action needed
-                }
-
-                override fun onRmsChanged(rmsdB: Float) {
-                    // No action needed
-                }
-
-                override fun onBufferReceived(buffer: ByteArray?) {
-                    // No action needed
-                }
+                override fun onBeginningOfSpeech() {}
+                override fun onRmsChanged(rmsdB: Float) {}
+                override fun onBufferReceived(buffer: ByteArray?) {}
 
                 override fun onEndOfSpeech() {
-                    isListening = false
-                    voiceCallback?.onSpeechEnd()
-                    updateOverlayStatus("idle")
+                    if (!isUsingWhisper) {
+                        isListening = false
+                        voiceCallback?.onSpeechEnd()
+                        updateOverlayStatus("idle")
+                    }
                 }
 
                 override fun onError(error: Int) {
-                    isListening = false
-                    val errorMessage = when (error) {
-                        SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "Network timeout"
-                        SpeechRecognizer.ERROR_NETWORK -> "Network error"
-                        SpeechRecognizer.ERROR_AUDIO -> "Audio error"
-                        SpeechRecognizer.ERROR_SERVER -> "Server error"
-                        SpeechRecognizer.ERROR_CLIENT -> "Client error"
-                        SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "Speech timeout"
-                        SpeechRecognizer.ERROR_NO_MATCH -> "No match"
-                        SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "Recognizer busy"
-                        SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "Insufficient permissions"
-                        else -> "Unknown error"
+                    if (!isUsingWhisper) {
+                        isListening = false
+                        val errorMessage = when (error) {
+                            SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "Network timeout"
+                            SpeechRecognizer.ERROR_NETWORK -> "Network error"
+                            SpeechRecognizer.ERROR_AUDIO -> "Audio error"
+                            SpeechRecognizer.ERROR_SERVER -> "Server error"
+                            SpeechRecognizer.ERROR_CLIENT -> "Client error"
+                            SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "Speech timeout"
+                            SpeechRecognizer.ERROR_NO_MATCH -> "No match"
+                            SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "Recognizer busy"
+                            SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "Insufficient permissions"
+                            else -> "Unknown error"
+                        }
+                        voiceCallback?.onSpeechError(errorMessage)
+                        updateOverlayStatus("error")
+                        Log.e(TAG, "Speech recognition error: $errorMessage")
                     }
-
-                    voiceCallback?.onSpeechError(errorMessage)
-                    updateOverlayStatus("error")
-                    Log.e(TAG, "Speech recognition error: $errorMessage")
                 }
 
                 override fun onResults(results: Bundle?) {
-                    val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                    if (!matches.isNullOrEmpty()) {
-                        voiceCallback?.onSpeechRecognized(matches[0])
+                    if (!isUsingWhisper) {
+                        val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                        if (!matches.isNullOrEmpty()) {
+                            voiceCallback?.onSpeechRecognized(matches[0])
+                        }
                     }
                 }
 
                 override fun onPartialResults(partialResults: Bundle?) {
-                    val matches = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                    if (!matches.isNullOrEmpty()) {
-                        voiceCallback?.onSpeechPartialResult(matches[0])
+                    if (!isUsingWhisper) {
+                        val matches = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                        if (!matches.isNullOrEmpty()) {
+                            voiceCallback?.onSpeechPartialResult(matches[0])
+                        }
                     }
                 }
 
-                override fun onEvent(eventType: Int, params: Bundle?) {
-                    // No action needed
-                }
+                override fun onEvent(eventType: Int, params: Bundle?) {}
             })
         } else {
             Log.e(TAG, "Speech recognition not available")
@@ -142,7 +150,19 @@ class VoiceManager(private val context: Context) {
     }
 
     fun startListening() {
-        if (speechRecognizer != null && !isListening) {
+        if (isListening) return
+
+        // 1. Try Whisper recording first for highest accuracy & speed
+        val whisperStarted = whisperTranscriber.startRecording()
+        if (whisperStarted) {
+            isUsingWhisper = true
+            isListening = true
+            voiceCallback?.onSpeechStart()
+            updateOverlayStatus("listening")
+            Log.d(TAG, "Started Whisper voice recording")
+        } else if (speechRecognizer != null) {
+            // 2. Fallback to Android SpeechRecognizer
+            isUsingWhisper = false
             val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
                 putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
@@ -152,13 +172,31 @@ class VoiceManager(private val context: Context) {
     }
 
     fun stopListening() {
-        if (isListening) {
+        if (!isListening) return
+        isListening = false
+        voiceCallback?.onSpeechEnd()
+        updateOverlayStatus("idle")
+
+        if (isUsingWhisper) {
+            voiceScope.launch {
+                val result = whisperTranscriber.stopRecordingAndTranscribe()
+                if (result.isSuccess) {
+                    val text = result.getOrNull().orEmpty()
+                    if (text.isNotBlank()) {
+                        voiceCallback?.onSpeechRecognized(text)
+                    }
+                } else {
+                    val errorMsg = result.exceptionOrNull()?.message ?: "Whisper transcription failed"
+                    Log.w(TAG, "Whisper STT error: $errorMsg")
+                    voiceCallback?.onSpeechError(errorMsg)
+                }
+            }
+        } else {
             speechRecognizer?.stopListening()
-            isListening = false
-            voiceCallback?.onSpeechEnd()
-            updateOverlayStatus("idle")
         }
     }
+
+    fun isListening(): Boolean = isListening
 
     fun speak(text: String, queueMode: Int = TextToSpeech.QUEUE_ADD) {
         if (textToSpeech != null && !isSpeaking) {
@@ -171,6 +209,7 @@ class VoiceManager(private val context: Context) {
     }
 
     fun shutdown() {
+        whisperTranscriber.cancelRecording()
         speechRecognizer?.destroy()
         textToSpeech?.shutdown()
         isListening = false

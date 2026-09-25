@@ -117,13 +117,15 @@
         </LinearLayout>
     </LinearLayout>
 
-    <!-- Floating Avatar Bubble -->
+    <!-- Floating Mascot Avatar Container (Sleek & balanced 52dp) -->
     <FrameLayout
         android:id="@+id/bubbleAvatarContainer"
-        android:layout_width="64dp"
-        android:layout_height="64dp"
+        android:layout_width="52dp"
+        android:layout_height="52dp"
         android:gravity="center"
-        android:background="@drawable/bg_avatar_circle"
+        android:clipChildren="false"
+        android:clipToPadding="false"
+        android:background="@android:color/transparent"
         android:elevation="8dp">
 
         <View
@@ -132,22 +134,26 @@
             android:layout_height="match_parent"
             android:background="@android:color/transparent" />
 
+        <!-- Mascot Character Image (Crystal Clear HD Mascot) -->
         <ImageView
             android:id="@+id/characterImage"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
-            android:padding="8dp"
-            android:src="@drawable/ic_character_aether"
+            android:scaleType="fitCenter"
+            android:src="@drawable/aether_idle"
+            android:visibility="visible"
             android:contentDescription="@string/app_name" />
 
         <!-- Status Dot in corner -->
         <View
             android:id="@+id/connectionIndicator"
-            android:layout_width="12dp"
-            android:layout_height="12dp"
+            android:layout_width="10dp"
+            android:layout_height="10dp"
             android:layout_gravity="bottom|end"
-            android:layout_margin="4dp"
-            android:background="@drawable/bg_avatar_circle" />
+            android:layout_marginEnd="1dp"
+            android:layout_marginBottom="1dp"
+            android:background="@drawable/bg_status_dot"
+            android:elevation="10dp" />
 
         <!-- Hidden compat textview for status receiver -->
         <TextView
