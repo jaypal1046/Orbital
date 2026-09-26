@@ -9,6 +9,7 @@
 .*
 # Java class files
 *.class
+*.pro
 
 # Generated files
 bin/

@@ -31,8 +31,14 @@ class AutomationSettingsActivity : ComponentActivity() {
                 ) {
                     AutomationSettingsScreen(
                         onSave = { enabled, startHour, endHour ->
-                            // Save automation settings
-                            // This would typically be saved to preferences
+                            if (enabled) {
+                                powerAwareScheduler.scheduleTimeWindowTask(
+                                    PowerAwareScheduler.DailySummaryWorker::class.java,
+                                    startHour,
+                                    endHour
+                                )
+                            }
+                            finish()
                         }
                     )
                 }
@@ -108,7 +114,7 @@ fun AutomationSettingsScreen(onSave: (Boolean, Int, Int) -> Unit) {
                     isEnabled = isEnabled
                 )
 
-                Divider()
+                HorizontalDivider()
 
                 TaskItem(
                     title = "Voice Memo Transcription",
@@ -116,7 +122,7 @@ fun AutomationSettingsScreen(onSave: (Boolean, Int, Int) -> Unit) {
                     isEnabled = isEnabled
                 )
 
-                Divider()
+                HorizontalDivider()
 
                 TaskItem(
                     title = "Memory Cleanup",

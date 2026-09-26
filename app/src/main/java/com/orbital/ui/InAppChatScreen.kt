@@ -1,980 +1,341 @@
 package com.orbital.ui
 
-import android.content.Context
-import android.content.Intent
-import android.os.Build
-import android.provider.Settings
-import android.speech.tts.TextToSpeech
 import android.widget.Toast
-import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Send
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.orbital.data.ChatMessage
-import com.orbital.data.LlmRepository
-import com.orbital.data.ProviderType
-import com.orbital.data.SecureStorage
-import com.orbital.overlay.OverlayService
-import kotlinx.coroutines.launch
-import java.util.Locale
-
-import com.orbital.action.*
-
-data class UiMessage(
-    val id: String = java.util.UUID.randomUUID().toString(),
-    val role: String, // "user" or "assistant"
-    val content: String,
-    val providerName: String? = null,
-    val modelName: String? = null,
-    val actionLabel: String? = null,
-    val actionDetails: String? = null,
-    val nextStepSuggestions: List<String> = emptyList(),
-    val timestamp: Long = System.currentTimeMillis()
-)
+import com.orbital.data.RoutingMode
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun InAppChatScreen(
-    secureStorage: SecureStorage,
-    llmRepository: LlmRepository,
+    chatViewModel: ChatViewModel,
     onOpenKeys: () -> Unit,
     onOpenCharacters: () -> Unit
 ) {
     val context = LocalContext.current
-    val coroutineScope = rememberCoroutineScope()
     val clipboardManager = LocalClipboardManager.current
-    val listState = rememberLazyListState()
-    val actionExecutor = remember { DeviceActionExecutor(context) }
 
-    var characterName by remember {
-        mutableStateOf(secureStorage.getCharacter() ?: "Aether (AI Companion)")
-    }
-
-    var messages by remember {
-        mutableStateOf(
-            listOf(
-                UiMessage(
-                    role = "assistant",
-                    content = "Hello! I am $characterName, your client-side executive AI companion. I can answer questions, open apps (e.g. Gmail, YouTube, WhatsApp), search the web, set timers, and manage your device tasks. How can I help you today?",
-                    providerName = "Orbital Router",
-                    modelName = "Executive Agent"
-                )
-            )
-        )
-    }
-
-    var inputText by remember { mutableStateOf("") }
-    var isStreaming by remember { mutableStateOf(false) }
-    var currentStreamContent by remember { mutableStateOf("") }
-    var activeServingProvider by remember { mutableStateOf<String?>("Auto-Router") }
-    var debounceJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
-
-    var tts: TextToSpeech? by remember { mutableStateOf(null) }
-    DisposableEffect(Unit) {
-        val ttsInstance = TextToSpeech(context) { status ->
-            if (status == TextToSpeech.SUCCESS) {
-                // Initialized
-            }
-        }
-        ttsInstance.language = Locale.US
-        tts = ttsInstance
-        onDispose {
-            ttsInstance.stop()
-            ttsInstance.shutdown()
-        }
-    }
-
-    fun speak(text: String) {
-        tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "companion_tts")
-    }
-
-    val currentMascotState by MascotEventBus.currentState.collectAsState()
-
-    var quickSuggestions by remember {
-        mutableStateOf(
-            listOf(
-                "✉️ Open Gmail",
-                "▶️ Open YouTube",
-                "💬 Open WhatsApp",
-                "⚙️ Open Settings",
-                "🔋 Check Battery Status",
-                "⏱️ Set 5m Timer",
-                "🌐 Search AI News"
-            )
-        )
-    }
-
-    // When stream finishes (or on complete response)
-    fun finalizeStreamedResponse() {
-        if (!isStreaming || currentStreamContent.isBlank()) return
-        isStreaming = false
-        val parsed = ActionParser.parse(currentStreamContent)
-        var actionBadge: String? = null
-        var actionDetails: String? = null
-
-        if (parsed.action != null) {
-            MascotEventBus.postEvent(MascotEvent.ActionExecuting(parsed.action.javaClass.simpleName))
-            val result = actionExecutor.execute(parsed.action)
-            when (result) {
-                is ActionResult.Success -> {
-                    MascotEventBus.postEvent(MascotEvent.ActionSuccess(result.message))
-                    actionBadge = "⚡ Executed: ${result.message}"
-                    actionDetails = result.details
-                    Toast.makeText(context, result.message, Toast.LENGTH_SHORT).show()
-
-                    // When performing device actions (e.g. Open Gmail / YouTube), ensure floating companion overlay is active so user can chain next steps on top of the app!
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && Settings.canDrawOverlays(context)) {
-                        val overlayIntent = Intent(context, OverlayService::class.java).apply {
-                            action = OverlayService.ACTION_START
-                            putExtra("character", characterName.lowercase())
-                        }
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                            context.startForegroundService(overlayIntent)
-                        } else {
-                            context.startService(overlayIntent)
-                        }
-                    }
-                }
-                is ActionResult.Error -> {
-                    MascotEventBus.postEvent(MascotEvent.ActionFailed(result.errorMessage))
-                    actionBadge = "⚠️ Action Failed: ${result.errorMessage}"
-                    Toast.makeText(context, result.errorMessage, Toast.LENGTH_SHORT).show()
-                }
-            }
-        } else {
-            MascotEventBus.postEvent(MascotEvent.ResetToIdle)
-        }
-
-        val suggestions = NextStepSuggester.getSuggestions(parsed.action, parsed.userDisplayText)
-        quickSuggestions = suggestions
-
-        val assistantMsg = UiMessage(
-            role = "assistant",
-            content = parsed.userDisplayText,
-            providerName = activeServingProvider ?: "Auto-Router",
-            modelName = "executive",
-            actionLabel = actionBadge,
-            actionDetails = actionDetails,
-            nextStepSuggestions = suggestions
-        )
-        messages = messages + assistantMsg
-        currentStreamContent = ""
-    }
-
-    fun sendMessage(textToSend: String) {
-        val cleanText = textToSend.trim()
-        if (cleanText.isBlank() || isStreaming) return
-
-        val userMessage = UiMessage(role = "user", content = cleanText)
-        messages = messages + userMessage
-        inputText = ""
-        isStreaming = true
-        currentStreamContent = ""
-        MascotEventBus.postEvent(MascotEvent.PromptSent(cleanText))
-
-        val activeType = llmRepository.getCurrentProviderType() ?: ProviderType.GROQ
-        activeServingProvider = activeType.name
-
-        // Build history with executive system prompt
-        val chatHistory = mutableListOf<ChatMessage>()
-        chatHistory.add(ChatMessage(role = "system", content = ActionParser.buildSystemPrompt(characterName, actionExecutor.getCapabilityManager().buildDeviceCapabilitiesPrompt())))
-        
-        messages.takeLast(10).forEach { msg ->
-            chatHistory.add(ChatMessage(role = msg.role, content = msg.content))
-        }
-
-        coroutineScope.launch {
-            listState.animateScrollToItem((messages.size).coerceAtLeast(0))
-        }
-
-        llmRepository.streamCompletion(
-            model = "auto",
-            messages = chatHistory,
-            onChunk = { chunk ->
-                currentStreamContent += chunk
-                coroutineScope.launch {
-                    listState.animateScrollToItem((messages.size).coerceAtLeast(0))
-                }
-
-                debounceJob?.cancel()
-                debounceJob = coroutineScope.launch {
-                    kotlinx.coroutines.delay(1200)
-                    finalizeStreamedResponse()
-                }
-            },
-            onError = { error ->
-                debounceJob?.cancel()
-                isStreaming = false
-                MascotEventBus.postEvent(MascotEvent.ActionFailed(error.message ?: "Request failed"))
-                val errText = error.message ?: "Request failed"
-                val assistantMsg = UiMessage(
-                    role = "assistant",
-                    content = if (currentStreamContent.isNotBlank()) currentStreamContent else "⚠️ $errText",
-                    providerName = llmRepository.getCurrentProviderType()?.name ?: "Failover",
-                    modelName = "auto"
-                )
-                messages = messages + assistantMsg
-                currentStreamContent = ""
-            }
-        )
-    }
+    // Observe ViewModel state
+    val messages by chatViewModel.messages.collectAsState()
+    val inputText by chatViewModel.inputText.collectAsState()
+    val isStreaming by chatViewModel.isStreaming.collectAsState()
+    val currentStreamContent by chatViewModel.currentStreamContent.collectAsState()
+    val activeServingProvider by chatViewModel.activeServingProvider.collectAsState()
+    val quickSuggestions by chatViewModel.quickSuggestions.collectAsState()
+    val currentRoutingMode by chatViewModel.currentRoutingMode.collectAsState()
+    val selectedPinnedProvider by chatViewModel.selectedPinnedProvider.collectAsState()
+    val isVoiceListening by chatViewModel.isVoiceListening.collectAsState()
+    val characterName = chatViewModel.characterName
 
     var showRoutingSheet by remember { mutableStateOf(false) }
-    var currentRoutingMode by remember { mutableStateOf(llmRepository.getRoutingMode()) }
-    var selectedPinnedProvider by remember { mutableStateOf(llmRepository.getCurrentProviderType()) }
-
-    // Voice Manager with high-speed Whisper STT
-    var isVoiceListening by remember { mutableStateOf(false) }
-    val voiceManager = remember {
-        com.orbital.voice.VoiceManager(context).apply {
-            setVoiceCallback(object : com.orbital.voice.VoiceManager.VoiceCallback {
-                override fun onSpeechRecognized(text: String) {
-                    isVoiceListening = false
-                    if (text.isNotBlank()) {
-                        inputText = text
-                        sendMessage(text)
-                    }
-                }
-
-                override fun onSpeechError(error: String) {
-                    isVoiceListening = false
-                    Toast.makeText(context, "Whisper STT: $error", Toast.LENGTH_SHORT).show()
-                }
-
-                override fun onSpeechStart() {
-                    isVoiceListening = true
-                }
-
-                override fun onSpeechEnd() {
-                    isVoiceListening = false
-                }
-
-                override fun onSpeechPartialResult(text: String) {
-                    inputText = text
-                }
-
-                override fun onTtsStart() {}
-                override fun onTtsEnd() {}
-            })
-        }
-    }
-
-    DisposableEffect(Unit) {
-        onDispose {
-            voiceManager.shutdown()
-        }
-    }
-
     var showActionTemplatesSheet by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        AnimatedMascotView(
-                            characterId = secureStorage.getSelectedCharacter() ?: "aether",
-                            currentState = currentMascotState,
-                            size = 38.dp,
-                            showGlow = false,
-                            onClick = {
-                                MascotEventBus.postEvent(MascotEvent.Tap)
-                            }
-                        )
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Column {
-                            Text(
-                                text = characterName,
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White
-                            )
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .clickable { showRoutingSheet = true }
-                                    .padding(vertical = 2.dp)
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(6.dp)
-                                        .clip(CircleShape)
-                                        .background(
-                                            when (currentRoutingMode) {
-                                                com.orbital.data.RoutingMode.AUTO -> Color(0xFF10B981)
-                                                com.orbital.data.RoutingMode.FAST -> Color(0xFF38BDF8)
-                                                com.orbital.data.RoutingMode.FRONTIER -> Color(0xFFA855F7)
-                                                com.orbital.data.RoutingMode.PINNED -> Color(0xFFF59E0B)
-                                            }
-                                        )
-                                )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text(
-                                    text = when (currentRoutingMode) {
-                                        com.orbital.data.RoutingMode.AUTO -> "⚡ Auto-Router"
-                                        com.orbital.data.RoutingMode.FAST -> "🚀 Fast Tier"
-                                        com.orbital.data.RoutingMode.FRONTIER -> "🧠 Frontier Tier"
-                                        com.orbital.data.RoutingMode.PINNED -> "🎯 ${selectedPinnedProvider?.name ?: "Pinned"}"
-                                    },
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Medium,
-                                    color = Color(0xFFA7F3D0)
-                                )
-                                Icon(
-                                    Icons.Default.ArrowDropDown,
-                                    contentDescription = "Switch Provider Mode",
-                                    tint = Color(0xFFA7F3D0),
-                                    modifier = Modifier.size(16.dp)
-                                )
-                            }
-                        }
-                    }
-                },
-                actions = {
-                    // Floating Avatar Launcher
-                    IconButton(
-                        onClick = {
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(context)) {
-                                val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION)
-                                context.startActivity(intent)
-                            } else {
-                                val intent = Intent(context, OverlayService::class.java)
-                                context.startService(intent)
-                                Toast.makeText(context, "Floating Companion Avatar Launched!", Toast.LENGTH_SHORT).show()
-                            }
-                        }
-                    ) {
-                        Icon(Icons.Default.PlayArrow, contentDescription = "Launch Overlay", tint = Color(0xFF38BDF8))
-                    }
-
-                    // Character Picker
-                    IconButton(onClick = onOpenCharacters) {
-                        Icon(Icons.Default.Face, contentDescription = "Switch Character", tint = Color(0xFFC084FC))
-                    }
-
-                    // Keys Dashboard
-                    IconButton(onClick = onOpenKeys) {
-                        Icon(Icons.Default.Settings, contentDescription = "Keys & Providers", tint = Color.White)
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color(0xFF0F111A))
+            TopBar(
+                characterName = characterName,
+                currentRoutingMode = currentRoutingMode,
+                selectedPinnedProvider = selectedPinnedProvider?.name,
+                onOpenKeys = onOpenKeys,
+                onOpenCharacters = onOpenCharacters,
+                onRoutingModeClick = { showRoutingSheet = true }
             )
         },
         containerColor = Color(0xFF0A0C14)
     ) { innerPadding ->
-        if (showActionTemplatesSheet) {
-            ModalBottomSheet(
-                onDismissRequest = { showActionTemplatesSheet = false },
-                containerColor = Color(0xFF131722),
-                contentColor = Color.White
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 20.dp, vertical = 12.dp)
-                ) {
-                    Text(
-                        text = "⚡ Add Action or Next Step",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White
-                    )
-                    Text(
-                        text = "Select a quick action template to insert into your command:",
-                        fontSize = 12.sp,
-                        color = Color(0xFF94A3B8)
-                    )
-                    Spacer(modifier = Modifier.height(14.dp))
-
-                    listOf(
-                        "🔍 Search YouTube for " to "Search YouTube for ",
-                        "🎵 Play music on Spotify: " to "Play music on Spotify: ",
-                        "💬 Send WhatsApp message to " to "Send WhatsApp message to ",
-                        "✉️ Compose email to " to "Compose email to ",
-                        "🧭 Navigate to " to "Navigate to ",
-                        "⏱️ Set timer for " to "Set a timer for ",
-                        "🔋 Check battery status" to "Check my device battery and hardware status"
-                    ).forEach { (label, template) ->
-                        Card(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 4.dp)
-                                .clickable {
-                                    inputText = if (inputText.isBlank()) template else "$inputText and then $template"
-                                    showActionTemplatesSheet = false
-                                },
-                            colors = CardDefaults.cardColors(containerColor = Color(0xFF1E2235)),
-                            shape = RoundedCornerShape(10.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(12.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(text = label, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
-                                Icon(Icons.Default.Add, contentDescription = "Add", tint = Color(0xFFA855F7), modifier = Modifier.size(18.dp))
-                            }
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(20.dp))
-                }
-            }
-        }
-
-        if (showRoutingSheet) {
-            ModalBottomSheet(
-                onDismissRequest = { showRoutingSheet = false },
-                containerColor = Color(0xFF131722),
-                contentColor = Color.White
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 20.dp, vertical = 12.dp)
-                ) {
-                    Text(
-                        text = "AI Routing & Provider Selector",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White
-                    )
-                    Text(
-                        text = "Replicating FreeLLMAPI multi-tier intelligent routing",
-                        fontSize = 12.sp,
-                        color = Color(0xFF94A3B8)
-                    )
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    // Mode Options
-                    com.orbital.data.RoutingMode.values().forEach { mode ->
-                        val isSelected = currentRoutingMode == mode
-                        Card(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 4.dp)
-                                .clickable {
-                                    currentRoutingMode = mode
-                                    llmRepository.setRoutingMode(mode)
-                                    if (mode != com.orbital.data.RoutingMode.PINNED) {
-                                        showRoutingSheet = false
-                                    }
-                                },
-                            colors = CardDefaults.cardColors(
-                                containerColor = if (isSelected) Color(0xFF2E1065) else Color(0xFF1E2235)
-                            ),
-                            border = if (isSelected) androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFFA855F7)) else null,
-                            shape = RoundedCornerShape(12.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(14.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(text = mode.emoji, fontSize = 22.sp)
-                                Spacer(modifier = Modifier.width(12.dp))
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = mode.displayName,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = Color.White,
-                                        fontSize = 15.sp
-                                    )
-                                    Text(
-                                        text = mode.subtitle,
-                                        fontSize = 12.sp,
-                                        color = Color(0xFF94A3B8)
-                                    )
-                                }
-                                if (isSelected) {
-                                    Icon(
-                                        Icons.Default.CheckCircle,
-                                        contentDescription = "Selected",
-                                        tint = Color(0xFFA855F7),
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    if (currentRoutingMode == com.orbital.data.RoutingMode.PINNED) {
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Text(
-                            text = "Select Pinned Provider:",
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 13.sp,
-                            color = Color(0xFFCBD5E1)
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        LazyColumn(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .heightIn(max = 240.dp)
-                        ) {
-                            items(com.orbital.data.ProviderRegistry.allProviders) { providerInfo ->
-                                val key = llmRepository.getProviderKey(providerInfo.type)
-                                val status = llmRepository.getProviderStatus(providerInfo.type)
-                                val isSelected = selectedPinnedProvider == providerInfo.type
-                                val isConfigured = key.isNotBlank() || providerInfo.type == com.orbital.data.ProviderType.KILO || providerInfo.type == com.orbital.data.ProviderType.OVH || providerInfo.type == com.orbital.data.ProviderType.POLLINATIONS
-
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(if (isSelected) Color(0xFF3B1D70) else Color(0xFF181C2C))
-                                        .clickable {
-                                            selectedPinnedProvider = providerInfo.type
-                                            llmRepository.setCurrentProvider(providerInfo.type)
-                                            showRoutingSheet = false
-                                        }
-                                        .padding(horizontal = 12.dp, vertical = 10.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(8.dp)
-                                            .clip(CircleShape)
-                                            .background(
-                                                when {
-                                                    !isConfigured -> Color(0xFF64748B)
-                                                    status == com.orbital.data.ProviderState.IN_COOLDOWN -> Color(0xFFF59E0B)
-                                                    status == com.orbital.data.ProviderState.AVAILABLE -> Color(0xFF10B981)
-                                                    else -> Color(0xFFEF4444)
-                                                }
-                                            )
-                                    )
-                                    Spacer(modifier = Modifier.width(10.dp))
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(
-                                            text = providerInfo.displayName,
-                                            fontWeight = FontWeight.Medium,
-                                            fontSize = 13.sp,
-                                            color = if (isConfigured) Color.White else Color(0xFF94A3B8)
-                                        )
-                                        Text(
-                                            text = "${providerInfo.defaultModel} · ${if (isConfigured) "Ready" else "No Key"}",
-                                            fontSize = 11.sp,
-                                            color = Color(0xFF64748B)
-                                        )
-                                    }
-                                    if (isSelected) {
-                                        Icon(
-                                            Icons.Default.Check,
-                                            contentDescription = null,
-                                            tint = Color(0xFFA855F7),
-                                            modifier = Modifier.size(16.dp)
-                                        )
-                                    }
-                                }
-                                Spacer(modifier = Modifier.height(4.dp))
-                            }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(16.dp))
-                }
-            }
-        }
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
-            // Dynamic Contextual Next Step Quick Action Bar
-            Row(
+            MessageList(
+                messages = messages,
+                characterName = characterName,
+                isStreaming = isStreaming,
+                currentStreamContent = currentStreamContent,
+                activeServingProvider = activeServingProvider,
+                modifier = Modifier.weight(1f),
+                onCopy = { text ->
+                    clipboardManager.setText(AnnotatedString(text))
+                    Toast.makeText(context, "Copied to clipboard", Toast.LENGTH_SHORT).show()
+                },
+                onSpeak = { text ->
+                    chatViewModel.speak(text)
+                },
+                onSuggestionClick = { suggestion ->
+                    chatViewModel.onSuggestionClick(suggestion)
+                },
+                onAddStepToInput = { step ->
+                    chatViewModel.onAddStepToInput(step)
+                }
+            )
+
+            QuickSuggestionsBar(
+                quickSuggestions = quickSuggestions,
+                onSuggestionClick = { prompt ->
+                    chatViewModel.onQuickSuggestionClick(prompt)
+                }
+            )
+
+            InputBar(
+                inputText = inputText,
+                onInputChange = { chatViewModel.onInputChange(it) },
+                isVoiceListening = isVoiceListening,
+                onVoiceClick = { chatViewModel.toggleVoiceListening() },
+                isStreaming = isStreaming,
+                onSendClick = { chatViewModel.onSendClick() },
+                onQuickTemplateClick = { showActionTemplatesSheet = true }
+            )
+        }
+    }
+
+    // Routing Mode Bottom Sheet
+    if (showRoutingSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showRoutingSheet = false },
+            containerColor = Color(0xFF131625),
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        ) {
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState())
-                    .padding(horizontal = 12.dp, vertical = 6.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    .padding(20.dp)
             ) {
-                quickSuggestions.forEach { prompt ->
-                    Box(
+                Text(
+                    text = "🤖 AI Model Routing Mode",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = "Orbital can automatically switch providers based on latency, quality, or cooldowns.",
+                    fontSize = 12.sp,
+                    color = Color(0xFF94A3B8)
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+
+                listOf(
+                    RoutingMode.AUTO to Pair("⚡ Auto Router (Smart Tiering)", "Automatically falls back through 24+ providers with cooldown tracking"),
+                    RoutingMode.FAST to Pair("🚀 Fast Tier (Sub-second TTFT)", "Prioritizes Groq, Cerebras, Sambanova, and DeepInfra"),
+                    RoutingMode.FRONTIER to Pair("🧠 Frontier Tier (Reasoning)", "Routes to Claude 3.5 Sonnet, GPT-4o, and Gemini 1.5 Pro"),
+                    RoutingMode.PINNED to Pair("🎯 Pinned Provider", "Locks requests to your specifically selected provider")
+                ).forEach { (mode, details) ->
+                    val isSelected = currentRoutingMode == mode
+                    Surface(
+                        color = if (isSelected) Color(0xFF2E1B5B) else Color(0xFF1B1E30),
+                        shape = RoundedCornerShape(12.dp),
+                        border = androidx.compose.foundation.BorderStroke(
+                            1.dp,
+                            if (isSelected) Color(0xFF8B5CF6) else Color(0xFF2B304C)
+                        ),
                         modifier = Modifier
-                            .clip(RoundedCornerShape(20.dp))
-                            .background(Color(0xFF1E2238))
-                            .border(1.dp, Color(0xFF333A5E), RoundedCornerShape(20.dp))
-                            .clickable { sendMessage(prompt) }
-                            .padding(horizontal = 10.dp, vertical = 6.dp)
-                    ) {
-                        Text(text = prompt, fontSize = 12.sp, color = Color(0xFFCBD5E1), fontWeight = FontWeight.Medium)
-                    }
-                }
-            }
-
-            // Message List
-            LazyColumn(
-                state = listState,
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-                    .padding(horizontal = 14.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                items(messages, key = { it.id }) { msg ->
-                    ChatBubbleItem(
-                        message = msg,
-                        characterName = characterName,
-                        onCopy = {
-                            clipboardManager.setText(AnnotatedString(msg.content))
-                            Toast.makeText(context, "Copied to clipboard", Toast.LENGTH_SHORT).show()
-                        },
-                        onSpeak = { speak(msg.content) },
-                        onSuggestionClick = { suggestion ->
-                            val clean = NextStepSuggester.cleanPromptForInput(suggestion)
-                            inputText = clean
-                            Toast.makeText(context, "✏️ Template ready in input! Add details and tap Send", Toast.LENGTH_SHORT).show()
-                        },
-                        onAddStepToInput = { step ->
-                            val clean = NextStepSuggester.cleanPromptForInput(step)
-                            inputText = if (inputText.isBlank()) clean else "$inputText and then $clean"
-                            Toast.makeText(context, "➕ Added step to prompt!", Toast.LENGTH_SHORT).show()
-                        }
-                    )
-                }
-
-                // Live Streaming Bubble
-                if (isStreaming && currentStreamContent.isNotBlank()) {
-                    item {
-                        ChatBubbleItem(
-                            message = UiMessage(
-                                role = "assistant",
-                                content = currentStreamContent,
-                                providerName = llmRepository.getCurrentProviderType()?.name ?: "Auto-Router",
-                                modelName = "streaming"
-                            ),
-                            characterName = characterName,
-                            isStreaming = true,
-                            onCopy = {},
-                            onSpeak = {},
-                            onSuggestionClick = {},
-                            onAddStepToInput = {}
-                        )
-                    }
-                } else if (isStreaming && currentStreamContent.isBlank()) {
-                    item {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(vertical = 8.dp)
-                        ) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(16.dp),
-                                color = Color(0xFF8B5CF6),
-                                strokeWidth = 2.dp
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = "Routing prompt & executing device actions...",
-                                fontSize = 12.sp,
-                                color = Color(0xFF94A3B8)
-                            )
-                        }
-                    }
-                }
-            }
-
-            // Bottom Input Bar with Next Step Action Trigger
-            Surface(
-                color = Color(0xFF131625),
-                modifier = Modifier.fillMaxWidth(),
-                tonalElevation = 8.dp
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 10.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    // Quick Action Template Button
-                    IconButton(
-                        onClick = { showActionTemplatesSheet = true },
-                        modifier = Modifier
-                            .size(38.dp)
-                            .clip(CircleShape)
-                            .background(Color(0xFF1F2438))
-                    ) {
-                        Icon(
-                            Icons.Default.Add,
-                            contentDescription = "Add Action Template",
-                            tint = Color(0xFFA78BFA),
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.width(6.dp))
-
-                    OutlinedTextField(
-                        value = inputText,
-                        onValueChange = { inputText = it },
-                        placeholder = { Text("Ask or command anything (e.g. open youtube)...", color = Color(0xFF64748B), fontSize = 13.sp) },
-                        modifier = Modifier
-                            .weight(1f)
-                            .heightIn(min = 46.dp, max = 120.dp),
-                        shape = RoundedCornerShape(24.dp),
-                        maxLines = 4,
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = Color(0xFF7C3AED),
-                            unfocusedBorderColor = Color(0xFF232840),
-                            focusedContainerColor = Color(0xFF0F111A),
-                            unfocusedContainerColor = Color(0xFF0F111A),
-                            focusedTextColor = Color.White,
-                            unfocusedTextColor = Color.White
-                        )
-                    )
-
-                    Spacer(modifier = Modifier.width(6.dp))
-
-                    // Whisper Voice Button
-                    IconButton(
-                        onClick = {
-                            if (isVoiceListening) {
-                                voiceManager.stopListening()
-                            } else {
-                                MascotEventBus.postEvent(MascotEvent.VoiceListening)
-                                voiceManager.startListening()
-                                Toast.makeText(context, "🎙️ Listening with Whisper STT...", Toast.LENGTH_SHORT).show()
+                            .fillMaxWidth()
+                            .clickable {
+                                chatViewModel.onRoutingModeChanged(mode)
+                                showRoutingSheet = false
                             }
-                        },
-                        modifier = Modifier
-                            .size(44.dp)
-                            .clip(CircleShape)
-                            .background(
-                                if (isVoiceListening)
-                                    Brush.linearGradient(listOf(Color(0xFFEF4444), Color(0xFFDC2626)))
-                                else
-                                    Brush.linearGradient(listOf(Color(0xFF231D38), Color(0xFF1B162C)))
-                            )
+                            .padding(vertical = 4.dp)
                     ) {
-                        Icon(
-                            painter = androidx.compose.ui.res.painterResource(id = com.orbital.R.drawable.ic_mic),
-                            contentDescription = "Whisper Voice Input",
-                            tint = if (isVoiceListening) Color.White else Color(0xFFA78BFA),
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.width(6.dp))
-
-                    // Send Button
-                    IconButton(
-                        onClick = { sendMessage(inputText) },
-                        enabled = inputText.isNotBlank() && !isStreaming,
-                        modifier = Modifier
-                            .size(44.dp)
-                            .clip(CircleShape)
-                            .background(
-                                if (inputText.isNotBlank() && !isStreaming)
-                                    Brush.linearGradient(listOf(Color(0xFF7C3AED), Color(0xFF6D28D9)))
-                                else
-                                    Brush.linearGradient(listOf(Color(0xFF1E2238), Color(0xFF1E2238)))
-                            )
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.Send,
-                            contentDescription = "Send",
-                            tint = if (inputText.isNotBlank() && !isStreaming) Color.White else Color(0xFF64748B)
-                        )
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(14.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = details.first,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = Color.White
+                                )
+                                Text(
+                                    text = details.second,
+                                    fontSize = 11.sp,
+                                    color = Color(0xFF94A3B8)
+                                )
+                            }
+                            if (isSelected) {
+                                Icon(
+                                    Icons.Default.Check,
+                                    contentDescription = "Selected",
+                                    tint = Color(0xFFA78BFA)
+                                )
+                            }
+                        }
                     }
                 }
+                Spacer(modifier = Modifier.height(24.dp))
+            }
+        }
+    }
+
+    // Action Template Quick Sheets
+    if (showActionTemplatesSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showActionTemplatesSheet = false },
+            containerColor = Color(0xFF131625)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(20.dp)
+            ) {
+                Text(
+                    text = "⚡ Executive Action Templates",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = "Select a preset command to quickly run or combine device actions.",
+                    fontSize = 12.sp,
+                    color = Color(0xFF94A3B8)
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+
+                listOf(
+                    "✉️ Open Gmail and summarize new emails",
+                    "▶️ Open YouTube and search Kotlin tutorials",
+                    "💬 Open WhatsApp and send a message",
+                    "⏱️ Set a 15 minute focus timer",
+                    "🔋 Check battery health and system storage",
+                    "🌐 Search web for latest tech headlines"
+                ).forEach { template ->
+                    Surface(
+                        color = Color(0xFF1B1E30),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                chatViewModel.onActionTemplateClick(template)
+                                showActionTemplatesSheet = false
+                            }
+                            .padding(vertical = 4.dp)
+                    ) {
+                        Row(modifier = Modifier.padding(12.dp)) {
+                            Text(text = template, color = Color.White, fontSize = 13.sp)
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(24.dp))
             }
         }
     }
 }
 
+// Backward-compatible alias
 @Composable
-fun ChatBubbleItem(
-    message: UiMessage,
-    characterName: String,
-    isStreaming: Boolean = false,
-    onCopy: () -> Unit,
-    onSpeak: () -> Unit,
-    onSuggestionClick: (String) -> Unit = {},
-    onAddStepToInput: (String) -> Unit = {}
+fun ChatScreen(
+    chatViewModel: ChatViewModel,
+    onOpenKeys: () -> Unit,
+    onOpenCharacters: () -> Unit
 ) {
-    val isUser = message.role == "user"
+    InAppChatScreen(
+        chatViewModel = chatViewModel,
+        onOpenKeys = onOpenKeys,
+        onOpenCharacters = onOpenCharacters
+    )
+}
 
-    Column(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalAlignment = if (isUser) Alignment.End else Alignment.Start
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(0.92f),
-            horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start
+@OptIn(ExperimentalMaterial3Api::class)
+@Preview(showBackground = true, backgroundColor = 0xFF0A0C14)
+@Composable
+fun PreviewInAppChatScreenContent() {
+    Scaffold(
+        topBar = {
+            TopBar(
+                characterName = "Aether (AI Companion)",
+                currentRoutingMode = RoutingMode.AUTO,
+                selectedPinnedProvider = null,
+                onOpenKeys = {},
+                onOpenCharacters = {},
+                onRoutingModeClick = {}
+            )
+        },
+        containerColor = Color(0xFF0A0C14)
+    ) { innerPadding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
         ) {
-            if (!isUser) {
-                val spriteRes = MascotSpriteHelper.getSprite(characterName, MascotState.HAPPY)
-                androidx.compose.foundation.Image(
-                    painter = androidx.compose.ui.res.painterResource(id = spriteRes),
-                    contentDescription = characterName,
-                    modifier = Modifier
-                        .size(32.dp)
-                        .clip(CircleShape)
-                        .background(Color(0xFF2E1065))
-                        .padding(2.dp)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-            }
-
-            Surface(
-                shape = RoundedCornerShape(
-                    topStart = 16.dp,
-                    topEnd = 16.dp,
-                    bottomStart = if (isUser) 16.dp else 4.dp,
-                    bottomEnd = if (isUser) 4.dp else 16.dp
-                ),
-                color = if (isUser) Color(0xFF6D28D9) else Color(0xFF181B2C),
-                border = if (!isUser) androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF2E334D)) else null
-            ) {
-                Column(modifier = Modifier.padding(12.dp)) {
-                    Text(
-                        text = message.content,
-                        color = Color.White,
-                        fontSize = 14.sp,
-                        lineHeight = 20.sp
+            MessageList(
+                messages = listOf(
+                    UiMessage(role = "user", content = "Open Gmail and check messages"),
+                    UiMessage(
+                        role = "assistant",
+                        content = "I've opened Gmail for you.",
+                        providerName = "Groq",
+                        actionLabel = "⚡ Executed: Opened Gmail"
                     )
+                ),
+                characterName = "Aether",
+                isStreaming = false,
+                currentStreamContent = "",
+                activeServingProvider = "Groq",
+                modifier = Modifier.weight(1f),
+                onCopy = {},
+                onSpeak = {},
+                onSuggestionClick = {},
+                onAddStepToInput = {}
+            )
 
-                    // Action Execution Badge
-                    message.actionLabel?.let { badge ->
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(6.dp))
-                                .background(Color(0xFF064E3B))
-                                .border(1.dp, Color(0xFF059669), RoundedCornerShape(6.dp))
-                                .padding(horizontal = 8.dp, vertical = 4.dp)
-                        ) {
-                            Text(
-                                text = badge,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = Color(0xFF6EE7B7)
-                            )
-                        }
-                    }
+            QuickSuggestionsBar(
+                quickSuggestions = listOf("✉️ Open Gmail", "▶️ Open YouTube"),
+                onSuggestionClick = {}
+            )
 
-                    // Contextual Interactive Next Step Options
-                    if (!isUser && !isStreaming && message.nextStepSuggestions.isNotEmpty()) {
-                        Spacer(modifier = Modifier.height(10.dp))
-                        Text(
-                            text = "💡 What would you like to do next?",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = Color(0xFFA78BFA)
-                        )
-                        Spacer(modifier = Modifier.height(6.dp))
-
-                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            message.nextStepSuggestions.forEach { suggestion ->
-                                Surface(
-                                    color = Color(0xFF1E2338),
-                                    shape = RoundedCornerShape(12.dp),
-                                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF333D66)),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(horizontal = 10.dp, vertical = 8.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Text(
-                                            text = suggestion,
-                                            fontSize = 12.sp,
-                                            color = Color(0xFFE2E8F0),
-                                            fontWeight = FontWeight.Medium,
-                                            modifier = Modifier
-                                                .weight(1f)
-                                                .clickable { onSuggestionClick(suggestion) }
-                                        )
-
-                                        Spacer(modifier = Modifier.width(6.dp))
-
-                                        // Plus button to append to input box
-                                        Box(
-                                            modifier = Modifier
-                                                .clip(CircleShape)
-                                                .background(Color(0xFF2E1065))
-                                                .clickable { onAddStepToInput(suggestion) }
-                                                .padding(4.dp)
-                                        ) {
-                                            Icon(
-                                                Icons.Default.Add,
-                                                contentDescription = "Add to input",
-                                                tint = Color(0xFFC084FC),
-                                                modifier = Modifier.size(14.dp)
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    if (!isUser && !isStreaming) {
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            // Serving provider badge
-                            message.providerName?.let { provider ->
-                                Box(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(4.dp))
-                                        .background(Color(0xFF0F111A))
-                                        .padding(horizontal = 6.dp, vertical = 2.dp)
-                                ) {
-                                    Text(
-                                        text = "⚡ $provider",
-                                        fontSize = 10.sp,
-                                        color = Color(0xFFA78BFA),
-                                        fontWeight = FontWeight.SemiBold
-                                    )
-                                }
-                            }
-
-                            Row {
-                                IconButton(onClick = onCopy, modifier = Modifier.size(24.dp)) {
-                                    Icon(Icons.Default.Share, contentDescription = "Copy", tint = Color(0xFF94A3B8), modifier = Modifier.size(14.dp))
-                                }
-                                IconButton(onClick = onSpeak, modifier = Modifier.size(24.dp)) {
-                                    Icon(Icons.Default.PlayArrow, contentDescription = "Speak", tint = Color(0xFF94A3B8), modifier = Modifier.size(14.dp))
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+            InputBar(
+                inputText = "",
+                onInputChange = {},
+                isVoiceListening = false,
+                onVoiceClick = {},
+                isStreaming = false,
+                onSendClick = {},
+                onQuickTemplateClick = {}
+            )
         }
     }
 }

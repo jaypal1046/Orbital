@@ -32,7 +32,7 @@ data class DynamicAppInfo(
     val actionHint: String
 )
 
-class AppCapabilityManager(private val context: Context) {
+open class AppCapabilityManager(private val context: Context) {
 
     companion object {
         private const val TAG = "AppCapabilityManager"
@@ -73,8 +73,8 @@ class AppCapabilityManager(private val context: Context) {
 
             val label = resolveInfo.loadLabel(pm).toString().trim()
             val category = detectCategory(pkg, label, resolveInfo)
-            val capabilities = detectCapabilities(pkg, label, category)
-            val actionHint = buildActionHint(label, category, pkg)
+            val capabilities = detectCapabilities(category)
+            val actionHint = buildActionHint(label, category)
 
             result.add(
                 DynamicAppInfo(
@@ -98,7 +98,7 @@ class AppCapabilityManager(private val context: Context) {
      * Builds a rich, structured context block for the LLM system prompt
      * so the AI knows every app on the user's phone and what it can do.
      */
-    fun buildDeviceCapabilitiesPrompt(): String {
+    open fun buildDeviceCapabilitiesPrompt(): String {
         val apps = getInstalledApps()
         if (apps.isEmpty()) return ""
 
@@ -190,7 +190,7 @@ class AppCapabilityManager(private val context: Context) {
         }
     }
 
-    private fun detectCapabilities(pkg: String, label: String, category: AppCategory): List<String> {
+    private fun detectCapabilities(category: AppCategory): List<String> {
         val caps = mutableListOf("OPEN")
         when (category) {
             AppCategory.BROWSER -> caps.addAll(listOf("OPEN_URL", "SEARCH_WEB"))
@@ -209,7 +209,7 @@ class AppCapabilityManager(private val context: Context) {
         return caps
     }
 
-    private fun buildActionHint(label: String, category: AppCategory, pkg: String): String {
+    private fun buildActionHint(label: String, category: AppCategory): String {
         return when (category) {
             AppCategory.BROWSER -> "Search web or open URLs directly"
             AppCategory.MEDIA -> "Search & play videos, streams"

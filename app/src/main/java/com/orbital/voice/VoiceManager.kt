@@ -19,7 +19,7 @@ import kotlinx.coroutines.launch
 /**
  * Manages voice capabilities including ultra-fast Whisper STT and Text-To-Speech
  */
-class VoiceManager(private val context: Context) {
+open class VoiceManager(private val context: Context) {
 
     companion object {
         private const val TAG = "VoiceManager"
@@ -145,33 +145,40 @@ class VoiceManager(private val context: Context) {
         }
     }
 
-    fun setVoiceCallback(callback: VoiceCallback) {
+    open fun setVoiceCallback(callback: VoiceCallback) {
         this.voiceCallback = callback
     }
 
-    fun startListening() {
+    open fun startListening() {
         if (isListening) return
 
-        // 1. Try Whisper recording first for highest accuracy & speed
-        val whisperStarted = whisperTranscriber.startRecording()
-        if (whisperStarted) {
+        // 1. Try Whisper recording first if an API key (Groq or OpenAI) is configured
+        if (whisperTranscriber.isConfigured() && whisperTranscriber.startRecording()) {
             isUsingWhisper = true
             isListening = true
             voiceCallback?.onSpeechStart()
             updateOverlayStatus("listening")
             Log.d(TAG, "Started Whisper voice recording")
         } else if (speechRecognizer != null) {
-            // 2. Fallback to Android SpeechRecognizer
+            // 2. Seamless fallback to Android on-device/system SpeechRecognizer
             isUsingWhisper = false
             val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
                 putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
             }
-            speechRecognizer?.startListening(intent)
+            try {
+                speechRecognizer?.startListening(intent)
+                Log.d(TAG, "Started system SpeechRecognizer fallback")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to start system SpeechRecognizer", e)
+                voiceCallback?.onSpeechError("Voice input unavailable. Please add a Groq API key in Settings for Whisper STT.")
+            }
+        } else {
+            voiceCallback?.onSpeechError("Voice recognition unavailable. Please add a free Groq API key in Settings.")
         }
     }
 
-    fun stopListening() {
+    open fun stopListening() {
         if (!isListening) return
         isListening = false
         voiceCallback?.onSpeechEnd()
@@ -196,9 +203,13 @@ class VoiceManager(private val context: Context) {
         }
     }
 
-    fun isListening(): Boolean = isListening
+    open fun isListening(): Boolean = isListening
 
-    fun speak(text: String, queueMode: Int = TextToSpeech.QUEUE_ADD) {
+    open fun isUsingWhisper(): Boolean = isUsingWhisper
+
+    open fun isWhisperConfigured(): Boolean = whisperTranscriber.isConfigured()
+
+    open fun speak(text: String, queueMode: Int = TextToSpeech.QUEUE_ADD) {
         if (textToSpeech != null && !isSpeaking) {
             isSpeaking = true
             voiceCallback?.onTtsStart()
@@ -208,7 +219,7 @@ class VoiceManager(private val context: Context) {
         }
     }
 
-    fun shutdown() {
+    open fun shutdown() {
         whisperTranscriber.cancelRecording()
         speechRecognizer?.destroy()
         textToSpeech?.shutdown()

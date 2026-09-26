@@ -8,16 +8,14 @@ import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.layout.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
+import androidx.activity.viewModels
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.darkColorScheme
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.unit.dp
-import com.orbital.data.LlmRepository
 import com.orbital.data.SecureStorage
+import dagger.hilt.android.AndroidEntryPoint
 
+@AndroidEntryPoint
 class MainActivity : ComponentActivity() {
 
     private val overlayPermissionLauncher = registerForActivityResult(
@@ -32,16 +30,14 @@ class MainActivity : ComponentActivity() {
         // Permission handled
     }
 
-    private lateinit var secureStorage: SecureStorage
-    private lateinit var llmRepository: LlmRepository
+    private val chatViewModel: ChatViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        secureStorage = SecureStorage(this)
-        llmRepository = LlmRepository(secureStorage)
 
         checkPermissions()
 
+        val secureStorage = SecureStorage(this)
         if (!secureStorage.isSetupComplete()) {
             showSetupWizard()
             finish()
@@ -77,15 +73,14 @@ class MainActivity : ComponentActivity() {
                     primary = Color(0xFF7C3AED)
                 )
             ) {
-                InAppChatScreen(
-                    secureStorage = secureStorage,
-                    llmRepository = llmRepository,
+                ChatScreen(
+                    chatViewModel = chatViewModel,
                     onOpenKeys = {
-                        val intent = Intent(this, SetupWizardActivity::class.java)
+                        val intent = Intent(this@MainActivity, SetupWizardActivity::class.java)
                         startActivity(intent)
                     },
                     onOpenCharacters = {
-                        val intent = Intent(this, CharacterSelectionActivity::class.java)
+                        val intent = Intent(this@MainActivity, CharacterSelectionActivity::class.java)
                         startActivity(intent)
                     }
                 )

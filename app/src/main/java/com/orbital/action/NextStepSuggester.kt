@@ -9,40 +9,39 @@ object NextStepSuggester {
 
         return when {
             target.contains("youtube") || lowerText.contains("youtube") -> listOf(
-                "🔍 Search YouTube for: ",
+                "🔍 Search YouTube for ",
                 "🔥 Open Trending on YouTube",
-                "🎵 Play synthwave mix on YouTube",
-                "📺 Check my YouTube Subscriptions"
+                "🎵 Play lo-fi mix on YouTube",
+                "📺 Check YouTube Subscriptions"
             )
 
             target.contains("gmail") || target.contains("mail") || lowerText.contains("gmail") -> listOf(
-                "✉️ Compose email to [recipient]: [message]",
+                "✉️ Compose email to ",
+                "✉️ Write email about meeting update",
                 "📥 Search Gmail for unread emails",
-                "🔍 Search Gmail for: ",
                 "📄 Open Gmail Drafts"
             )
 
             target.contains("whatsapp") || lowerText.contains("whatsapp") -> listOf(
-                "💬 Send WhatsApp message to [contact]: [message]",
-                "📞 Open WhatsApp calls",
-                "🔍 Search chats in WhatsApp for: "
+                "💬 Send WhatsApp message to ",
+                "💬 Send WhatsApp: I will call you back soon",
+                "📞 Open WhatsApp calls"
             )
 
             target.contains("spotify") || target.contains("music") || lowerText.contains("spotify") -> listOf(
-                "🎵 Play on Spotify: [song / artist]",
-                "🔍 Search Spotify for: ",
-                "🎧 Open Liked Songs on Spotify"
+                "🎵 Play on Spotify: Top Hits",
+                "🎧 Open Liked Songs on Spotify",
+                "🔍 Search Spotify for "
             )
 
             target.contains("maps") || target.contains("navigate") || lowerText.contains("maps") || actionType == "NAVIGATE" -> listOf(
-                "🧭 Navigate on Maps to: [place / address]",
-                "☕ Find coffee shops nearby on Maps",
+                "🧭 Navigate to nearest coffee shop",
                 "⛽ Find gas stations nearby on Maps",
-                "🍕 Search top rated restaurants on Maps"
+                "🍕 Search top rated restaurants nearby"
             )
 
             target.contains("chrome") || target.contains("browser") || target.contains("firefox") || actionType == "SEARCH_WEB" -> listOf(
-                "🌐 Search Google for: ",
+                "🌐 Search Google for ",
                 "📰 Search latest tech news headlines",
                 "🔗 Open URL: "
             )
@@ -73,8 +72,8 @@ object NextStepSuggester {
             )
 
             else -> listOf(
-                "▶️ Open YouTube",
                 "✉️ Open Gmail",
+                "▶️ Open YouTube",
                 "💬 Open WhatsApp",
                 "🌐 Search AI News",
                 "⏱️ Set 5m Timer",
@@ -85,7 +84,7 @@ object NextStepSuggester {
 
     fun cleanPromptForInput(suggestion: String): String {
         return suggestion
-            .replace(Regex("^[\\p{So}\\p{Sk}\\p{Sm}\\p{Sc}\\p{Punct}\\s]+"), "")
+            .replace(Regex("^[\\p{So}\\p{Sk}\\p{Sm}\\p{Sc}\\p{Punct}\\p{Mn}\\p{Cf}\\s]+"), "")
             .trim()
     }
 }

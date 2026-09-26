@@ -9,6 +9,8 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -27,10 +29,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.orbital.R
 import com.orbital.data.SecureStorage
 import com.orbital.overlay.OverlayService
 
@@ -103,7 +106,6 @@ class CharacterSelectionActivity : ComponentActivity() {
         }
         startService(intent)
 
-        // Also broadcast for any existing overlay
         val broadcastIntent = Intent(OverlayService.ACTION_UPDATE_CHARACTER).apply {
             putExtra("character", characterId)
         }
@@ -111,20 +113,11 @@ class CharacterSelectionActivity : ComponentActivity() {
     }
 }
 
-data class CompanionOption(
-    val id: String,
-    val name: String,
-    val emoji: String,
-    val title: String,
-    val description: String,
-    val gradientColors: List<Color>
-)
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CharacterSelectionScreen(
     selectedId: String,
-    onCharacterSelected: (CompanionOption) -> Unit,
+    onCharacterSelected: (Character) -> Unit,
     onRequestPermission: () -> Unit
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -132,74 +125,7 @@ fun CharacterSelectionScreen(
         Settings.canDrawOverlays(context)
     } else true
 
-    val characters = remember {
-        listOf(
-            CompanionOption(
-                id = "aether",
-                name = "Aether",
-                emoji = "🌌",
-                title = "Cosmic Ethereal Companion",
-                description = "Light, floating celestial spirit with nebula rings. Clean, witty, and premium.",
-                gradientColors = listOf(Color(0xFF8B5CF6), Color(0xFF3B82F6))
-            ),
-            CompanionOption(
-                id = "lumy",
-                name = "Lumy",
-                emoji = "✨",
-                title = "Gentle Light Spirit",
-                description = "Soft, glowing light spirit with expressive anime warmth and cheerful energy.",
-                gradientColors = listOf(Color(0xFFF59E0B), Color(0xFFEC4899))
-            ),
-            CompanionOption(
-                id = "nexus",
-                name = "Nexus",
-                emoji = "🔮",
-                title = "Cybernetic Holographic Core",
-                description = "Modern AI orb with pulsing data rings and geometric cyber laser abilities.",
-                gradientColors = listOf(Color(0xFF06B6D4), Color(0xFF7C3AED))
-            ),
-            CompanionOption(
-                id = "spark",
-                name = "Spark",
-                emoji = "⚡",
-                title = "Energetic Lightning Wisp",
-                description = "Playful plasma firefly with lightning antennae and high-voltage execution speed.",
-                gradientColors = listOf(Color(0xFFFBBF24), Color(0xFF10B981))
-            ),
-            CompanionOption(
-                id = "volo",
-                name = "Volo",
-                emoji = "🕊️",
-                title = "Swift Sky Messenger",
-                description = "Aerodynamic winged tech mascot with graceful flight and supersonic task routing.",
-                gradientColors = listOf(Color(0xFF10B981), Color(0xFF06B6D4))
-            ),
-            CompanionOption(
-                id = "pico",
-                name = "Pico",
-                emoji = "🤖",
-                title = "Chibi Robotic Pet",
-                description = "Minimal, adorable cyber pet with an expressive glowing visor and helper gears.",
-                gradientColors = listOf(Color(0xFF6366F1), Color(0xFFA855F7))
-            ),
-            CompanionOption(
-                id = "guardian",
-                name = "Guardian",
-                emoji = "🛡️",
-                title = "Cyber Shield Sentinel",
-                description = "Protective AI defender with blue forcefields, battery watchdog, and safety shields.",
-                gradientColors = listOf(Color(0xFF2563EB), Color(0xFF0EA5E9))
-            ),
-            CompanionOption(
-                id = "echo",
-                name = "Echo",
-                emoji = "🔊",
-                title = "Resonant Soundwave Pulsar",
-                description = "Audio-reactive companion with harmonic frequency rings and voice mastery.",
-                gradientColors = listOf(Color(0xFFD946EF), Color(0xFF8B5CF6))
-            )
-        )
-    }
+    val characters = remember { Character.all }
 
     Scaffold(
         topBar = {
@@ -226,7 +152,7 @@ fun CharacterSelectionScreen(
                         .padding(bottom = 12.dp)
                         .clickable { onRequestPermission() },
                     colors = CardDefaults.cardColors(containerColor = Color(0xFF451A03)),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFF59E0B)),
+                    border = BorderStroke(1.dp, Color(0xFFF59E0B)),
                     shape = RoundedCornerShape(12.dp)
                 ) {
                     Row(
@@ -257,7 +183,7 @@ fun CharacterSelectionScreen(
             // Real-Time Animated Mascot Interactive State Showcase
             InteractiveMascotPreview(
                 characterId = selectedId,
-                characterName = characters.find { it.id == selectedId }?.name ?: "Aether",
+                characterName = Character.find(selectedId).name,
                 modifier = Modifier.padding(bottom = 14.dp)
             )
 
@@ -274,7 +200,7 @@ fun CharacterSelectionScreen(
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 items(characters, key = { it.id }) { char ->
-                    val isSelected = selectedId == char.id
+                    val isSelected = selectedId.equals(char.id, ignoreCase = true)
                     Card(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -283,7 +209,7 @@ fun CharacterSelectionScreen(
                         colors = CardDefaults.cardColors(
                             containerColor = if (isSelected) Color(0xFF231B45) else Color(0xFF131726)
                         ),
-                        border = if (isSelected) androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFFA855F7)) else androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF1E2438))
+                        border = if (isSelected) BorderStroke(1.5.dp, Color(0xFFA855F7)) else BorderStroke(1.dp, Color(0xFF1E2438))
                     ) {
                         Row(
                             modifier = Modifier
@@ -299,8 +225,8 @@ fun CharacterSelectionScreen(
                                 contentAlignment = Alignment.Center
                             ) {
                                 val spriteRes = MascotSpriteHelper.getSprite(char.id, MascotState.IDLE)
-                                androidx.compose.foundation.Image(
-                                    painter = androidx.compose.ui.res.painterResource(id = spriteRes),
+                                Image(
+                                    painter = painterResource(id = spriteRes),
                                     contentDescription = char.name,
                                     modifier = Modifier
                                         .size(46.dp)
@@ -333,6 +259,26 @@ fun CharacterSelectionScreen(
                                     color = Color(0xFF94A3B8),
                                     lineHeight = 16.sp
                                 )
+
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(if (char.hasSprites) Color(0xFF064E3B) else Color(0xFF1E2338))
+                                        .border(
+                                            1.dp,
+                                            if (char.hasSprites) Color(0xFF059669) else Color(0xFF333D66),
+                                            RoundedCornerShape(6.dp)
+                                        )
+                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                ) {
+                                    Text(
+                                        text = if (char.hasSprites) "✨ Full 27-State Sprite Pack" else "🎨 Persona Theme (${char.fallbackTheme.name.lowercase().replaceFirstChar { it.uppercase() }} Sprite)",
+                                        fontSize = 10.sp,
+                                        color = if (char.hasSprites) Color(0xFF6EE7B7) else Color(0xFFA78BFA),
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                }
                             }
 
                             if (isSelected) {
@@ -350,4 +296,14 @@ fun CharacterSelectionScreen(
             }
         }
     }
+}
+
+@Preview(showBackground = true, backgroundColor = 0xFF0A0C14)
+@Composable
+fun PreviewCharacterSelectionScreen() {
+    CharacterSelectionScreen(
+        selectedId = "aether",
+        onCharacterSelected = {},
+        onRequestPermission = {}
+    )
 }

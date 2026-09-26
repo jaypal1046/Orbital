@@ -22,6 +22,7 @@ import android.view.ViewGroup
 import android.view.WindowManager
 import android.widget.FrameLayout
 import android.widget.ImageView
+import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import androidx.core.content.ContextCompat
@@ -29,15 +30,16 @@ import com.orbital.R
 import com.orbital.action.ActionParser
 import com.orbital.action.ActionResult
 import com.orbital.action.DeviceActionExecutor
+import com.orbital.action.NextStepSuggester
+import com.orbital.chat.ChatEngine
 import com.orbital.data.ChatChoice
 import com.orbital.data.ChatMessage
 import com.orbital.data.ChatRequest
 import com.orbital.data.ChatResponse
 import com.orbital.data.LlmRepository
-import com.orbital.data.RouterConfig
 import com.orbital.data.SecureStorage
 import com.orbital.data.ServerConfig
-import com.orbital.data.ServerMode
+import dagger.hilt.android.AndroidEntryPoint
 import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.*
 import io.ktor.server.application.*
@@ -50,7 +52,9 @@ import io.ktor.server.routing.*
 import kotlinx.coroutines.*
 import org.json.JSONObject
 import java.util.concurrent.atomic.AtomicBoolean
+import javax.inject.Inject
 
+@AndroidEntryPoint
 class OverlayService : Service() {
 
     companion object {
@@ -59,15 +63,25 @@ class OverlayService : Service() {
         const val ACTION_UPDATE_CONNECTION_STATUS = "com.orbital.ACTION_UPDATE_CONNECTION_STATUS"
         const val ACTION_UPDATE_VOICE_STATUS = "com.orbital.ACTION_UPDATE_VOICE_STATUS"
         const val ACTION_UPDATE_CHARACTER = "com.orbital.ACTION_UPDATE_CHARACTER"
+        const val ACTION_PERMISSION_REVOKED = "com.orbital.ACTION_PERMISSION_REVOKED"
         private const val CHANNEL_ID = "OrbitalOverlayChannel"
         private const val NOTIFICATION_ID = 1
+        private const val FOREGROUND_SERVICE_TYPE = android.os.Build.VERSION_CODES.UPSIDE_DOWN_CAKE
     }
+
+    // Injected via Hilt
+    @Inject
+    lateinit var chatEngine: ChatEngine
+
+    @Inject
+    lateinit var llmRepository: LlmRepository
 
     private lateinit var windowManager: WindowManager
     private lateinit var overlayView: View
     private lateinit var bubbleAvatarContainer: View
     private lateinit var chatPanel: View
-    private lateinit var chatResponseText: TextView
+    private lateinit var chatMessagesContainer: LinearLayout
+    private lateinit var chatSuggestionsContainer: LinearLayout
     private lateinit var chatScrollView: android.widget.ScrollView
     private lateinit var chatInputEditText: android.widget.EditText
     private lateinit var chatSendButton: View
@@ -81,11 +95,11 @@ class OverlayService : Service() {
     private var isOverlayAttached = false
     private lateinit var windowParams: WindowManager.LayoutParams
     private lateinit var voiceManager: com.orbital.voice.VoiceManager
-    private lateinit var actionExecutor: DeviceActionExecutor
     private val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private var actionDebounceJob: Job? = null
+    private var lastActionTime = 0L
+    private val ACTION_DEBOUNCE_MS = 1500L
 
-    private var currentStatus: ConnectionStatus = ConnectionStatus.CONNECTED
     private var currentVoiceStatus: String = "idle"
     private var currentCharacter: String = "aether"
 
@@ -93,8 +107,6 @@ class OverlayService : Service() {
     private var server: ApplicationEngine? = null
     private val isServerRunning = AtomicBoolean(false)
     private lateinit var serverConfig: ServerConfig
-    private lateinit var routerConfig: RouterConfig
-    private lateinit var llmRepository: LlmRepository
 
     private val statusReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -112,7 +124,18 @@ class OverlayService : Service() {
                         val character = intent.getStringExtra("character") ?: "aether"
                         updateCharacter(character)
                     }
+                    ACTION_PERMISSION_REVOKED -> {
+                        stopOverlay()
+                    }
                 }
+            }
+        }
+    }
+
+    private val configChangeReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == Intent.ACTION_CONFIGURATION_CHANGED) {
+                handleConfigurationChanged()
             }
         }
     }
@@ -128,19 +151,19 @@ class OverlayService : Service() {
             addAction(ACTION_UPDATE_CONNECTION_STATUS)
             addAction(ACTION_UPDATE_VOICE_STATUS)
             addAction(ACTION_UPDATE_CHARACTER)
+            addAction(ACTION_PERMISSION_REVOKED)
         })
+        registerReceiver(configChangeReceiver, IntentFilter(Intent.ACTION_CONFIGURATION_CHANGED))
 
         // Load the selected character from storage
         val secureStorage = SecureStorage(this)
         currentCharacter = secureStorage.getSelectedCharacter() ?: "aether"
 
-        // Initialize server & router with multi-provider secure storage
+        // Initialize server config for embedded server
         serverConfig = ServerConfig(enableEmbeddedServer = true)
-        routerConfig = RouterConfig()
-        llmRepository = LlmRepository(secureStorage)
-        actionExecutor = DeviceActionExecutor(this)
 
         initVoiceManager()
+        initChatEngineObservation()
 
         // Observe global MascotEventBus state changes
         serviceScope.launch {
@@ -153,6 +176,75 @@ class OverlayService : Service() {
         if (serverConfig.enableEmbeddedServer) {
             startEmbeddedServer()
         }
+    }
+
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+        super.onConfigurationChanged(newConfig)
+        handleConfigurationChanged()
+    }
+
+    private fun handleConfigurationChanged() {
+        if (!isOverlayAttached || !::overlayView.isInitialized || !overlayView.isAttachedToWindow) return
+
+        // Recalculate position and dimensions after config change (rotation, density, etc.)
+        val (screenWidth, screenHeight) = getScreenDimensions()
+        val bubbleSize = bubbleAvatarContainer.width.coerceAtLeast((52 * resources.displayMetrics.density).toInt())
+
+        // Ensure overlay stays on screen
+        windowParams.x = windowParams.x.coerceIn(0, (screenWidth - bubbleSize).coerceAtLeast(0))
+        windowParams.y = windowParams.y.coerceIn(40, (screenHeight - bubbleSize - 60).coerceAtLeast(40))
+
+        try {
+            windowManager.updateViewLayout(overlayView, windowParams)
+        } catch (e: Exception) {
+            Log.w("OverlayService", "Failed to update layout after config change", e)
+        }
+    }
+
+    private fun checkOverlayPermission(): Boolean {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            return Settings.canDrawOverlays(this)
+        }
+        return true
+    }
+
+    private fun verifyAndRequestPermissionIfNeeded(): Boolean {
+        if (!checkOverlayPermission()) {
+            Log.w("OverlayService", "Overlay permission revoked, stopping service")
+            stopOverlay()
+            return false
+        }
+        return true
+    }
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // Check permission on every start command
+        if (!verifyAndRequestPermissionIfNeeded()) {
+            return START_NOT_STICKY
+        }
+
+        val charExtra = intent?.getStringExtra("character")
+        if (!charExtra.isNullOrBlank()) {
+            currentCharacter = charExtra
+            updateCharacter(charExtra)
+        }
+
+        when (intent?.action) {
+            ACTION_STOP -> stopOverlay()
+            ACTION_UPDATE_CHARACTER -> {
+                startOverlay()
+                charExtra?.let { updateCharacter(it) }
+            }
+            ACTION_START -> startOverlay()
+            else -> startOverlay()
+        }
+        return START_STICKY
+    }
+
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        // Don't stop the service when task is removed - keep overlay alive
+        // Only stop on explicit ACTION_STOP or permission revocation
     }
 
     private fun initVoiceManager() {
@@ -191,25 +283,6 @@ class OverlayService : Service() {
                 updateVoiceStatus("idle")
             }
         })
-    }
-
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val charExtra = intent?.getStringExtra("character")
-        if (!charExtra.isNullOrBlank()) {
-            currentCharacter = charExtra
-            updateCharacter(charExtra)
-        }
-
-        when (intent?.action) {
-            ACTION_STOP -> stopOverlay()
-            ACTION_UPDATE_CHARACTER -> {
-                startOverlay()
-                charExtra?.let { updateCharacter(it) }
-            }
-            ACTION_START -> startOverlay()
-            else -> startOverlay()
-        }
-        return START_STICKY
     }
 
     private var currentMascotState: com.orbital.ui.MascotState = com.orbital.ui.MascotState.IDLE
@@ -387,7 +460,8 @@ class OverlayService : Service() {
         overlayView = LayoutInflater.from(this).inflate(R.layout.overlay_bubble, null)
         bubbleAvatarContainer = overlayView.findViewById(R.id.bubbleAvatarContainer)
         chatPanel = overlayView.findViewById(R.id.chatPanel)
-        chatResponseText = overlayView.findViewById(R.id.chatResponseText)
+        chatMessagesContainer = overlayView.findViewById(R.id.chatMessagesContainer)
+        chatSuggestionsContainer = overlayView.findViewById(R.id.chatSuggestionsContainer)
         chatScrollView = overlayView.findViewById(R.id.chatScrollView)
         chatInputEditText = overlayView.findViewById(R.id.chatInputEditText)
         chatSendButton = overlayView.findViewById(R.id.chatSendButton)
@@ -418,7 +492,8 @@ class OverlayService : Service() {
             } else {
                 com.orbital.ui.MascotEventBus.postEvent(com.orbital.ui.MascotEvent.VoiceListening)
                 voiceManager.startListening()
-                Toast.makeText(this@OverlayService, "🎙️ Listening with Whisper STT...", Toast.LENGTH_SHORT).show()
+                val listeningMsg = if (voiceManager.isUsingWhisper()) "🎙️ Listening with Whisper STT..." else "🎙️ Listening..."
+                Toast.makeText(this@OverlayService, listeningMsg, Toast.LENGTH_SHORT).show()
             }
         }
 
@@ -524,6 +599,8 @@ class OverlayService : Service() {
         updateConnectionStatus("connected")
         updateVoiceStatus("idle")
         updateCharacter(currentCharacter)
+        renderQuickSuggestions()
+        renderMessagesUI(chatEngine.messages.value, chatEngine.isStreaming.value, chatEngine.streamingContent.value)
     }
 
     private fun toggleChatPanel(open: Boolean) {
@@ -542,6 +619,8 @@ class OverlayService : Service() {
             if (windowParams.y > maxY) {
                 windowParams.y = maxY
             }
+            renderQuickSuggestions()
+            renderMessagesUI(chatEngine.messages.value, chatEngine.isStreaming.value, chatEngine.streamingContent.value)
         } else {
             chatPanel.visibility = View.GONE
             windowParams.flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
@@ -552,82 +631,301 @@ class OverlayService : Service() {
         }
     }
 
-    private fun sendPromptToCompanion(prompt: String, speakResult: Boolean) {
-        toggleChatPanel(true)
-        chatResponseText.text = "You: $prompt\n\nThinking & Executing..."
-        com.orbital.ui.MascotEventBus.postEvent(com.orbital.ui.MascotEvent.PromptSent(prompt))
-        val responseBuilder = StringBuilder()
-        var hasExecutedAction = false
-
-        val messages = listOf(
-            com.orbital.data.ChatMessage(role = "system", content = ActionParser.buildSystemPrompt(currentCharacter, actionExecutor.getCapabilityManager().buildDeviceCapabilitiesPrompt())),
-            com.orbital.data.ChatMessage(role = "user", content = prompt)
-        )
-
-        fun finalizeResponse() {
-            if (hasExecutedAction) return
-            hasExecutedAction = true
-            val fullText = responseBuilder.toString()
-            val parsed = ActionParser.parse(fullText)
-            
-            var actionStatus = ""
-            if (parsed.action != null) {
-                // Post working event
-                com.orbital.ui.MascotEventBus.postEvent(com.orbital.ui.MascotEvent.ActionExecuting(parsed.action.javaClass.simpleName))
-                val actionResult = actionExecutor.execute(parsed.action)
-                actionStatus = when (actionResult) {
-                    is ActionResult.Success -> {
-                        com.orbital.ui.MascotEventBus.postEvent(com.orbital.ui.MascotEvent.ActionSuccess(actionResult.message))
-                        "\n\n⚡ ${actionResult.message}"
-                    }
-                    is ActionResult.Error -> {
-                        com.orbital.ui.MascotEventBus.postEvent(com.orbital.ui.MascotEvent.ActionFailed(actionResult.errorMessage))
-                        "\n\n⚠️ ${actionResult.errorMessage}"
-                    }
-                }
-            } else {
-                com.orbital.ui.MascotEventBus.postEvent(com.orbital.ui.MascotEvent.ResetToIdle)
-            }
-
-            serviceScope.launch {
-                chatResponseText.text = "You: $prompt\n\n$currentCharacter:\n${parsed.userDisplayText}$actionStatus"
-                chatScrollView.fullScroll(View.FOCUS_DOWN)
-                if (speakResult && parsed.userDisplayText.isNotBlank()) {
-                    voiceManager.speak(parsed.userDisplayText)
+    private fun initChatEngineObservation() {
+        // Continuous live streaming update
+        serviceScope.launch {
+            chatEngine.streamingContent.collect { content ->
+                if (chatEngine.isStreaming.value) {
+                    renderMessagesUI(chatEngine.messages.value, true, content)
                 }
             }
         }
 
-        llmRepository.streamCompletion(
-            model = "auto",
-            messages = messages,
-            onChunk = { chunk ->
-                responseBuilder.append(chunk)
-                if (currentMascotState != com.orbital.ui.MascotState.THINKING) {
-                    setMascotState(com.orbital.ui.MascotState.THINKING)
-                }
-                serviceScope.launch {
-                    val currentText = responseBuilder.toString()
-                    val parsedCurrent = ActionParser.parse(currentText)
-                    chatResponseText.text = "You: $prompt\n\n$currentCharacter:\n${parsedCurrent.userDisplayText}"
-                    chatScrollView.fullScroll(View.FOCUS_DOWN)
-                }
+        // Continuous message completion observation
+        serviceScope.launch {
+            chatEngine.messages.collect { messages ->
+                val isStreaming = chatEngine.isStreaming.value
+                val streamContent = chatEngine.streamingContent.value
+                renderMessagesUI(messages, isStreaming, streamContent)
 
-                // Debounce action execution when chunk stream pauses
-                actionDebounceJob?.cancel()
-                actionDebounceJob = serviceScope.launch {
-                    delay(1200)
-                    finalizeResponse()
-                }
-            },
-            onError = { error ->
-                actionDebounceJob?.cancel()
-                setMascotState(com.orbital.ui.MascotState.SAD)
-                serviceScope.launch {
-                    chatResponseText.text = "You: $prompt\n\nError: ${error.message}"
+                val lastMsg = messages.lastOrNull()
+                if (lastMsg != null && lastMsg.role == "assistant" && !isStreaming) {
+                    val contentDisplay = lastMsg.content ?: ""
+                    if (shouldSpeakLastResult && contentDisplay.isNotBlank()) {
+                        shouldSpeakLastResult = false
+                        voiceManager.speak(contentDisplay)
+                    }
                 }
             }
+        }
+    }
+
+    private fun renderMessagesUI(
+        messages: List<ChatMessage>,
+        isStreaming: Boolean,
+        streamContent: String
+    ) {
+        if (!::chatMessagesContainer.isInitialized) return
+        chatMessagesContainer.removeAllViews()
+
+        val displayMessages = if (messages.isEmpty()) {
+            listOf(
+                ChatMessage(
+                    role = "assistant",
+                    content = "Hi! I am ${currentCharacter.replaceFirstChar { it.uppercase() }} (AI Companion). Ask or command me to open apps, compose emails, play music, or check your device!"
+                )
+            )
+        } else {
+            messages.takeLast(6)
+        }
+
+        val density = resources.displayMetrics.density
+
+        displayMessages.forEach { msg ->
+            if (msg.role == "user") {
+                // User Bubble (Right Aligned, Purple)
+                val userRow = LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.END
+                    layoutParams = LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT
+                    ).apply {
+                        topMargin = (6 * density).toInt()
+                        bottomMargin = (4 * density).toInt()
+                    }
+                }
+
+                val userBubble = TextView(this).apply {
+                    text = msg.content ?: ""
+                    setTextColor(Color.WHITE)
+                    textSize = 13f
+                    setBackgroundResource(R.drawable.bg_msg_user)
+                    setPadding((12 * density).toInt(), (8 * density).toInt(), (12 * density).toInt(), (8 * density).toInt())
+                    maxWidth = (240 * density).toInt()
+                }
+
+                userRow.addView(userBubble)
+                chatMessagesContainer.addView(userRow)
+            } else if (msg.role == "assistant") {
+                // Assistant Bubble (Left Aligned, Dark Card + Action Badge + Next Step Chips)
+                val assistantRow = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    gravity = Gravity.START
+                    layoutParams = LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT
+                    ).apply {
+                        topMargin = (6 * density).toInt()
+                        bottomMargin = (4 * density).toInt()
+                    }
+                }
+
+                val contentCard = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    setBackgroundResource(R.drawable.bg_msg_assistant)
+                    setPadding((12 * density).toInt(), (10 * density).toInt(), (12 * density).toInt(), (10 * density).toInt())
+                    layoutParams = LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT
+                    )
+                }
+
+                val contentText = TextView(this).apply {
+                    text = msg.content ?: ""
+                    setTextColor(Color.parseColor("#E2E8F0"))
+                    textSize = 13f
+                    setLineSpacing(3 * density, 1f)
+                }
+                contentCard.addView(contentText)
+
+                // Web Link Buttons
+                val urlRegex = Regex("https?://[a-zA-Z0-9.-]+(?:/[^\\s]*)?")
+                val urls = urlRegex.findAll(msg.content ?: "").map { it.value }.toList()
+                if (urls.isNotEmpty()) {
+                    urls.take(2).forEach { url ->
+                        val linkBtn = TextView(this).apply {
+                            text = "🔗 Open Link"
+                            textSize = 11f
+                            setTextColor(Color.parseColor("#60A5FA"))
+                            setBackgroundResource(R.drawable.bg_chip_suggestion)
+                            setPadding((8 * density).toInt(), (4 * density).toInt(), (8 * density).toInt(), (4 * density).toInt())
+                            layoutParams = LinearLayout.LayoutParams(
+                                LinearLayout.LayoutParams.WRAP_CONTENT,
+                                LinearLayout.LayoutParams.WRAP_CONTENT
+                            ).apply {
+                                topMargin = (6 * density).toInt()
+                            }
+                            setOnClickListener {
+                                try {
+                                    val intent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url)).apply {
+                                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                    }
+                                    startActivity(intent)
+                                } catch (_: Exception) {}
+                            }
+                        }
+                        contentCard.addView(linkBtn)
+                    }
+                }
+
+                // Action Badge
+                msg.actionLabel?.let { actionBadgeText ->
+                    val badge = TextView(this).apply {
+                        text = actionBadgeText
+                        textSize = 11f
+                        setTextColor(Color.parseColor("#6EE7B7"))
+                        setBackgroundResource(R.drawable.bg_badge_success)
+                        setPadding((8 * density).toInt(), (4 * density).toInt(), (8 * density).toInt(), (4 * density).toInt())
+                        layoutParams = LinearLayout.LayoutParams(
+                            LinearLayout.LayoutParams.WRAP_CONTENT,
+                            LinearLayout.LayoutParams.WRAP_CONTENT
+                        ).apply {
+                            topMargin = (8 * density).toInt()
+                        }
+                    }
+                    contentCard.addView(badge)
+                }
+
+                // Next Step Suggestions
+                val suggestions = NextStepSuggester.getSuggestions(null, msg.content ?: "")
+                if (suggestions.isNotEmpty() && !isStreaming) {
+                    val suggestionHeader = TextView(this).apply {
+                        text = "💡 Next steps:"
+                        textSize = 11f
+                        setTextColor(Color.parseColor("#A78BFA"))
+                        layoutParams = LinearLayout.LayoutParams(
+                            LinearLayout.LayoutParams.WRAP_CONTENT,
+                            LinearLayout.LayoutParams.WRAP_CONTENT
+                        ).apply {
+                            topMargin = (10 * density).toInt()
+                            bottomMargin = (4 * density).toInt()
+                        }
+                    }
+                    contentCard.addView(suggestionHeader)
+
+                    suggestions.take(3).forEach { suggestion ->
+                        val chip = TextView(this).apply {
+                            text = suggestion
+                            textSize = 11f
+                            setTextColor(Color.parseColor("#CBD5E1"))
+                            setBackgroundResource(R.drawable.bg_chip_suggestion)
+                            setPadding((10 * density).toInt(), (5 * density).toInt(), (10 * density).toInt(), (5 * density).toInt())
+                            layoutParams = LinearLayout.LayoutParams(
+                                LinearLayout.LayoutParams.MATCH_PARENT,
+                                LinearLayout.LayoutParams.WRAP_CONTENT
+                            ).apply {
+                                topMargin = (4 * density).toInt()
+                            }
+                            setOnClickListener {
+                                handleSuggestionClick(suggestion)
+                            }
+                        }
+                        contentCard.addView(chip)
+                    }
+                }
+
+                assistantRow.addView(contentCard)
+                chatMessagesContainer.addView(assistantRow)
+            }
+        }
+
+        // Live streaming state
+        if (isStreaming && streamContent.isNotBlank()) {
+            val parsed = ActionParser.parse(streamContent)
+            val streamRow = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setBackgroundResource(R.drawable.bg_msg_assistant)
+                setPadding((12 * density).toInt(), (10 * density).toInt(), (12 * density).toInt(), (10 * density).toInt())
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    topMargin = (6 * density).toInt()
+                }
+            }
+            val streamText = TextView(this).apply {
+                text = parsed.userDisplayText.ifBlank { "⚡ Executing..." }
+                setTextColor(Color.parseColor("#C084FC"))
+                textSize = 13f
+            }
+            streamRow.addView(streamText)
+            chatMessagesContainer.addView(streamRow)
+        }
+
+        if (::chatScrollView.isInitialized) {
+            chatScrollView.post {
+                chatScrollView.fullScroll(View.FOCUS_DOWN)
+            }
+        }
+    }
+
+    private fun handleSuggestionClick(suggestion: String) {
+        val clean = NextStepSuggester.cleanPromptForInput(suggestion)
+        val current = chatInputEditText.text.toString().trim()
+        val newText = if (current.isBlank()) clean else "$current and then $clean"
+        chatInputEditText.setText(newText)
+        chatInputEditText.setSelection(newText.length)
+        chatInputEditText.requestFocus()
+    }
+
+    private fun renderQuickSuggestions() {
+        if (!::chatSuggestionsContainer.isInitialized) return
+        chatSuggestionsContainer.removeAllViews()
+        val density = resources.displayMetrics.density
+
+        val quickList = listOf(
+            "✉️ Open Gmail",
+            "▶️ Open YouTube",
+            "💬 Open WhatsApp",
+            "⏱️ Set 5m Timer",
+            "🔋 Check Battery",
+            "🌐 Search AI News"
         )
+
+        quickList.forEach { prompt ->
+            val chip = TextView(this).apply {
+                text = prompt
+                textSize = 11f
+                setTextColor(Color.parseColor("#CBD5E1"))
+                setBackgroundResource(R.drawable.bg_chip_suggestion)
+                setPadding((10 * density).toInt(), (5 * density).toInt(), (10 * density).toInt(), (5 * density).toInt())
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    marginEnd = (6 * density).toInt()
+                }
+                setOnClickListener {
+                    handleSuggestionClick(prompt)
+                }
+            }
+            chatSuggestionsContainer.addView(chip)
+        }
+    }
+
+    private var shouldSpeakLastResult = false
+
+    private fun sendPromptToCompanion(prompt: String, speakResult: Boolean) {
+        // Debounce: ignore rapid successive calls within ACTION_DEBOUNCE_MS
+        val now = System.currentTimeMillis()
+        if (now - lastActionTime < ACTION_DEBOUNCE_MS) {
+            Log.d("OverlayService", "Action debounced: too soon since last action")
+            return
+        }
+        lastActionTime = now
+        shouldSpeakLastResult = speakResult
+
+        toggleChatPanel(true)
+        com.orbital.ui.MascotEventBus.postEvent(com.orbital.ui.MascotEvent.PromptSent(prompt))
+
+        // Set character in ChatEngine
+        chatEngine.setCharacter(currentCharacter)
+
+        // Use ChatEngine for unified streaming logic
+        serviceScope.launch {
+            chatEngine.sendMessage(prompt)
+        }
     }
 
     private fun stopOverlay() {
@@ -635,11 +933,13 @@ class OverlayService : Service() {
             floatAnimator?.cancel()
             breatheAnimator?.cancel()
             idleTimerJob?.cancel()
+            actionDebounceJob?.cancel()
             if (::overlayView.isInitialized && overlayView.isAttachedToWindow) {
                 windowManager.removeView(overlayView)
             }
             isOverlayAttached = false
             unregisterReceiver(statusReceiver)
+            unregisterReceiver(configChangeReceiver)
             voiceManager.shutdown()
         } catch (_: Exception) {}
         stopSelf()
@@ -718,6 +1018,7 @@ class OverlayService : Service() {
             if (::overlayView.isInitialized) {
                 windowManager.removeView(overlayView)
                 unregisterReceiver(statusReceiver)
+                unregisterReceiver(configChangeReceiver)
             }
             stopEmbeddedServer()
         } catch (_: Exception) {}

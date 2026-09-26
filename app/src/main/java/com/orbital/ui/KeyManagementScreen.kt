@@ -439,7 +439,6 @@ fun KeyManagementScreen(
 
                 DashboardTab.MODELS_QUOTA -> {
                     ModelsQuotaDashboard(
-                        providerKeys = providerKeys,
                         providerEnabledStates = providerEnabledStates,
                         onToggleProvider = { type, enabled ->
                             providerEnabledStates = providerEnabledStates + (type to enabled)
@@ -866,7 +865,6 @@ data class QuotaModelData(
 
 @Composable
 fun ModelsQuotaDashboard(
-    providerKeys: Map<ProviderType, String>,
     providerEnabledStates: Map<ProviderType, Boolean>,
     onToggleProvider: (ProviderType, Boolean) -> Unit
 ) {

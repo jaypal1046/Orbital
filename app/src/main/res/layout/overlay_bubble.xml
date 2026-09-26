@@ -41,7 +41,7 @@
                 android:layout_weight="1"
                 android:text="Orbital AI Companion"
                 android:textColor="#FFFFFF"
-                android:textSize="15sp"
+                android:textSize="14sp"
                 android:textStyle="bold" />
 
             <ImageView
@@ -53,52 +53,65 @@
                 android:contentDescription="Close" />
         </LinearLayout>
 
-        <!-- Response / Messages Scroll Container -->
+        <!-- Response / Messages Scroll Container with Dynamic Bubble List -->
         <ScrollView
             android:id="@+id/chatScrollView"
             android:layout_width="match_parent"
-            android:layout_height="160dp"
+            android:layout_height="220dp"
             android:fadeScrollbars="false"
-            android:padding="4dp">
+            android:padding="2dp">
 
-            <TextView
-                android:id="@+id/chatResponseText"
+            <LinearLayout
+                android:id="@+id/chatMessagesContainer"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:lineSpacingExtra="3dp"
-                android:text="Hi! How can I help you today? Type below or long-press the avatar to speak."
-                android:textColor="#E2E8F0"
-                android:textSize="13sp" />
+                android:orientation="vertical"
+                android:paddingBottom="4dp" />
         </ScrollView>
+
+        <!-- Dynamic Quick Suggestions Bar (Horizontal Scroll) -->
+        <HorizontalScrollView
+            android:id="@+id/chatSuggestionsScroll"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:scrollbars="none"
+            android:layout_marginTop="6dp">
+
+            <LinearLayout
+                android:id="@+id/chatSuggestionsContainer"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal" />
+        </HorizontalScrollView>
 
         <!-- Input Row -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
+            android:layout_marginTop="8dp"
             android:gravity="center_vertical"
             android:orientation="horizontal">
 
             <EditText
                 android:id="@+id/chatInputEditText"
                 android:layout_width="0dp"
-                android:layout_height="42dp"
+                android:layout_height="40dp"
                 android:layout_weight="1"
                 android:background="@drawable/bg_input_field"
                 android:hint="Ask or command anything..."
                 android:textColorHint="#7C74A8"
                 android:textColor="#FFFFFF"
                 android:textSize="13sp"
-                android:paddingStart="14dp"
-                android:paddingEnd="14dp"
+                android:paddingStart="12dp"
+                android:paddingEnd="12dp"
                 android:imeOptions="actionSend"
                 android:inputType="textCapSentences|textMultiLine"
                 android:maxLines="3" />
 
             <ImageView
                 android:id="@+id/chatMicButton"
-                android:layout_width="38dp"
-                android:layout_height="38dp"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
                 android:layout_marginStart="6dp"
                 android:background="?android:attr/selectableItemBackgroundBorderless"
                 android:padding="6dp"
@@ -107,8 +120,8 @@
 
             <ImageView
                 android:id="@+id/chatSendButton"
-                android:layout_width="38dp"
-                android:layout_height="38dp"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
                 android:layout_marginStart="4dp"
                 android:background="?android:attr/selectableItemBackgroundBorderless"
                 android:padding="6dp"
@@ -117,7 +130,7 @@
         </LinearLayout>
     </LinearLayout>
 
-    <!-- Floating Mascot Avatar Container (Sleek & balanced 52dp) -->
+    <!-- Floating Mascot Avatar Container (Sleek 52dp) -->
     <FrameLayout
         android:id="@+id/bubbleAvatarContainer"
         android:layout_width="52dp"
@@ -134,7 +147,7 @@
             android:layout_height="match_parent"
             android:background="@android:color/transparent" />
 
-        <!-- Mascot Character Image (Crystal Clear HD Mascot) -->
+        <!-- Mascot Character Image -->
         <ImageView
             android:id="@+id/characterImage"
             android:layout_width="match_parent"

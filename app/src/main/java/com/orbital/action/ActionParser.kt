@@ -19,7 +19,7 @@ Your Available Phone Tools & Capabilities:
 2. SEARCH_APP: Search inside specific apps (e.g. YouTube for videos, Spotify for songs, Maps for places, Play Store for apps).
 3. NAVIGATE: Open GPS directions and navigation to an address or place in Google Maps.
 4. PLAY_MUSIC: Search and play music/songs or artists in Spotify / YouTube.
-5. COMPOSE_EMAIL: Open email app with recipient, subject, and body pre-filled.
+5. COMPOSE_EMAIL: Open email app (Gmail) with recipient, subject, and body pre-filled.
 6. SEND_SMS / WHATSAPP: Send direct messages or WhatsApp texts to a contact / phone number.
 7. SEARCH_WEB: Search Google / the web for any query.
 8. OPEN_URL: Open any web link or URL in the browser.
@@ -28,49 +28,52 @@ Your Available Phone Tools & Capabilities:
 11. DEVICE_STATUS: Check battery percentage, charging state, and device hardware info.
 12. MAKE_CALL: Open phone dialer with a phone number.
 
-How to Execute Actions:
-When the user asks you to perform a task, reply with a natural, friendly confirmation, and append an action block at the very end:
+Multi-Intent & Action Execution Guidelines:
+- When the user asks to compose or write an email (e.g., "open gmail and write email to jaypal1046@gmail.com write about why Flutter is based..."), use COMPOSE_EMAIL with "target": "Gmail", "recipient", a well-crafted "subject", and a rich, detailed "message" body containing the requested points.
+- When the user asks to play a song/artist, use PLAY_MUSIC with "query".
+- When the user asks to search videos or topics in YouTube, use SEARCH_APP with "target": "YouTube" and "query".
+- When the user asks to message someone on WhatsApp, use SEND_SMS with "target": "whatsapp", "recipient", and "message".
+
+How to Output Actions:
+Always reply with a brief, friendly confirmation text, followed by the action block at the very end:
 
 ```action
-{"action": "OPEN_APP", "target": "Chrome"}
+{"action": "COMPOSE_EMAIL", "target": "Gmail", "recipient": "jaypal1046@gmail.com", "subject": "Flutter vs React Discussion", "message": "Hi,\n\nHere are my thoughts on why Flutter is a solid foundation for modern app development and how React complements it...\n\nBest regards"}
 ```
 
 Action Schema Examples:
 - Open App:
   ```action
-  {"action": "OPEN_APP", "target": "WhatsApp"}
+  {"action": "OPEN_APP", "target": "Gmail"}
   ```
-
+- Compose Email:
+  ```action
+  {"action": "COMPOSE_EMAIL", "target": "Gmail", "recipient": "name@example.com", "subject": "Meeting Update", "message": "Here is the summary of our meeting."}
+  ```
 - Search YouTube:
   ```action
   {"action": "SEARCH_APP", "target": "YouTube", "query": "Cyberpunk music mix"}
   ```
-
 - Play Song / Music:
   ```action
   {"action": "PLAY_MUSIC", "query": "Starboy by The Weeknd"}
   ```
-
 - GPS Navigation:
   ```action
   {"action": "NAVIGATE", "query": "Nearest Coffee Shop"}
   ```
-
 - Web Search:
   ```action
   {"action": "SEARCH_WEB", "query": "latest space telescope discoveries"}
   ```
-
 - Set Timer:
   ```action
   {"action": "SET_TIMER", "seconds": 300, "label": "Tea Timer"}
   ```
-
 - Check Device Battery:
   ```action
   {"action": "DEVICE_STATUS"}
   ```
-
 - Open Setting:
   ```action
   {"action": "OPEN_SETTING", "target": "wifi"}
@@ -81,13 +84,16 @@ Always be fast, accurate, and select the best matching action for the user's req
     }
 
     fun parse(rawResponse: String): ParsedResponse {
-        val actionBlockRegex = Regex("```(?:action|json)?\\s*(\\{[\\s\\S]*?\"action\"[\\s\\S]*?\\})\\s*```", RegexOption.IGNORE_CASE)
+        // Match action block - capture JSON with action field inside code fences
+        val actionBlockRegex = Regex("(?s)```(?:action|json)?\\s*(\\{.*?\"action\".*?\\})[\\s\\S]*?(?:```|$)")
         val match = actionBlockRegex.find(rawResponse)
 
         if (match != null) {
             val jsonStr = match.groupValues[1]
             val action = parseActionJson(jsonStr)
-            val cleanText = rawResponse.replace(match.value, "").trim()
+            val cleanText = rawResponse.replace(match.value, "")
+                .replace(Regex("(?s)```(?:action|json)?[\\s\\S]*"), "")
+                .trim()
             return ParsedResponse(
                 userDisplayText = cleanText.ifBlank { "Executing ${action?.action ?: "task"}..." },
                 action = action
@@ -109,11 +115,14 @@ Always be fast, accurate, and select the best matching action for the user's req
             }
         }
 
+        // Clean any leftover action fence if present
+        val cleanedRaw = rawResponse.replace(Regex("(?s)```(?:action|json)?[\\s\\S]*"), "").trim()
+
         // Fallback intent detection for direct command phrases if model forgot action block
         val fallbackAction = detectDirectCommand(rawResponse)
 
         return ParsedResponse(
-            userDisplayText = rawResponse.trim(),
+            userDisplayText = cleanedRaw.ifBlank { rawResponse.trim() },
             action = fallbackAction
         )
     }

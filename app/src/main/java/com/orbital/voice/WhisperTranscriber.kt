@@ -75,6 +75,14 @@ class WhisperTranscriber(
         }
     }
 
+    fun isConfigured(): Boolean {
+        val groqKey = secureStorage.getProviderApiKey("GROQ")
+        val openAiKey = secureStorage.getProviderApiKey("OPENAI")
+        val genericKey = secureStorage.getApiKey()
+        return !groqKey.isNullOrBlank() || !openAiKey.isNullOrBlank() ||
+                (genericKey?.startsWith("gsk_") == true) || (genericKey?.startsWith("sk-") == true)
+    }
+
     suspend fun stopRecordingAndTranscribe(): Result<String> = withContext(Dispatchers.IO) {
         if (!isRecording) {
             return@withContext Result.failure(IllegalStateException("Not recording"))
@@ -95,8 +103,13 @@ class WhisperTranscriber(
             return@withContext Result.failure(IOException("Audio file is empty or missing"))
         }
 
+        val genericKey = secureStorage.getApiKey()
+
         // 1. Try Groq Whisper (Blistering speed <200ms with whisper-large-v3-turbo)
-        val groqKey = secureStorage.getProviderApiKey("GROQ")
+        var groqKey = secureStorage.getProviderApiKey("GROQ")
+        if (groqKey.isNullOrBlank() && genericKey?.startsWith("gsk_") == true) {
+            groqKey = genericKey
+        }
         if (!groqKey.isNullOrBlank()) {
             val groqResult = transcribeWithGroq(audioFile, groqKey)
             if (groqResult.isSuccess) {
@@ -107,7 +120,10 @@ class WhisperTranscriber(
         }
 
         // 2. Fallback to OpenAI Whisper (whisper-1)
-        val openAiKey = secureStorage.getProviderApiKey("OPENAI")
+        var openAiKey = secureStorage.getProviderApiKey("OPENAI")
+        if (openAiKey.isNullOrBlank() && genericKey?.startsWith("sk-") == true) {
+            openAiKey = genericKey
+        }
         if (!openAiKey.isNullOrBlank()) {
             val openAiResult = transcribeWithOpenAI(audioFile, openAiKey)
             if (openAiResult.isSuccess) {
@@ -118,7 +134,7 @@ class WhisperTranscriber(
         }
 
         audioFile.delete()
-        Result.failure(IOException("No active Groq or OpenAI key configured for Whisper STT"))
+        Result.failure(IOException("No active Groq or OpenAI key configured for Whisper STT. Add a Groq API key in Settings."))
     }
 
     private fun transcribeWithGroq(file: File, apiKey: String): Result<String> {

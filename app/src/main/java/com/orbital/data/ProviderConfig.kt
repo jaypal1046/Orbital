@@ -276,7 +276,9 @@ data class ChatRequest(
 @Serializable
 data class ChatMessage(
     val role: String,
-    val content: String?
+    val content: String?,
+    val actionLabel: String? = null,
+    val actionDetails: String? = null
 ) {
     // For Gemini format compatibility
     @Serializable

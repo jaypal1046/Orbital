@@ -78,11 +78,7 @@ fun AnimatedMascotView(
         label = "jump_offset"
     )
 
-    val glowColors = if (characterId.equals("lumy", ignoreCase = true) || characterId.equals("spark", ignoreCase = true)) {
-        listOf(Color(0xFFFFB74D).copy(alpha = 0.35f), Color(0xFFF43F5E).copy(alpha = 0.15f), Color.Transparent)
-    } else {
-        listOf(Color(0xFF8B5CF6).copy(alpha = 0.35f), Color(0xFF3B82F6).copy(alpha = 0.15f), Color.Transparent)
-    }
+    val glowColors = MascotSpriteHelper.getAuraGlowColors(characterId)
 
     Box(
         modifier = modifier

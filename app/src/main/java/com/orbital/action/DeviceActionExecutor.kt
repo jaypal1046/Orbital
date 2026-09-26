@@ -33,7 +33,7 @@ data class DeviceAction(
     val message: String? = null
 )
 
-class DeviceActionExecutor(private val context: Context) {
+open class DeviceActionExecutor(private val context: Context) {
 
     companion object {
         private const val TAG = "DeviceActionExecutor"
@@ -41,13 +41,13 @@ class DeviceActionExecutor(private val context: Context) {
 
     private val capabilityManager = AppCapabilityManager(context)
 
-    fun getCapabilityManager(): AppCapabilityManager = capabilityManager
+    open fun getCapabilityManager(): AppCapabilityManager = capabilityManager
 
-    fun getInstalledAppNames(): List<String> {
+    open fun getInstalledAppNames(): List<String> {
         return capabilityManager.getInstalledApps().map { it.name }
     }
 
-    fun execute(action: DeviceAction): ActionResult {
+    open fun execute(action: DeviceAction): ActionResult {
         Log.i(TAG, "Executing dynamic device action: ${action.action} on target: ${action.target ?: action.query ?: action.url}")
         return try {
             when (action.action.uppercase().trim()) {
@@ -57,7 +57,12 @@ class DeviceActionExecutor(private val context: Context) {
                 "OPEN_URL", "LAUNCH_URL" -> openUrl(action.url ?: action.target ?: "")
                 "NAVIGATE", "DIRECTIONS", "MAPS" -> navigateTo(action.query ?: action.target ?: "")
                 "PLAY_MUSIC", "PLAY_MEDIA", "PLAY" -> playMusicOrVideo(action.target ?: "", action.query ?: action.label ?: "")
-                "COMPOSE_EMAIL", "EMAIL", "SEND_EMAIL" -> composeEmail(action.recipient ?: action.target, action.subject, action.message ?: action.query)
+                "COMPOSE_EMAIL", "EMAIL", "SEND_EMAIL" -> composeEmail(
+                    recipient = action.recipient ?: (if (action.target?.contains("@") == true) action.target else null),
+                    subject = action.subject,
+                    body = action.message ?: action.query,
+                    target = action.target
+                )
                 "SET_TIMER", "TIMER" -> setTimer(action.seconds ?: 60, action.label ?: "AI Companion Timer")
                 "OPEN_SETTING", "SETTINGS" -> openSetting(action.target ?: "")
                 "DEVICE_STATUS", "BATTERY" -> getDeviceStatus()
@@ -184,7 +189,11 @@ class DeviceActionExecutor(private val context: Context) {
         return searchInApp("spotify", query)
     }
 
-    fun composeEmail(recipient: String?, subject: String?, body: String?): ActionResult {
+    fun composeEmail(recipient: String?, subject: String?, body: String?, target: String? = null): ActionResult {
+        val cleanTarget = target?.lowercase()?.trim() ?: ""
+        val isGmailExplicit = cleanTarget.contains("gmail") || cleanTarget.contains("com.google.android.gm")
+        val isOutlookExplicit = cleanTarget.contains("outlook")
+
         val intent = Intent(Intent.ACTION_SENDTO).apply {
             data = Uri.parse("mailto:")
             if (!recipient.isNullOrBlank()) {
@@ -198,11 +207,38 @@ class DeviceActionExecutor(private val context: Context) {
             }
             flags = Intent.FLAG_ACTIVITY_NEW_TASK
         }
+
+        val targetPackage = when {
+            isGmailExplicit -> "com.google.android.gm"
+            isOutlookExplicit -> "com.microsoft.office.outlook"
+            isPackageInstalled("com.google.android.gm") -> "com.google.android.gm"
+            else -> null
+        }
+
+        if (targetPackage != null && isPackageInstalled(targetPackage)) {
+            intent.setPackage(targetPackage)
+        }
+
         return try {
             context.startActivity(intent)
             ActionResult.Success("Composing email to ${recipient ?: "draft"}")
         } catch (e: Exception) {
-            ActionResult.Error("No email app found on device.")
+            try {
+                intent.setPackage(null)
+                context.startActivity(intent)
+                ActionResult.Success("Composing email to ${recipient ?: "draft"}")
+            } catch (ex: Exception) {
+                ActionResult.Error("No email app found on device.")
+            }
+        }
+    }
+
+    private fun isPackageInstalled(packageName: String): Boolean {
+        return try {
+            context.packageManager.getPackageInfo(packageName, 0)
+            true
+        } catch (e: Exception) {
+            false
         }
     }
 

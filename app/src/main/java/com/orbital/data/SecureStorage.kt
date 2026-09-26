@@ -5,9 +5,10 @@ import android.content.SharedPreferences
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 
-class SecureStorage(context: Context) {
+open class SecureStorage(context: Context) {
 
     companion object {
+        private const val TAG = "SecureStorage"
         private const val PREFERENCES_NAME = "orbital_prefs"
         private const val KEY_API_KEY = "api_key"
         private const val KEY_PROVIDER = "provider"
@@ -29,15 +30,15 @@ class SecureStorage(context: Context) {
         EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
     )
 
-    fun saveApiKey(apiKey: String) {
+    open fun saveApiKey(apiKey: String) {
         sharedPreferences.edit().putString(KEY_API_KEY, apiKey).apply()
     }
 
-    fun getApiKey(): String? {
+    open fun getApiKey(): String? {
         return sharedPreferences.getString(KEY_API_KEY, null)
     }
 
-    fun saveProviderApiKey(provider: String, apiKey: String) {
+    open fun saveProviderApiKey(provider: String, apiKey: String) {
         val clean = apiKey.trim()
         sharedPreferences.edit().putString("api_key_${provider.lowercase()}", clean).apply()
         if (provider.equals("gemini", ignoreCase = true) || provider.equals("google", ignoreCase = true)) {
@@ -49,7 +50,7 @@ class SecureStorage(context: Context) {
         }
     }
 
-    fun getProviderApiKey(provider: String): String? {
+    open fun getProviderApiKey(provider: String): String? {
         val key = sharedPreferences.getString("api_key_${provider.lowercase()}", null)
         if (!key.isNullOrBlank()) return key.trim()
 
@@ -62,23 +63,23 @@ class SecureStorage(context: Context) {
         return null
     }
 
-    fun saveProviderEnabled(provider: String, enabled: Boolean) {
+    open fun saveProviderEnabled(provider: String, enabled: Boolean) {
         sharedPreferences.edit().putBoolean("enabled_${provider.lowercase()}", enabled).apply()
     }
 
-    fun isProviderEnabled(provider: String): Boolean {
+    open fun isProviderEnabled(provider: String): Boolean {
         return sharedPreferences.getBoolean("enabled_${provider.lowercase()}", true)
     }
 
-    fun saveProviderSelectedModel(provider: String, model: String) {
+    open fun saveProviderSelectedModel(provider: String, model: String) {
         sharedPreferences.edit().putString("model_${provider.lowercase()}", model).apply()
     }
 
-    fun getProviderSelectedModel(provider: String): String? {
+    open fun getProviderSelectedModel(provider: String): String? {
         return sharedPreferences.getString("model_${provider.lowercase()}", null)
     }
 
-    fun saveProviderModelScope(provider: String, models: Set<String>?) {
+    open fun saveProviderModelScope(provider: String, models: Set<String>?) {
         if (models == null) {
             sharedPreferences.edit().remove("scope_${provider.lowercase()}").apply()
         } else {
@@ -86,31 +87,31 @@ class SecureStorage(context: Context) {
         }
     }
 
-    fun getProviderModelScope(provider: String): Set<String>? {
+    open fun getProviderModelScope(provider: String): Set<String>? {
         return sharedPreferences.getStringSet("scope_${provider.lowercase()}", null)
     }
 
-    fun saveProvider(provider: String) {
+    open fun saveProvider(provider: String) {
         sharedPreferences.edit().putString(KEY_PROVIDER, provider).apply()
     }
 
-    fun getProvider(): String? {
+    open fun getProvider(): String? {
         return sharedPreferences.getString(KEY_PROVIDER, null)
     }
 
-    fun saveCharacter(character: String) {
+    open fun saveCharacter(character: String) {
         sharedPreferences.edit().putString(KEY_CHARACTER, character).apply()
     }
 
-    fun getCharacter(): String? {
+    open fun getCharacter(): String? {
         return sharedPreferences.getString(KEY_CHARACTER, null)
     }
 
-    fun saveSafetyAction(action: String) {
+    open fun saveSafetyAction(action: String) {
         sharedPreferences.edit().putString(KEY_SAFETY_ACTION, action).apply()
     }
 
-    fun getSafetyAction(): String? {
+    open fun getSafetyAction(): String? {
         return sharedPreferences.getString(KEY_SAFETY_ACTION, null)
     }
 
