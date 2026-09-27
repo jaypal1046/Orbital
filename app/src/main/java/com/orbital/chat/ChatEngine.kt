@@ -13,6 +13,7 @@ interface ChatEngine {
         get() = streamingContent
 
     fun setCharacter(character: String)
+    fun clearMessages()
     suspend fun sendMessage(message: String)
     suspend fun handleStreamCompletion()
     suspend fun executeTTSAndActions()

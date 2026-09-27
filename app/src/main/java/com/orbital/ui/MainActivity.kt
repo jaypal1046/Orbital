@@ -64,6 +64,11 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        chatViewModel.refreshCharacter()
+    }
+
     private fun renderMainChat() {
         setContent {
             MaterialTheme(
@@ -81,6 +86,10 @@ class MainActivity : ComponentActivity() {
                     },
                     onOpenCharacters = {
                         val intent = Intent(this@MainActivity, CharacterSelectionActivity::class.java)
+                        startActivity(intent)
+                    },
+                    onOpenAutomations = {
+                        val intent = Intent(this@MainActivity, AutomationSettingsActivity::class.java)
                         startActivity(intent)
                     }
                 )

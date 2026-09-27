@@ -11,11 +11,13 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -31,7 +33,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
@@ -42,6 +46,7 @@ import androidx.compose.ui.unit.sp
 fun ChatBubbleItem(
     message: UiMessage,
     characterName: String,
+    characterId: String = "lumy",
     isStreaming: Boolean = false,
     onCopy: () -> Unit,
     onSpeak: () -> Unit,
@@ -49,57 +54,122 @@ fun ChatBubbleItem(
     onAddStepToInput: (String) -> Unit = {}
 ) {
     val isUser = message.role == "user"
+    val character = remember(characterId) { Character.find(characterId) }
 
-    Column(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalAlignment = if (isUser) Alignment.End else Alignment.Start
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(if (isUser) 0.85f else 0.92f),
-            horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start
+    if (isUser) {
+        // Modern User Message Bubble (Hugs content, sleek gradient & subtle glowing border)
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 3.dp),
+            contentAlignment = Alignment.CenterEnd
         ) {
-            if (!isUser) {
-                val spriteRes = MascotSpriteHelper.getSprite("aether", MascotState.HAPPY)
+            Box(
+                modifier = Modifier
+                    .widthIn(min = 36.dp, max = 290.dp)
+                    .clip(
+                        RoundedCornerShape(
+                            topStart = 18.dp,
+                            topEnd = 18.dp,
+                            bottomStart = 18.dp,
+                            bottomEnd = 4.dp
+                        )
+                    )
+                    .background(
+                        Brush.linearGradient(
+                            listOf(Color(0xFF7C3AED), Color(0xFF5B21B6))
+                        )
+                    )
+                    .border(
+                        1.dp,
+                        Color(0xFFA78BFA).copy(alpha = 0.35f),
+                        RoundedCornerShape(
+                            topStart = 18.dp,
+                            topEnd = 18.dp,
+                            bottomStart = 18.dp,
+                            bottomEnd = 4.dp
+                        )
+                    )
+                    .padding(horizontal = 14.dp, vertical = 10.dp)
+            ) {
+                Text(
+                    text = message.content,
+                    color = Color.White,
+                    fontSize = 14.5.sp,
+                    lineHeight = 20.sp
+                )
+            }
+        }
+    } else {
+        // AI Assistant Message Bubble
+        Row(
+            modifier = Modifier
+                .fillMaxWidth(0.96f)
+                .padding(vertical = 4.dp),
+            horizontalArrangement = Arrangement.Start,
+            verticalAlignment = Alignment.Top
+        ) {
+            val spriteRes = MascotSpriteHelper.getSprite(character.id, MascotState.HAPPY)
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(CircleShape)
+                    .background(
+                        Brush.linearGradient(
+                            listOf(
+                                character.gradientColors.firstOrNull()?.copy(alpha = 0.4f) ?: Color(0xFF7C3AED),
+                                Color(0xFF1E1B4B)
+                            )
+                        )
+                    )
+                    .border(
+                        1.dp,
+                        character.gradientColors.firstOrNull()?.copy(alpha = 0.6f) ?: Color(0xFF8B5CF6),
+                        CircleShape
+                    )
+                    .clickable { MascotEventBus.postEvent(MascotEvent.Tap) }
+                    .padding(4.dp),
+                contentAlignment = Alignment.Center
+            ) {
                 Image(
                     painter = painterResource(id = spriteRes),
                     contentDescription = characterName,
-                    modifier = Modifier
-                        .size(32.dp)
-                        .clip(CircleShape)
-                        .background(Color(0xFF2E1065))
-                        .padding(2.dp)
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier.fillMaxSize()
                 )
-                Spacer(modifier = Modifier.width(8.dp))
             }
+
+            Spacer(modifier = Modifier.width(10.dp))
 
             Surface(
                 shape = RoundedCornerShape(
-                    topStart = 16.dp,
-                    topEnd = 16.dp,
-                    bottomStart = if (isUser) 16.dp else 4.dp,
-                    bottomEnd = if (isUser) 4.dp else 16.dp
+                    topStart = 4.dp,
+                    topEnd = 18.dp,
+                    bottomStart = 18.dp,
+                    bottomEnd = 18.dp
                 ),
-                color = if (isUser) Color(0xFF6D28D9) else Color(0xFF181B2C),
-                border = if (!isUser) BorderStroke(1.dp, Color(0xFF2E334D)) else null
+                color = Color(0xFF131728),
+                border = BorderStroke(1.dp, Color(0xFF262D4A)),
+                shadowElevation = 2.dp,
+                modifier = Modifier.weight(1f)
             ) {
-                Column(modifier = Modifier.padding(12.dp)) {
+                Column(modifier = Modifier.padding(14.dp)) {
                     val context = androidx.compose.ui.platform.LocalContext.current
                     val urlRegex = remember { Regex("https?://[a-zA-Z0-9.-]+(?:/[^\\s]*)?") }
                     val foundUrls = remember(message.content) { urlRegex.findAll(message.content).map { it.value }.toList() }
 
-                    Text(
-                        text = message.content,
-                        color = Color.White,
-                        fontSize = 14.sp,
-                        lineHeight = 20.sp
+                    // Rich Markdown Formatted Response
+                    FormattedMarkdownContent(
+                        content = message.content,
+                        textColor = Color.White
                     )
 
-                    // Clickable URL Badges / Action Buttons if web links are present
+                    // Clickable URL Badges if web links are present
                     if (foundUrls.isNotEmpty()) {
-                        Spacer(modifier = Modifier.height(8.dp))
+                        Spacer(modifier = Modifier.height(10.dp))
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             foundUrls.take(2).forEach { url ->
                                 Surface(
@@ -120,7 +190,7 @@ fun ChatBubbleItem(
                                 ) {
                                     Row(
                                         verticalAlignment = Alignment.CenterVertically,
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
                                     ) {
                                         Text(
                                             text = "🔗 Open Link",
@@ -136,32 +206,32 @@ fun ChatBubbleItem(
 
                     // Action Execution Badge
                     message.actionLabel?.let { badge ->
-                        Spacer(modifier = Modifier.height(8.dp))
+                        Spacer(modifier = Modifier.height(10.dp))
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier
-                                .clip(RoundedCornerShape(6.dp))
+                                .clip(RoundedCornerShape(8.dp))
                                 .background(
                                     if (badge.startsWith("⚡")) Color(0xFF064E3B) else Color(0xFF7F1D1D)
                                 )
                                 .border(
                                     1.dp,
                                     if (badge.startsWith("⚡")) Color(0xFF059669) else Color(0xFFDC2626),
-                                    RoundedCornerShape(6.dp)
+                                    RoundedCornerShape(8.dp)
                                 )
-                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                                .padding(horizontal = 10.dp, vertical = 6.dp)
                         ) {
                             Text(
                                 text = badge,
-                                fontSize = 11.sp,
+                                fontSize = 12.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 color = if (badge.startsWith("⚡")) Color(0xFF6EE7B7) else Color(0xFFFCA5A5)
                             )
                         }
                     }
 
-                    // Contextual Interactive Next Step Options
-                    if (!isUser && !isStreaming && message.nextStepSuggestions.isNotEmpty()) {
+                    // Contextual Interactive Next Step Options (Only when real action executed)
+                    if (!isStreaming && message.nextStepSuggestions.isNotEmpty()) {
                         Spacer(modifier = Modifier.height(10.dp))
                         Text(
                             text = "💡 What would you like to do next?",
@@ -197,7 +267,6 @@ fun ChatBubbleItem(
 
                                         Spacer(modifier = Modifier.width(6.dp))
 
-                                        // Plus button to append to input box
                                         Box(
                                             modifier = Modifier
                                                 .clip(CircleShape)
@@ -218,14 +287,14 @@ fun ChatBubbleItem(
                         }
                     }
 
-                    if (!isUser && !isStreaming) {
+                    // Bottom Provider Badge & Action Icons
+                    if (!isStreaming) {
                         Spacer(modifier = Modifier.height(8.dp))
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween,
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            // Serving provider badge
                             message.providerName?.let { provider ->
                                 Box(
                                     modifier = Modifier
@@ -274,24 +343,7 @@ fun PreviewUserChatBubbleItem() {
     ChatBubbleItem(
         message = UiMessage(
             role = "user",
-            content = "Open Gmail and check new emails"
-        ),
-        characterName = "Aether",
-        onCopy = {},
-        onSpeak = {}
-    )
-}
-
-@Preview(showBackground = true, backgroundColor = 0xFF0A0C14)
-@Composable
-fun PreviewAssistantChatBubbleItem() {
-    ChatBubbleItem(
-        message = UiMessage(
-            role = "assistant",
-            content = "I've opened Gmail for you and set a reminder.",
-            providerName = "Groq (Llama-3-70b)",
-            actionLabel = "⚡ Executed: Opened Gmail",
-            nextStepSuggestions = listOf("Search emails from GitHub", "Compose new email to team")
+            content = "hi"
         ),
         characterName = "Aether",
         onCopy = {},

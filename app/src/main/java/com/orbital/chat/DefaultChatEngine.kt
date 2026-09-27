@@ -43,6 +43,12 @@ class DefaultChatEngine @Inject constructor(
         currentCharacter = character
     }
 
+    override fun clearMessages() {
+        _messages.value = emptyList()
+        streamingContent.value = ""
+        isStreaming.value = false
+    }
+
     override suspend fun sendMessage(message: String) {
         isStreaming.value = true
         streamingContent.value = ""

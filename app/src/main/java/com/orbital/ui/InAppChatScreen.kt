@@ -1,58 +1,55 @@
 package com.orbital.ui
 
+import android.content.Intent
+import android.net.Uri
 import android.widget.Toast
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.material3.rememberModalBottomSheetState
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.orbital.data.RoutingMode
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun InAppChatScreen(
     chatViewModel: ChatViewModel,
     onOpenKeys: () -> Unit,
-    onOpenCharacters: () -> Unit
+    onOpenCharacters: () -> Unit,
+    onOpenAutomations: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
+    val coroutineScope = rememberCoroutineScope()
+    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+
+    var showLegalScreen by remember { mutableStateOf(false) }
+    var legalTab by remember { mutableStateOf(LegalTab.PRIVACY) }
+    var showAboutDialog by remember { mutableStateOf(false) }
 
     // Observe ViewModel state
     val messages by chatViewModel.messages.collectAsState()
@@ -64,67 +61,257 @@ fun InAppChatScreen(
     val currentRoutingMode by chatViewModel.currentRoutingMode.collectAsState()
     val selectedPinnedProvider by chatViewModel.selectedPinnedProvider.collectAsState()
     val isVoiceListening by chatViewModel.isVoiceListening.collectAsState()
+    val currentCharacterId by chatViewModel.currentCharacter.collectAsState()
     val characterName = chatViewModel.characterName
 
     var showRoutingSheet by remember { mutableStateOf(false) }
     var showActionTemplatesSheet by remember { mutableStateOf(false) }
+    var showCharacterPickerSheet by remember { mutableStateOf(false) }
 
-    Scaffold(
-        topBar = {
-            TopBar(
-                characterName = characterName,
-                currentRoutingMode = currentRoutingMode,
-                selectedPinnedProvider = selectedPinnedProvider?.name,
+    ModalNavigationDrawer(
+        drawerState = drawerState,
+        drawerContent = {
+            SideNavDrawer(
+                currentCharacterId = currentCharacterId,
+                onSelectCharacter = { charId ->
+                    chatViewModel.switchCharacter(charId)
+                },
+                onNewChat = {
+                    chatViewModel.startNewChat()
+                    Toast.makeText(context, "Started fresh chat session", Toast.LENGTH_SHORT).show()
+                },
                 onOpenKeys = onOpenKeys,
                 onOpenCharacters = onOpenCharacters,
-                onRoutingModeClick = { showRoutingSheet = true }
+                onOpenAutomations = onOpenAutomations,
+                onOpenRoutingMode = { showRoutingSheet = true },
+                onOpenLegal = { tab ->
+                    showLegalScreen = true
+                    legalTab = tab
+                },
+                onOpenAbout = { showAboutDialog = true },
+                onCloseDrawer = {
+                    coroutineScope.launch { drawerState.close() }
+                }
             )
-        },
-        containerColor = Color(0xFF0A0C14)
-    ) { innerPadding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
+        }
+    ) {
+        Scaffold(
+            topBar = {
+                TopBar(
+                    characterId = currentCharacterId,
+                    characterName = characterName,
+                    currentRoutingMode = currentRoutingMode,
+                    selectedPinnedProvider = selectedPinnedProvider?.name,
+                    onOpenDrawer = {
+                        coroutineScope.launch { drawerState.open() }
+                    },
+                    onOpenCharacters = {
+                        showCharacterPickerSheet = true
+                    },
+                    onRoutingModeClick = { showRoutingSheet = true }
+                )
+            },
+            containerColor = Color(0xFF0A0C14)
+        ) { innerPadding ->
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding)
+            ) {
+                MessageList(
+                    messages = messages,
+                    characterName = characterName,
+                    characterId = currentCharacterId,
+                    isStreaming = isStreaming,
+                    currentStreamContent = currentStreamContent,
+                    activeServingProvider = activeServingProvider,
+                    modifier = Modifier.weight(1f),
+                    onCopy = { text ->
+                        clipboardManager.setText(AnnotatedString(text))
+                        Toast.makeText(context, "Copied to clipboard", Toast.LENGTH_SHORT).show()
+                    },
+                    onSpeak = { text ->
+                        chatViewModel.speak(text)
+                    },
+                    onSuggestionClick = { suggestion ->
+                        chatViewModel.onSuggestionClick(suggestion)
+                    },
+                    onAddStepToInput = { step ->
+                        chatViewModel.onAddStepToInput(step)
+                    }
+                )
+
+                if (messages.isNotEmpty() && quickSuggestions.isNotEmpty()) {
+                    QuickSuggestionsBar(
+                        quickSuggestions = quickSuggestions,
+                        onSuggestionClick = { prompt ->
+                            chatViewModel.onQuickSuggestionClick(prompt)
+                        }
+                    )
+                }
+
+                InputBar(
+                    inputText = inputText,
+                    onInputChange = { chatViewModel.onInputChange(it) },
+                    isVoiceListening = isVoiceListening,
+                    onVoiceClick = { chatViewModel.toggleVoiceListening() },
+                    isStreaming = isStreaming,
+                    onSendClick = { chatViewModel.onSendClick() },
+                    onQuickTemplateClick = { showActionTemplatesSheet = true }
+                )
+            }
+        }
+    }
+
+    // Quick Character Switcher Bottom Sheet (Triggered by Face Icon in TopBar)
+    if (showCharacterPickerSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showCharacterPickerSheet = false },
+            containerColor = Color(0xFF121524),
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
         ) {
-            MessageList(
-                messages = messages,
-                characterName = characterName,
-                isStreaming = isStreaming,
-                currentStreamContent = currentStreamContent,
-                activeServingProvider = activeServingProvider,
-                modifier = Modifier.weight(1f),
-                onCopy = { text ->
-                    clipboardManager.setText(AnnotatedString(text))
-                    Toast.makeText(context, "Copied to clipboard", Toast.LENGTH_SHORT).show()
-                },
-                onSpeak = { text ->
-                    chatViewModel.speak(text)
-                },
-                onSuggestionClick = { suggestion ->
-                    chatViewModel.onSuggestionClick(suggestion)
-                },
-                onAddStepToInput = { step ->
-                    chatViewModel.onAddStepToInput(step)
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 12.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text(
+                            text = "✨ Choose AI Companion",
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                        Text(
+                            text = "Instant personality, voice, and aura switch",
+                            fontSize = 12.sp,
+                            color = Color(0xFF94A3B8)
+                        )
+                    }
+                    IconButton(onClick = { showCharacterPickerSheet = false }) {
+                        Icon(Icons.Default.Close, contentDescription = "Close", tint = Color(0xFF94A3B8))
+                    }
                 }
-            )
 
-            QuickSuggestionsBar(
-                quickSuggestions = quickSuggestions,
-                onSuggestionClick = { prompt ->
-                    chatViewModel.onQuickSuggestionClick(prompt)
+                Spacer(modifier = Modifier.height(14.dp))
+
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 380.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(Character.all) { char ->
+                        val isSelected = char.id.equals(currentCharacterId, ignoreCase = true)
+                        val spriteRes = MascotSpriteHelper.getSprite(char.id, MascotState.IDLE)
+
+                        Surface(
+                            shape = RoundedCornerShape(14.dp),
+                            color = if (isSelected) Color(0xFF2E1065) else Color(0xFF191D30),
+                            border = BorderStroke(
+                                1.dp,
+                                if (isSelected) Color(0xFF8B5CF6) else Color(0xFF262D4A)
+                            ),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    chatViewModel.switchCharacter(char.id)
+                                    showCharacterPickerSheet = false
+                                    Toast.makeText(context, "Switched to ${char.name}!", Toast.LENGTH_SHORT).show()
+                                }
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(42.dp)
+                                        .clip(CircleShape)
+                                        .background(
+                                            Brush.linearGradient(
+                                                char.gradientColors.map { it.copy(alpha = 0.35f) }
+                                            )
+                                        )
+                                        .border(
+                                            1.dp,
+                                            char.gradientColors.firstOrNull()?.copy(alpha = 0.7f) ?: Color(0xFF8B5CF6),
+                                            CircleShape
+                                        )
+                                        .padding(4.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Image(
+                                        painter = painterResource(id = spriteRes),
+                                        contentDescription = char.name,
+                                        modifier = Modifier.fillMaxSize()
+                                    )
+                                }
+
+                                Spacer(modifier = Modifier.width(12.dp))
+
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(
+                                            text = char.name,
+                                            fontSize = 15.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color.White
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(text = char.emoji, fontSize = 14.sp)
+                                    }
+                                    Text(
+                                        text = char.title,
+                                        fontSize = 11.5.sp,
+                                        color = if (isSelected) Color(0xFFA78BFA) else Color(0xFF94A3B8),
+                                        maxLines = 1
+                                    )
+                                }
+
+                                if (isSelected) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(24.dp)
+                                            .clip(CircleShape)
+                                            .background(Color(0xFF8B5CF6)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Check,
+                                            contentDescription = "Selected",
+                                            tint = Color.White,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
-            )
 
-            InputBar(
-                inputText = inputText,
-                onInputChange = { chatViewModel.onInputChange(it) },
-                isVoiceListening = isVoiceListening,
-                onVoiceClick = { chatViewModel.toggleVoiceListening() },
-                isStreaming = isStreaming,
-                onSendClick = { chatViewModel.onSendClick() },
-                onQuickTemplateClick = { showActionTemplatesSheet = true }
-            )
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Button(
+                    onClick = {
+                        showCharacterPickerSheet = false
+                        onOpenCharacters()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF261E47)),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("View Full 3D/Sprite Character Gallery", color = Color(0xFFA78BFA), fontSize = 13.sp)
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+            }
         }
     }
 
@@ -148,7 +335,7 @@ fun InAppChatScreen(
                 )
                 Spacer(modifier = Modifier.height(6.dp))
                 Text(
-                    text = "Orbital can automatically switch providers based on latency, quality, or cooldowns.",
+                    text = "Orbital automatically routes requests based on speed, reasoning depth, and rate limits.",
                     fontSize = 12.sp,
                     color = Color(0xFF94A3B8)
                 )
@@ -164,7 +351,7 @@ fun InAppChatScreen(
                     Surface(
                         color = if (isSelected) Color(0xFF2E1B5B) else Color(0xFF1B1E30),
                         shape = RoundedCornerShape(12.dp),
-                        border = androidx.compose.foundation.BorderStroke(
+                        border = BorderStroke(
                             1.dp,
                             if (isSelected) Color(0xFF8B5CF6) else Color(0xFF2B304C)
                         ),
@@ -263,6 +450,25 @@ fun InAppChatScreen(
             }
         }
     }
+
+    // Legal Screen (Privacy Policy / Terms of Service)
+    if (showLegalScreen) {
+        LegalScreen(
+            onBack = { showLegalScreen = false },
+            initialTab = legalTab
+        )
+    }
+
+    // About Dialog
+    if (showAboutDialog) {
+        AboutDialog(
+            onDismiss = { showAboutDialog = false },
+            onOpenGithub = {
+                val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com"))
+                context.startActivity(intent)
+            }
+        )
+    }
 }
 
 // Backward-compatible alias
@@ -270,12 +476,14 @@ fun InAppChatScreen(
 fun ChatScreen(
     chatViewModel: ChatViewModel,
     onOpenKeys: () -> Unit,
-    onOpenCharacters: () -> Unit
+    onOpenCharacters: () -> Unit,
+    onOpenAutomations: () -> Unit = {}
 ) {
     InAppChatScreen(
         chatViewModel = chatViewModel,
         onOpenKeys = onOpenKeys,
-        onOpenCharacters = onOpenCharacters
+        onOpenCharacters = onOpenCharacters,
+        onOpenAutomations = onOpenAutomations
     )
 }
 
@@ -286,10 +494,11 @@ fun PreviewInAppChatScreenContent() {
     Scaffold(
         topBar = {
             TopBar(
-                characterName = "Aether (AI Companion)",
+                characterId = "lumy",
+                characterName = "Lumy (AI Companion)",
                 currentRoutingMode = RoutingMode.AUTO,
                 selectedPinnedProvider = null,
-                onOpenKeys = {},
+                onOpenDrawer = {},
                 onOpenCharacters = {},
                 onRoutingModeClick = {}
             )
@@ -311,7 +520,8 @@ fun PreviewInAppChatScreenContent() {
                         actionLabel = "⚡ Executed: Opened Gmail"
                     )
                 ),
-                characterName = "Aether",
+                characterName = "Lumy",
+                characterId = "lumy",
                 isStreaming = false,
                 currentStreamContent = "",
                 activeServingProvider = "Groq",

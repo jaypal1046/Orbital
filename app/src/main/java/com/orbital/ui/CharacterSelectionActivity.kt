@@ -264,18 +264,18 @@ fun CharacterSelectionScreen(
                                 Box(
                                     modifier = Modifier
                                         .clip(RoundedCornerShape(6.dp))
-                                        .background(if (char.hasSprites) Color(0xFF064E3B) else Color(0xFF1E2338))
+                                        .background(if (char.hasSprites) Color(0xFF26184C) else Color(0xFF181D30))
                                         .border(
                                             1.dp,
-                                            if (char.hasSprites) Color(0xFF059669) else Color(0xFF333D66),
+                                            if (char.hasSprites) Color(0xFF6B21A8) else Color(0xFF283152),
                                             RoundedCornerShape(6.dp)
                                         )
-                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                        .padding(horizontal = 8.dp, vertical = 3.dp)
                                 ) {
                                     Text(
-                                        text = if (char.hasSprites) "✨ Full 27-State Sprite Pack" else "🎨 Persona Theme (${char.fallbackTheme.name.lowercase().replaceFirstChar { it.uppercase() }} Sprite)",
-                                        fontSize = 10.sp,
-                                        color = if (char.hasSprites) Color(0xFF6EE7B7) else Color(0xFFA78BFA),
+                                        text = if (char.hasSprites) "✨ 27-State Animated Sprites" else "🎨 ${char.fallbackTheme.name.lowercase().replaceFirstChar { it.uppercase() }} Theme",
+                                        fontSize = 10.5.sp,
+                                        color = if (char.hasSprites) Color(0xFFD8B4FE) else Color(0xFF94A3B8),
                                         fontWeight = FontWeight.Medium
                                     )
                                 }

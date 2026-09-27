@@ -1,25 +1,23 @@
 package com.orbital.ui
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -43,119 +41,114 @@ fun InputBar(
     onQuickTemplateClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Surface(
-        color = Color(0xFF131625),
-        modifier = modifier.fillMaxWidth(),
-        tonalElevation = 8.dp
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .background(Color(0xFF0A0C14))
+            .padding(horizontal = 14.dp, vertical = 8.dp)
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 10.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
+        // Sleek Unified Floating Pill Capsule
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(28.dp),
+            color = Color(0xFF131728),
+            border = BorderStroke(1.dp, Color(0xFF262D4A)),
+            shadowElevation = 6.dp
         ) {
-            // Quick Action Template Button
-            IconButton(
-                onClick = onQuickTemplateClick,
+            Row(
                 modifier = Modifier
-                    .size(38.dp)
-                    .clip(CircleShape)
-                    .background(Color(0xFF1F2438))
+                    .fillMaxWidth()
+                    .padding(horizontal = 6.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(
-                    Icons.Default.Add,
-                    contentDescription = "Add Action Template",
-                    tint = Color(0xFFA78BFA),
-                    modifier = Modifier.size(20.dp)
-                )
-            }
-
-            Spacer(modifier = Modifier.width(6.dp))
-
-            OutlinedTextField(
-                value = inputText,
-                onValueChange = onInputChange,
-                placeholder = {
-                    Text(
-                        "Ask or command anything...",
-                        color = Color(0xFF64748B),
-                        fontSize = 13.sp
+                // Left Inside: Quick Action (+) Template Button
+                IconButton(
+                    onClick = onQuickTemplateClick,
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFF1E243C))
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Add,
+                        contentDescription = "Add Action Template",
+                        tint = Color(0xFFA78BFA),
+                        modifier = Modifier.size(18.dp)
                     )
-                },
-                trailingIcon = {
-                    if (inputText.isNotBlank()) {
-                        IconButton(
-                            onClick = { onInputChange("") },
-                            modifier = Modifier.size(24.dp)
-                        ) {
-                            Icon(
-                                imageVector = androidx.compose.material.icons.Icons.Default.Close,
-                                contentDescription = "Clear text",
-                                tint = Color(0xFF94A3B8),
-                                modifier = Modifier.size(16.dp)
+                }
+
+                // Middle Inside: Borderless Fluid Text Field
+                TextField(
+                    value = inputText,
+                    onValueChange = onInputChange,
+                    placeholder = {
+                        Text(
+                            text = "Ask or command anything...",
+                            color = Color(0xFF64748B),
+                            fontSize = 13.5.sp,
+                            maxLines = 1
+                        )
+                    },
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(horizontal = 2.dp),
+                    maxLines = 4,
+                    colors = TextFieldDefaults.colors(
+                        focusedContainerColor = Color.Transparent,
+                        unfocusedContainerColor = Color.Transparent,
+                        disabledContainerColor = Color.Transparent,
+                        focusedIndicatorColor = Color.Transparent,
+                        unfocusedIndicatorColor = Color.Transparent,
+                        disabledIndicatorColor = Color.Transparent,
+                        cursorColor = Color(0xFFA78BFA),
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White
+                    )
+                )
+
+                // Right Inside: Dynamic Mic / Send Action Button
+                if (inputText.isNotBlank()) {
+                    IconButton(
+                        onClick = onSendClick,
+                        enabled = !isStreaming,
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .background(
+                                if (!isStreaming)
+                                    Brush.linearGradient(listOf(Color(0xFF8B5CF6), Color(0xFF6D28D9)))
+                                else
+                                    Brush.linearGradient(listOf(Color(0xFF374151), Color(0xFF1F2937)))
                             )
-                        }
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.Send,
+                            contentDescription = "Send",
+                            tint = Color.White,
+                            modifier = Modifier.size(16.dp)
+                        )
                     }
-                },
-                modifier = Modifier
-                    .weight(1f)
-                    .heightIn(min = 46.dp, max = 120.dp),
-                shape = RoundedCornerShape(24.dp),
-                maxLines = 4,
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = Color(0xFF7C3AED),
-                    unfocusedBorderColor = Color(0xFF232840),
-                    focusedContainerColor = Color(0xFF0F111A),
-                    unfocusedContainerColor = Color(0xFF0F111A),
-                    focusedTextColor = Color.White,
-                    unfocusedTextColor = Color.White
-                )
-            )
-
-            Spacer(modifier = Modifier.width(6.dp))
-
-            // Whisper Voice Button
-            IconButton(
-                onClick = onVoiceClick,
-                modifier = Modifier
-                    .size(44.dp)
-                    .clip(CircleShape)
-                    .background(
-                        if (isVoiceListening)
-                            Brush.linearGradient(listOf(Color(0xFFEF4444), Color(0xFFDC2626)))
-                        else
-                            Brush.linearGradient(listOf(Color(0xFF231D38), Color(0xFF1B162C)))
-                    )
-            ) {
-                Icon(
-                    painter = painterResource(id = R.drawable.ic_mic),
-                    contentDescription = "Whisper Voice Input",
-                    tint = if (isVoiceListening) Color.White else Color(0xFFA78BFA),
-                    modifier = Modifier.size(20.dp)
-                )
-            }
-
-            Spacer(modifier = Modifier.width(6.dp))
-
-            // Send Button
-            IconButton(
-                onClick = onSendClick,
-                enabled = inputText.isNotBlank() && !isStreaming,
-                modifier = Modifier
-                    .size(44.dp)
-                    .clip(CircleShape)
-                    .background(
-                        if (inputText.isNotBlank() && !isStreaming)
-                            Brush.linearGradient(listOf(Color(0xFF7C3AED), Color(0xFF6D28D9)))
-                        else
-                            Brush.linearGradient(listOf(Color(0xFF1E2238), Color(0xFF1E2238)))
-                    )
-            ) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.Send,
-                    contentDescription = "Send",
-                    tint = if (inputText.isNotBlank() && !isStreaming) Color.White else Color(0xFF64748B)
-                )
+                } else {
+                    IconButton(
+                        onClick = onVoiceClick,
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .background(
+                                if (isVoiceListening)
+                                    Brush.linearGradient(listOf(Color(0xFFEF4444), Color(0xFFDC2626)))
+                                else
+                                    Brush.linearGradient(listOf(Color(0xFF221F3A), Color(0xFF1A172E)))
+                            )
+                    ) {
+                        Icon(
+                            painter = painterResource(id = R.drawable.ic_mic),
+                            contentDescription = "Voice Input",
+                            tint = if (isVoiceListening) Color.White else Color(0xFFA78BFA),
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
             }
         }
     }

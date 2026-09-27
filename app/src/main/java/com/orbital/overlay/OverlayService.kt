@@ -95,6 +95,7 @@ class OverlayService : Service() {
     private var isOverlayAttached = false
     private lateinit var windowParams: WindowManager.LayoutParams
     private lateinit var voiceManager: com.orbital.voice.VoiceManager
+    private var avatarBrain: AvatarBrain? = null
     private val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private var actionDebounceJob: Job? = null
     private var lastActionTime = 0L
@@ -223,20 +224,27 @@ class OverlayService : Service() {
             return START_NOT_STICKY
         }
 
-        val charExtra = intent?.getStringExtra("character")
+        val charExtra = intent?.getStringExtra("character_id") ?: intent?.getStringExtra("character")
         if (!charExtra.isNullOrBlank()) {
             currentCharacter = charExtra
             updateCharacter(charExtra)
         }
 
         when (intent?.action) {
-            ACTION_STOP -> stopOverlay()
-            ACTION_UPDATE_CHARACTER -> {
-                startOverlay()
-                charExtra?.let { updateCharacter(it) }
+            ACTION_STOP -> {
+                stopOverlay()
+                stopSelf()
             }
-            ACTION_START -> startOverlay()
-            else -> startOverlay()
+            ACTION_UPDATE_CHARACTER -> {
+                if (isOverlayAttached) {
+                    updateCharacter(currentCharacter)
+                } else {
+                    startOverlay()
+                }
+            }
+            else -> {
+                startOverlay()
+            }
         }
         return START_STICKY
     }
@@ -350,22 +358,7 @@ class OverlayService : Service() {
 
     private fun setMascotSpriteInternal(state: com.orbital.ui.MascotState) {
         if (::characterImage.isInitialized) {
-            val spriteRes = com.orbital.ui.MascotSpriteHelper.getSprite(currentCharacter, state)
-            characterImage.animate()
-                .scaleX(0.90f)
-                .scaleY(0.90f)
-                .alpha(0.7f)
-                .setDuration(120)
-                .withEndAction {
-                    characterImage.setImageResource(spriteRes)
-                    characterImage.animate()
-                        .scaleX(1.0f)
-                        .scaleY(1.0f)
-                        .alpha(1.0f)
-                        .setDuration(160)
-                        .start()
-                }
-                .start()
+            com.orbital.ui.EmotionMediaLoader.loadEmotion(this, currentCharacter, state, characterImage)
         }
     }
 
@@ -436,10 +429,12 @@ class OverlayService : Service() {
         }
 
         // Enforce strictly 1 overlay avatar at a time
-        if (isOverlayAttached && ::overlayView.isInitialized && overlayView.isAttachedToWindow) {
+        if (isOverlayAttached && ::overlayView.isInitialized) {
             updateCharacter(currentCharacter)
             return
         }
+
+        stopOverlay()
 
         windowParams = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,
@@ -471,6 +466,9 @@ class OverlayService : Service() {
         connectionIndicator = overlayView.findViewById(R.id.connectionIndicator)
         voiceStatusIndicator = overlayView.findViewById(R.id.voiceStatusIndicator)
         characterImage = overlayView.findViewById(R.id.characterImage)
+
+        // Immediately set the current character sprite before attaching view
+        com.orbital.ui.EmotionMediaLoader.loadEmotion(this, currentCharacter, com.orbital.ui.MascotState.IDLE, characterImage, false)
 
         // Setup Chat buttons
         chatCloseButton.setOnClickListener {
@@ -520,6 +518,7 @@ class OverlayService : Service() {
             override fun onTouch(v: View?, event: MotionEvent): Boolean {
                 when (event.action) {
                     MotionEvent.ACTION_DOWN -> {
+                        avatarBrain?.onUserInteracting(true)
                         snapAnimator?.cancel()
                         initialX = windowParams.x
                         initialY = windowParams.y
@@ -555,6 +554,7 @@ class OverlayService : Service() {
                         return true
                     }
                     MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                        avatarBrain?.onUserInteracting(false)
                         bubbleAvatarContainer.animate().scaleX(1.0f).scaleY(1.0f).setDuration(120).start()
                         floatAnimator?.resume()
                         breatheAnimator?.resume()
@@ -591,6 +591,20 @@ class OverlayService : Service() {
             isOverlayAttached = true
             startFloatingBreathingAnimation()
             resetInactivityTimer()
+
+            // Initialize and launch Autonomous Avatar Brain
+            avatarBrain?.stop()
+            avatarBrain = AvatarBrain(
+                windowManager = windowManager,
+                overlayViewProvider = { if (::overlayView.isInitialized) overlayView else null },
+                avatarContainerProvider = { if (::bubbleAvatarContainer.isInitialized) bubbleAvatarContainer else null },
+                characterImageProvider = { if (::characterImage.isInitialized) characterImage else null },
+                windowParams = windowParams,
+                getScreenDimensions = { getScreenDimensions() },
+                onStateChanged = { state -> setMascotState(state) }
+            ).apply {
+                start(serviceScope)
+            }
         } catch (e: Exception) {
             android.util.Log.e("OverlayService", "Failed to add view to windowManager", e)
         }
@@ -604,6 +618,7 @@ class OverlayService : Service() {
     }
 
     private fun toggleChatPanel(open: Boolean) {
+        avatarBrain?.onChatPanelVisibilityChanged(open)
         if (open) {
             chatPanel.visibility = View.VISIBLE
             windowParams.flags = WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
@@ -636,6 +651,7 @@ class OverlayService : Service() {
         serviceScope.launch {
             chatEngine.streamingContent.collect { content ->
                 if (chatEngine.isStreaming.value) {
+                    avatarBrain?.onThinking(false)
                     renderMessagesUI(chatEngine.messages.value, true, content)
                 }
             }
@@ -646,6 +662,9 @@ class OverlayService : Service() {
             chatEngine.messages.collect { messages ->
                 val isStreaming = chatEngine.isStreaming.value
                 val streamContent = chatEngine.streamingContent.value
+                if (!isStreaming) {
+                    avatarBrain?.onThinking(false)
+                }
                 renderMessagesUI(messages, isStreaming, streamContent)
 
                 val lastMsg = messages.lastOrNull()
@@ -917,6 +936,7 @@ class OverlayService : Service() {
         shouldSpeakLastResult = speakResult
 
         toggleChatPanel(true)
+        avatarBrain?.onThinking(true)
         com.orbital.ui.MascotEventBus.postEvent(com.orbital.ui.MascotEvent.PromptSent(prompt))
 
         // Set character in ChatEngine
@@ -928,21 +948,31 @@ class OverlayService : Service() {
         }
     }
 
-    private fun stopOverlay() {
+    private fun stopOverlay(stopService: Boolean = false) {
         try {
+            avatarBrain?.stop()
+            avatarBrain = null
             floatAnimator?.cancel()
             breatheAnimator?.cancel()
             idleTimerJob?.cancel()
             actionDebounceJob?.cancel()
-            if (::overlayView.isInitialized && overlayView.isAttachedToWindow) {
-                windowManager.removeView(overlayView)
+            if (::overlayView.isInitialized) {
+                try {
+                    windowManager.removeViewImmediate(overlayView)
+                } catch (_: Exception) {
+                    try {
+                        windowManager.removeView(overlayView)
+                    } catch (_: Exception) {}
+                }
             }
             isOverlayAttached = false
-            unregisterReceiver(statusReceiver)
-            unregisterReceiver(configChangeReceiver)
-            voiceManager.shutdown()
+            if (stopService) {
+                try { unregisterReceiver(statusReceiver) } catch (_: Exception) {}
+                try { unregisterReceiver(configChangeReceiver) } catch (_: Exception) {}
+                voiceManager.shutdown()
+                stopSelf()
+            }
         } catch (_: Exception) {}
-        stopSelf()
     }
 
     private fun updateConnectionStatus(status: String) {
@@ -966,14 +996,17 @@ class OverlayService : Service() {
         currentVoiceStatus = status
         val colorRes = when (status) {
             "listening" -> {
+                avatarBrain?.onThinking(true)
                 setMascotState(com.orbital.ui.MascotState.CURIOUS)
                 Color.parseColor("#06B6D4") // Cyan
             }
             "speaking" -> {
+                avatarBrain?.onThinking(false)
                 setMascotState(com.orbital.ui.MascotState.HAPPY)
                 Color.parseColor("#8B5CF6") // Purple
             }
             "error" -> {
+                avatarBrain?.onThinking(false)
                 setMascotState(com.orbital.ui.MascotState.SAD)
                 Color.parseColor("#EF4444")
             }
@@ -987,9 +1020,9 @@ class OverlayService : Service() {
     private fun updateCharacter(character: String) {
         currentCharacter = character
         setMascotState(com.orbital.ui.MascotState.IDLE)
-        val name = if (character.equals("lumy", ignoreCase = true)) "Lumy" else "Aether"
+        val char = com.orbital.ui.Character.find(character)
         if (::chatCompanionName.isInitialized) {
-            chatCompanionName.text = "$name (AI Companion)"
+            chatCompanionName.text = "${char.name} (AI Companion)"
         }
     }
 
@@ -1015,6 +1048,8 @@ class OverlayService : Service() {
 
     override fun onDestroy() {
         try {
+            avatarBrain?.stop()
+            avatarBrain = null
             if (::overlayView.isInitialized) {
                 windowManager.removeView(overlayView)
                 unregisterReceiver(statusReceiver)

@@ -39,4 +39,17 @@
     <string name="status_connecting">Connecting…</string>
     <string name="status_disconnected">Disconnected</string>
     <string name="status_error">Error</string>
+
+    <!-- Legal -->
+    <string name="title_privacy_policy">Privacy Policy</string>
+    <string name="title_terms_of_service">Terms of Service</string>
+    <string name="menu_privacy_policy">Privacy Policy</string>
+    <string name="menu_terms_of_service">Terms of Service</string>
+    <string name="menu_about">About Orbital</string>
+    <string name="dialog_about_title">About Orbital</string>
+    <string name="dialog_about_message">Orbital is a local-first AI companion for Android.\n\nNo backend servers. No data collection. Your API keys stay on your device.\n\nBuilt with Kotlin, Compose, and Hilt.\n\nVersion %1$s</string>
+    <string name="label_version">Version</string>
+    <string name="label_open_source">Open Source</string>
+    <string name="link_github">View on GitHub</string>
+    <string name="link_license">MIT License</string>
 </resources>

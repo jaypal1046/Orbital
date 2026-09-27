@@ -1,18 +1,32 @@
 package com.orbital.ui
 
-import android.content.Intent
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.ui.text.input.KeyboardType
 import com.orbital.power.PowerAwareScheduler
 
 class AutomationSettingsActivity : ComponentActivity() {
@@ -24,206 +38,414 @@ class AutomationSettingsActivity : ComponentActivity() {
         powerAwareScheduler = PowerAwareScheduler(this)
 
         setContent {
-            MaterialTheme {
-                Surface(
-                    modifier = Modifier.fillMaxSize(),
-                    color = MaterialTheme.colorScheme.background
-                ) {
-                    AutomationSettingsScreen(
-                        onSave = { enabled, startHour, endHour ->
-                            if (enabled) {
-                                powerAwareScheduler.scheduleTimeWindowTask(
-                                    PowerAwareScheduler.DailySummaryWorker::class.java,
-                                    startHour,
-                                    endHour
-                                )
-                            }
-                            finish()
+            MaterialTheme(
+                colorScheme = darkColorScheme(
+                    background = Color(0xFF0A0C14),
+                    surface = Color(0xFF131626),
+                    primary = Color(0xFF7C3AED)
+                )
+            ) {
+                AutomationSettingsScreen(
+                    onBack = { finish() },
+                    onSave = { enabled, startHour, endHour ->
+                        if (enabled) {
+                            powerAwareScheduler.scheduleTimeWindowTask(
+                                PowerAwareScheduler.DailySummaryWorker::class.java,
+                                startHour,
+                                endHour
+                            )
+                            Toast.makeText(this, "Automation schedule updated!", Toast.LENGTH_SHORT).show()
+                        } else {
+                            Toast.makeText(this, "Automation disabled", Toast.LENGTH_SHORT).show()
                         }
-                    )
-                }
+                        finish()
+                    }
+                )
             }
         }
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AutomationSettingsScreen(onSave: (Boolean, Int, Int) -> Unit) {
+fun AutomationSettingsScreen(
+    onBack: () -> Unit,
+    onSave: (Boolean, Int, Int) -> Unit
+) {
     var isEnabled by remember { mutableStateOf(true) }
+    var dailySummaryEnabled by remember { mutableStateOf(true) }
+    var voiceTranscriptionEnabled by remember { mutableStateOf(true) }
+    var memoryCleanupEnabled by remember { mutableStateOf(true) }
     var startHour by remember { mutableStateOf(2) }
     var endHour by remember { mutableStateOf(5) }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Top
-    ) {
-        Text(
-            text = "Automation Settings",
-            style = MaterialTheme.typography.headlineMedium,
-            modifier = Modifier.padding(bottom = 24.dp)
-        )
-
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = {
+                    Text(
+                        text = "Automation & Power",
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White,
+                        fontSize = 18.sp
+                    )
+                },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back",
+                            tint = Color.White
+                        )
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color(0xFF0F111A))
+            )
+        },
+        containerColor = Color(0xFF0A0C14)
+    ) { padding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp, vertical = 12.dp)
         ) {
-            Column(modifier = Modifier.padding(16.dp)) {
+            // Master Automation Toggle Card
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = if (isEnabled) Color(0xFF191D34) else Color(0xFF131626)
+                ),
+                border = BorderStroke(
+                    1.dp,
+                    if (isEnabled) Color(0xFF7C3AED).copy(alpha = 0.6f) else Color(0xFF222842)
+                )
+            ) {
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column {
-                        Text(
-                            text = "Enable Automation",
-                            style = MaterialTheme.typography.titleMedium
-                        )
-                        Text(
-                            text = "Run automated tasks when device is charging",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                    Row(
+                        modifier = Modifier.weight(1f),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(42.dp)
+                                .clip(CircleShape)
+                                .background(
+                                    if (isEnabled) Color(0xFF7C3AED).copy(alpha = 0.2f)
+                                    else Color(0xFF222842)
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Build,
+                                contentDescription = null,
+                                tint = if (isEnabled) Color(0xFFA78BFA) else Color(0xFF64748B),
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(14.dp))
+                        Column {
+                            Text(
+                                text = "Master Automation Engine",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White,
+                                fontSize = 15.sp
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = "Run background routines when device is charging",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color(0xFF94A3B8),
+                                fontSize = 12.sp
+                            )
+                        }
                     }
                     Switch(
                         checked = isEnabled,
-                        onCheckedChange = { isEnabled = it }
+                        onCheckedChange = { isEnabled = it },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = Color.White,
+                            checkedTrackColor = Color(0xFF7C3AED),
+                            uncheckedThumbColor = Color(0xFF64748B),
+                            uncheckedTrackColor = Color(0xFF1F2438)
+                        )
                     )
                 }
             }
-        }
 
-        Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(16.dp))
 
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
-        ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Text(
-                    text = "Automation Tasks",
-                    style = MaterialTheme.typography.titleMedium,
-                    modifier = Modifier.padding(bottom = 16.dp)
-                )
+            // Automation Tasks Section
+            Text(
+                text = "AUTOMATION TASKS",
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFFA78BFA),
+                letterSpacing = 1.sp,
+                modifier = Modifier.padding(start = 4.dp, bottom = 8.dp)
+            )
 
-                TaskItem(
-                    title = "Daily Summary",
-                    description = "Generate daily interaction summary at night",
-                    isEnabled = isEnabled
-                )
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF131626)),
+                border = BorderStroke(1.dp, Color(0xFF222842))
+            ) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    TaskItemRow(
+                        icon = Icons.Default.DateRange,
+                        iconTint = Color(0xFF38BDF8),
+                        title = "Daily Interaction Summary",
+                        description = "Synthesizes key conversations & learnings at night",
+                        checked = dailySummaryEnabled && isEnabled,
+                        enabled = isEnabled,
+                        onCheckedChange = { dailySummaryEnabled = it }
+                    )
 
-                HorizontalDivider()
+                    HorizontalDivider(
+                        color = Color(0xFF222842),
+                        thickness = 1.dp,
+                        modifier = Modifier.padding(vertical = 8.dp)
+                    )
 
-                TaskItem(
-                    title = "Voice Memo Transcription",
-                    description = "Transcribe voice memos when charging",
-                    isEnabled = isEnabled
-                )
+                    TaskItemRow(
+                        icon = Icons.Default.Call,
+                        iconTint = Color(0xFFA855F7),
+                        title = "Voice Memo Transcription",
+                        description = "Processes offline voice audio while plugged in",
+                        checked = voiceTranscriptionEnabled && isEnabled,
+                        enabled = isEnabled,
+                        onCheckedChange = { voiceTranscriptionEnabled = it }
+                    )
 
-                HorizontalDivider()
+                    HorizontalDivider(
+                        color = Color(0xFF222842),
+                        thickness = 1.dp,
+                        modifier = Modifier.padding(vertical = 8.dp)
+                    )
 
-                TaskItem(
-                    title = "Memory Cleanup",
-                    description = "Clean up temporary data during low usage",
-                    isEnabled = isEnabled
-                )
+                    TaskItemRow(
+                        icon = Icons.Default.Refresh,
+                        iconTint = Color(0xFF10B981),
+                        title = "Context & Memory Cleanup",
+                        description = "Prunes transient scratchpads and cache buffers",
+                        checked = memoryCleanupEnabled && isEnabled,
+                        enabled = isEnabled,
+                        onCheckedChange = { memoryCleanupEnabled = it }
+                    )
+                }
             }
-        }
 
-        Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(16.dp))
 
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
-        ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Text(
-                    text = "Schedule",
-                    style = MaterialTheme.typography.titleMedium,
-                    modifier = Modifier.padding(bottom = 16.dp)
-                )
+            // Time Window Schedule Section
+            Text(
+                text = "OPTIMIZED EXECUTION WINDOW",
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFFA78BFA),
+                letterSpacing = 1.sp,
+                modifier = Modifier.padding(start = 4.dp, bottom = 8.dp)
+            )
 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(16.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF131626)),
+                border = BorderStroke(1.dp, Color(0xFF222842))
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
                     Text(
-                        text = "Start Time:",
-                        style = MaterialTheme.typography.bodyMedium
+                        text = "Power & Night Schedule",
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White,
+                        fontSize = 14.sp
                     )
-                    Spacer(modifier = Modifier.weight(1f))
-                    OutlinedTextField(
-                        value = startHour.toString(),
-                        onValueChange = { if (it.toIntOrNull() != null) startHour = it.toInt() },
-                        label = { Text("Hour (0-23)") },
-                        modifier = Modifier.width(80.dp),
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(16.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
                     Text(
-                        text = "End Time:",
-                        style = MaterialTheme.typography.bodyMedium
+                        text = "Tasks execute during low-usage hours when battery is charging.",
+                        color = Color(0xFF94A3B8),
+                        fontSize = 12.sp,
+                        modifier = Modifier.padding(top = 2.dp, bottom = 14.dp)
                     )
-                    Spacer(modifier = Modifier.weight(1f))
-                    OutlinedTextField(
-                        value = endHour.toString(),
-                        onValueChange = { if (it.toIntOrNull() != null) endHour = it.toInt() },
-                        label = { Text("Hour (0-23)") },
-                        modifier = Modifier.width(80.dp),
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
-                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        TimeHourPickerCard(
+                            label = "Start Window",
+                            hour = startHour,
+                            onHourChange = { startHour = it },
+                            modifier = Modifier.weight(1f)
+                        )
+                        TimeHourPickerCard(
+                            label = "End Window",
+                            hour = endHour,
+                            onHourChange = { endHour = it },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
                 }
             }
-        }
 
-        Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(24.dp))
 
-        Button(
-            onClick = { onSave(isEnabled, startHour, endHour) },
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text("Save Settings")
+            // Save CTA Button
+            Button(
+                onClick = { onSave(isEnabled, startHour, endHour) },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(50.dp),
+                shape = RoundedCornerShape(14.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF7C3AED))
+            ) {
+                Text(
+                    text = "Save Configuration",
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
+            }
+            Spacer(modifier = Modifier.height(16.dp))
         }
     }
 }
 
 @Composable
-fun TaskItem(title: String, description: String, isEnabled: Boolean) {
+fun TaskItemRow(
+    icon: ImageVector,
+    iconTint: Color,
+    title: String,
+    description: String,
+    checked: Boolean,
+    enabled: Boolean,
+    onCheckedChange: (Boolean) -> Unit
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 8.dp),
+            .padding(vertical = 4.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Column {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleSmall
-            )
-            Text(
-                text = description,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+        Row(
+            modifier = Modifier.weight(1f),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(CircleShape)
+                    .background(iconTint.copy(alpha = 0.15f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = iconTint,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+            Spacer(modifier = Modifier.width(12.dp))
+            Column {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = if (enabled) Color.White else Color(0xFF64748B),
+                    fontSize = 13.5.sp
+                )
+                Text(
+                    text = description,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color(0xFF94A3B8),
+                    fontSize = 11.sp
+                )
+            }
         }
         Switch(
-            checked = isEnabled,
-            onCheckedChange = { /* Individual task toggle */ },
-            enabled = isEnabled
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            enabled = enabled,
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = Color.White,
+                checkedTrackColor = Color(0xFF7C3AED),
+                uncheckedThumbColor = Color(0xFF64748B),
+                uncheckedTrackColor = Color(0xFF1F2438)
+            )
         )
+    }
+}
+
+@Composable
+fun TimeHourPickerCard(
+    label: String,
+    hour: Int,
+    onHourChange: (Int) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val formattedHour = String.format("%02d:00", hour)
+    val amPm = if (hour < 12) "AM" else "PM"
+    val displayHour = if (hour == 0) 12 else if (hour > 12) hour - 12 else hour
+
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(12.dp),
+        color = Color(0xFF191D30),
+        border = BorderStroke(1.dp, Color(0xFF282F4E))
+    ) {
+        Column(
+            modifier = Modifier.padding(10.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                text = label,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Medium,
+                color = Color(0xFF94A3B8)
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center
+            ) {
+                IconButton(
+                    onClick = { onHourChange((hour - 1 + 24) % 24) },
+                    modifier = Modifier.size(28.dp)
+                ) {
+                    Text("-", color = Color(0xFFA78BFA), fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                }
+                Spacer(modifier = Modifier.width(4.dp))
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = "$displayHour $amPm",
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White,
+                        fontSize = 15.sp
+                    )
+                    Text(
+                        text = "($formattedHour)",
+                        fontSize = 10.sp,
+                        color = Color(0xFF64748B)
+                    )
+                }
+                Spacer(modifier = Modifier.width(4.dp))
+                IconButton(
+                    onClick = { onHourChange((hour + 1) % 24) },
+                    modifier = Modifier.size(28.dp)
+                ) {
+                    Text("+", color = Color(0xFFA78BFA), fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
     }
 }

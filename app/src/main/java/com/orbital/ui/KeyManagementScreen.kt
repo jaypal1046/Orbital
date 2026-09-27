@@ -4,7 +4,9 @@ import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
 import androidx.compose.animation.*
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
@@ -21,6 +23,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -154,24 +157,25 @@ fun KeyManagementScreen(
         },
         bottomBar = {
             Surface(
-                color = Color(0xFF141724),
+                color = Color(0xFF101322),
                 tonalElevation = 8.dp,
+                border = BorderStroke(1.dp, Color(0xFF1E243D)),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Button(
                     onClick = onContinue,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(16.dp),
-                    shape = RoundedCornerShape(12.dp),
+                        .padding(horizontal = 16.dp, vertical = 12.dp)
+                        .height(48.dp),
+                    shape = RoundedCornerShape(14.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF7C3AED))
                 ) {
                     Text(
-                        text = if (configuredCount > 0) "Launch Companion with Failover (${configuredCount} Keys Active)" else "Continue with Free Auto-Router",
+                        text = if (configuredCount > 0) "Launch Companion (${configuredCount} ${if (configuredCount == 1) "Key" else "Keys"} Active)" else "Continue with Free Auto-Router",
                         color = Color.White,
                         fontWeight = FontWeight.Bold,
-                        fontSize = 15.sp,
-                        modifier = Modifier.padding(vertical = 4.dp)
+                        fontSize = 14.5.sp
                     )
                 }
             }
@@ -189,31 +193,32 @@ fun KeyManagementScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(vertical = 8.dp)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(Color(0xFF161928))
-                    .padding(4.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Color(0xFF141829))
+                    .border(1.dp, Color(0xFF222842), RoundedCornerShape(12.dp))
+                    .padding(3.dp)
             ) {
                 DashboardTab.values().forEach { tab ->
                     val isSelected = currentTab == tab
                     val label = when (tab) {
                         DashboardTab.PROVIDERS -> "Keys"
-                        DashboardTab.MODELS_QUOTA -> "Models & Quotas"
+                        DashboardTab.MODELS_QUOTA -> "Quotas"
                         DashboardTab.QUOTA_SIGNALS -> "Signals"
                         DashboardTab.AUTO_ROUTER -> "Router"
                     }
                     Box(
                         modifier = Modifier
                             .weight(1f)
-                            .clip(RoundedCornerShape(8.dp))
+                            .clip(RoundedCornerShape(10.dp))
                             .background(if (isSelected) Color(0xFF7C3AED) else Color.Transparent)
                             .clickable { currentTab = tab }
-                            .padding(vertical = 8.dp),
+                            .padding(vertical = 7.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
                             text = label,
                             color = if (isSelected) Color.White else Color(0xFF94A3B8),
-                            fontSize = 11.sp,
+                            fontSize = 11.5.sp,
                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
                         )
                     }
@@ -224,62 +229,29 @@ fun KeyManagementScreen(
 
             when (currentTab) {
                 DashboardTab.PROVIDERS -> {
-                    // Quick Provider Checklist Chips
-                    Text(
-                        text = "QUICK CHECKLIST",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFF64748B),
-                        letterSpacing = 1.sp
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        ProviderRegistry.allProviders.forEach { info ->
-                            val hasKey = (providerKeys[info.type] ?: "").isNotBlank()
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(if (hasKey) Color(0xFF065F46) else Color(0xFF1E2238))
-                                    .clickable { expandedProvider = info.type }
-                                    .padding(horizontal = 8.dp, vertical = 4.dp)
-                            ) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    if (hasKey) {
-                                        Icon(Icons.Default.Check, contentDescription = null, tint = Color(0xFF34D399), modifier = Modifier.size(12.dp))
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                    }
-                                    Text(
-                                        text = info.displayName,
-                                        fontSize = 11.sp,
-                                        color = if (hasKey) Color(0xFFA7F3D0) else Color(0xFF94A3B8),
-                                        fontWeight = FontWeight.Medium
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    // Search Field
+                    // Search Bar
                     OutlinedTextField(
                         value = searchQuery,
                         onValueChange = { searchQuery = it },
-                        placeholder = { Text("Search providers & models...", color = Color(0xFF64748B)) },
+                        placeholder = { Text("Search providers or models...", color = Color(0xFF64748B), fontSize = 13.sp) },
                         leadingIcon = {
-                            Icon(Icons.Default.Search, contentDescription = "Search", tint = Color(0xFF64748B))
+                            Icon(Icons.Default.Search, contentDescription = "Search", tint = Color(0xFF64748B), modifier = Modifier.size(18.dp))
                         },
-                        modifier = Modifier.fillMaxWidth(),
+                        trailingIcon = {
+                            if (searchQuery.isNotBlank()) {
+                                IconButton(onClick = { searchQuery = "" }, modifier = Modifier.size(20.dp)) {
+                                    Icon(Icons.Default.Close, contentDescription = "Clear", tint = Color(0xFF94A3B8), modifier = Modifier.size(14.dp))
+                                }
+                            }
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp),
                         singleLine = true,
                         shape = RoundedCornerShape(12.dp),
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedBorderColor = Color(0xFF7C3AED),
-                            unfocusedBorderColor = Color(0xFF232840),
+                            unfocusedBorderColor = Color(0xFF222842),
                             focusedContainerColor = Color(0xFF131625),
                             unfocusedContainerColor = Color(0xFF131625),
                             focusedTextColor = Color.White,
@@ -289,36 +261,40 @@ fun KeyManagementScreen(
 
                     Spacer(modifier = Modifier.height(8.dp))
 
-                    // Filter Chips Row
+                    // Compact Filter Chips Row
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         ProviderFilter.values().forEach { filter ->
                             val isSelected = selectedFilter == filter
                             val label = when (filter) {
                                 ProviderFilter.ALL -> "All ($totalCount)"
-                                ProviderFilter.HEALTHY -> "Healthy"
+                                ProviderFilter.HEALTHY -> "Ready ($configuredCount)"
                                 ProviderFilter.ISSUES -> "Issues"
                                 ProviderFilter.DISABLED -> "Disabled"
                             }
-                            FilterChip(
-                                selected = isSelected,
-                                onClick = { selectedFilter = filter },
-                                label = {
-                                    Text(
-                                        text = label,
-                                        color = if (isSelected) Color.White else Color(0xFF94A3B8),
-                                        fontSize = 12.sp
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(if (isSelected) Color(0xFF7C3AED) else Color(0xFF161928))
+                                    .border(
+                                        1.dp,
+                                        if (isSelected) Color(0xFFA78BFA) else Color(0xFF242B45),
+                                        RoundedCornerShape(8.dp)
                                     )
-                                },
-                                colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = Color(0xFF7C3AED),
-                                    containerColor = Color(0xFF1E2238)
+                                    .clickable { selectedFilter = filter }
+                                    .padding(horizontal = 10.dp, vertical = 5.dp)
+                            ) {
+                                Text(
+                                    text = label,
+                                    color = if (isSelected) Color.White else Color(0xFF94A3B8),
+                                    fontSize = 11.5.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
                                 )
-                            )
+                            }
                         }
                     }
 
@@ -326,7 +302,7 @@ fun KeyManagementScreen(
 
                     // Provider List
                     LazyColumn(
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
                         modifier = Modifier.fillMaxSize()
                     ) {
                         items(filteredProviders) { info ->
@@ -609,12 +585,15 @@ fun ProviderItemCard(
     var keyInput by remember(apiKey) { mutableStateOf(apiKey) }
 
     Card(
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF181B2C)),
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF131728)),
+        border = BorderStroke(1.dp, if (apiKey.isNotBlank() && isEnabled) Color(0xFF2E385C) else Color(0xFF1C2238)),
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(
-            modifier = Modifier.padding(14.dp)
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 10.dp)
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -622,7 +601,82 @@ fun ProviderItemCard(
                     .fillMaxWidth()
                     .clickable { onToggleExpand() }
             ) {
-                // Toggle Switch
+                // Provider Logo / Initial Avatar
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .background(
+                            Brush.linearGradient(
+                                if (apiKey.isNotBlank()) listOf(Color(0xFF6366F1), Color(0xFF8B5CF6))
+                                else listOf(Color(0xFF222942), Color(0xFF181D2E))
+                            )
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = info.displayName.take(1).uppercase(),
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.sp,
+                        color = Color.White
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(10.dp))
+
+                // Provider Info & Badges
+                Column(modifier = Modifier.weight(1f)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(
+                            text = info.displayName,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = if (isEnabled) Color.White else Color(0xFF94A3B8),
+                            fontSize = 14.sp,
+                            maxLines = 1
+                        )
+
+                        // Status Badge Pill
+                        val (statusColor, statusBg, statusLabel) = when {
+                            !isEnabled -> Triple(Color(0xFF94A3B8), Color(0xFF1E243A), "Off")
+                            apiKey.isBlank() -> Triple(Color(0xFF94A3B8), Color(0xFF191E33), "No key")
+                            status == ProviderState.IN_COOLDOWN -> Triple(Color(0xFFF59E0B), Color(0xFF451A03), "Cooldown")
+                            status == ProviderState.UNAVAILABLE -> Triple(Color(0xFFEF4444), Color(0xFF450A0A), "Error")
+                            else -> Triple(Color(0xFF34D399), Color(0xFF064E3B).copy(alpha = 0.6f), "Ready")
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(statusBg)
+                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                text = statusLabel,
+                                fontSize = 10.sp,
+                                color = statusColor,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(2.dp))
+
+                    Text(
+                        text = info.quotaDescription,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color(0xFF64748B),
+                        fontSize = 11.sp,
+                        maxLines = 1
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(6.dp))
+
+                // Toggle Switch (on the RIGHT side for standard Android UX)
                 Switch(
                     checked = isEnabled,
                     onCheckedChange = onToggleEnabled,
@@ -630,71 +684,17 @@ fun ProviderItemCard(
                         checkedThumbColor = Color.White,
                         checkedTrackColor = Color(0xFF7C3AED),
                         uncheckedThumbColor = Color(0xFF64748B),
-                        uncheckedTrackColor = Color(0xFF2E334D)
-                    ),
-                    modifier = Modifier.padding(end = 12.dp)
+                        uncheckedTrackColor = Color(0xFF1E2338)
+                    )
                 )
 
-                // Provider Info
-                Column(modifier = Modifier.weight(1f)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = info.displayName,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-
-                        // Key Count Pill
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(6.dp))
-                                .background(Color(0xFF2E334D))
-                                .padding(horizontal = 6.dp, vertical = 2.dp)
-                        ) {
-                            Text(
-                                text = if (apiKey.isNotBlank()) "1 key" else "0 keys",
-                                fontSize = 11.sp,
-                                color = Color(0xFFCBD5E1)
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.width(6.dp))
-
-                        // Status Dot
-                        val (statusColor, statusText) = when {
-                            !isEnabled -> Pair(Color(0xFF64748B), "disabled")
-                            apiKey.isBlank() -> Pair(Color(0xFF64748B), "no key")
-                            status == ProviderState.IN_COOLDOWN -> Pair(Color(0xFFF59E0B), "cooldown")
-                            status == ProviderState.UNAVAILABLE -> Pair(Color(0xFFEF4444), "error")
-                            else -> Pair(Color(0xFF10B981), "healthy")
-                        }
-
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Box(
-                                modifier = Modifier
-                                    .size(7.dp)
-                                    .clip(CircleShape)
-                                    .background(statusColor)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(text = statusText, fontSize = 11.sp, color = statusColor)
-                        }
-                    }
-
-                    Text(
-                        text = info.quotaDescription,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Color(0xFF94A3B8),
-                        modifier = Modifier.padding(top = 2.dp)
-                    )
-                }
+                Spacer(modifier = Modifier.width(4.dp))
 
                 Icon(
                     imageVector = if (isExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
                     contentDescription = null,
-                    tint = Color(0xFF94A3B8)
+                    tint = Color(0xFF64748B),
+                    modifier = Modifier.size(20.dp)
                 )
             }
 

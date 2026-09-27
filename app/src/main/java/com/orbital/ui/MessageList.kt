@@ -1,22 +1,51 @@
 package com.orbital.ui
 
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -25,6 +54,7 @@ import androidx.compose.ui.unit.sp
 fun MessageList(
     messages: List<UiMessage>,
     characterName: String,
+    characterId: String = "lumy",
     isStreaming: Boolean,
     currentStreamContent: String,
     activeServingProvider: String?,
@@ -35,54 +65,180 @@ fun MessageList(
     onAddStepToInput: (String) -> Unit
 ) {
     val listState = rememberLazyListState()
+    val character = remember(characterId) { Character.find(characterId) }
+    val hasUserMessages = messages.isNotEmpty() || isStreaming
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val imeBottom = androidx.compose.foundation.layout.WindowInsets.ime.getBottom(density)
 
-    // Auto-scroll to bottom when new messages arrive or when streaming
-    LaunchedEffect(messages.size, currentStreamContent) {
-        if (messages.isNotEmpty()) {
+    // Auto-scroll to bottom when new messages arrive, when streaming, or when keyboard opens
+    LaunchedEffect(messages.size, currentStreamContent, imeBottom) {
+        if (hasUserMessages && messages.isNotEmpty()) {
             listState.animateScrollToItem(messages.size - 1)
         }
     }
 
-    LazyColumn(
-        state = listState,
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(horizontal = 14.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        items(messages, key = { it.id }) { msg ->
-            ChatBubbleItem(
-                message = msg,
-                characterName = characterName,
-                onCopy = { onCopy(msg.content) },
-                onSpeak = { onSpeak(msg.content) },
-                onSuggestionClick = onSuggestionClick,
-                onAddStepToInput = onAddStepToInput
+    if (!hasUserMessages && !isStreaming) {
+        // Modern Centered AI Showcase Hero Screen
+        Box(
+            modifier = modifier
+                .fillMaxSize()
+                .padding(horizontal = 20.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            val infiniteTransition = rememberInfiniteTransition(label = "pulse")
+            val pulseScale by infiniteTransition.animateFloat(
+                initialValue = 1f,
+                targetValue = 1.06f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(2200, easing = FastOutSlowInEasing),
+                    repeatMode = RepeatMode.Reverse
+                ),
+                label = "scale"
             )
-        }
 
-        // Live Streaming Bubble
-        if (isStreaming && currentStreamContent.isNotBlank()) {
-            item {
-                val cleanStreamText = com.orbital.action.ActionParser.parse(currentStreamContent).userDisplayText
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                // Glowing Companion Avatar Aura
+                Box(
+                    modifier = Modifier
+                        .size(92.dp)
+                        .scale(pulseScale)
+                        .clip(CircleShape)
+                        .background(
+                            Brush.radialGradient(
+                                listOf(
+                                    character.gradientColors.firstOrNull()?.copy(alpha = 0.45f) ?: Color(0xFF7C3AED),
+                                    Color(0xFF1E1B4B).copy(alpha = 0.15f),
+                                    Color.Transparent
+                                )
+                            )
+                        )
+                        .border(
+                            1.5.dp,
+                            Brush.linearGradient(character.gradientColors),
+                            CircleShape
+                        )
+                        .clickable { MascotEventBus.postEvent(MascotEvent.Tap) }
+                        .padding(14.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    val spriteRes = MascotSpriteHelper.getSprite(character.id, MascotState.HAPPY)
+                    Image(
+                        painter = painterResource(id = spriteRes),
+                        contentDescription = characterName,
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(20.dp))
+
+                Text(
+                    text = "How can I help you today?",
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White,
+                    textAlign = TextAlign.Center
+                )
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                Text(
+                    text = "Executive AI ready for device automation, summaries & tasks",
+                    fontSize = 13.sp,
+                    color = Color(0xFFA78BFA),
+                    textAlign = TextAlign.Center
+                )
+
+                Spacer(modifier = Modifier.height(28.dp))
+
+                // Elegant Inspiration Starter Prompts
+                val starterPrompts = listOf(
+                    "✉️  Summarize my recent unread emails",
+                    "🎵  Play focus lo-fi chill beats on YouTube",
+                    "🔋  Check device battery & storage health",
+                    "🌐  What are the top AI breakthroughs today?"
+                )
+
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    starterPrompts.forEach { prompt ->
+                        Surface(
+                            shape = RoundedCornerShape(16.dp),
+                            color = Color(0xFF131728),
+                            border = BorderStroke(1.dp, Color(0xFF232B45)),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onSuggestionClick(prompt.substring(3).trim()) }
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 13.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = prompt,
+                                    fontSize = 13.5.sp,
+                                    color = Color(0xFFE2E8F0),
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    } else {
+        // Active Chat Conversation
+        LazyColumn(
+            state = listState,
+            modifier = modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            items(messages, key = { it.id }) { msg ->
                 ChatBubbleItem(
-                    message = UiMessage(
-                        role = "assistant",
-                        content = cleanStreamText.ifBlank { "Executing task..." },
-                        providerName = activeServingProvider ?: "Auto-Router",
-                        modelName = "streaming"
-                    ),
+                    message = msg,
                     characterName = characterName,
-                    isStreaming = true,
-                    onCopy = {},
-                    onSpeak = {},
-                    onSuggestionClick = {},
-                    onAddStepToInput = {}
+                    characterId = characterId,
+                    onCopy = { onCopy(msg.content) },
+                    onSpeak = { onSpeak(msg.content) },
+                    onSuggestionClick = onSuggestionClick,
+                    onAddStepToInput = onAddStepToInput
                 )
             }
-        } else if (isStreaming && currentStreamContent.isBlank()) {
-            item {
-                StreamingIndicator()
+
+            // Live Streaming Bubble
+            if (isStreaming && currentStreamContent.isNotBlank()) {
+                item {
+                    val cleanStreamText = com.orbital.action.ActionParser.parse(currentStreamContent).userDisplayText
+                    ChatBubbleItem(
+                        message = UiMessage(
+                            role = "assistant",
+                            content = cleanStreamText.ifBlank { "Executing task..." },
+                            providerName = activeServingProvider ?: "Auto-Router",
+                            modelName = "streaming"
+                        ),
+                        characterName = characterName,
+                        characterId = characterId,
+                        isStreaming = true,
+                        onCopy = {},
+                        onSpeak = {},
+                        onSuggestionClick = {},
+                        onAddStepToInput = {}
+                    )
+                }
+            } else if (isStreaming && currentStreamContent.isBlank()) {
+                item {
+                    StreamingIndicator()
+                }
             }
         }
     }
@@ -116,7 +272,7 @@ fun PreviewMessageList() {
             UiMessage(role = "user", content = "Hi!"),
             UiMessage(role = "assistant", content = "Hello! How can I help you today?")
         ),
-        characterName = "Aether",
+        characterName = "Lumy",
         isStreaming = false,
         currentStreamContent = "",
         activeServingProvider = "Groq",

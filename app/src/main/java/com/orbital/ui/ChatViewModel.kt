@@ -14,6 +14,10 @@ import com.orbital.data.ProviderType
 import com.orbital.data.RoutingMode
 import com.orbital.data.SecureStorage
 import com.orbital.voice.VoiceManager
+import android.content.Context
+import android.content.Intent
+import com.orbital.overlay.OverlayService
+import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -36,6 +40,7 @@ data class UiMessage(
 
 @HiltViewModel
 class ChatViewModel @Inject constructor(
+    @ApplicationContext private val context: Context,
     private val chatEngine: ChatEngine,
     private val llmRepository: LlmRepository,
     private val voiceManager: VoiceManager,
@@ -43,19 +48,13 @@ class ChatViewModel @Inject constructor(
     private val secureStorage: SecureStorage
 ) : ViewModel() {
 
-    private val initialGreeting = "Hello! I am ${secureStorage.getCharacter() ?: "Aether (AI Companion)"}, your client-side executive AI companion. I can answer questions, open apps (e.g. Gmail, YouTube, WhatsApp), search the web, set timers, and manage device tasks."
-
-    // UI States
-    private val _messages = MutableStateFlow<List<UiMessage>>(
-        listOf(
-            UiMessage(
-                role = "assistant",
-                content = initialGreeting,
-                providerName = "Orbital Router",
-                modelName = "Executive Agent"
-            )
-        )
+    private val _currentCharacter = MutableStateFlow(
+        secureStorage.getSelectedCharacter() ?: secureStorage.getCharacter()?.lowercase() ?: "lumy"
     )
+    val currentCharacter: StateFlow<String> = _currentCharacter.asStateFlow()
+
+    // UI States - Start with empty list so no synthetic greeting bubble is shown
+    private val _messages = MutableStateFlow<List<UiMessage>>(emptyList())
     val messages: StateFlow<List<UiMessage>> = _messages.asStateFlow()
 
     private val _inputText = MutableStateFlow("")
@@ -74,17 +73,7 @@ class ChatViewModel @Inject constructor(
     val activeServingProvider: StateFlow<String?> = _activeServingProvider.asStateFlow()
     val activeProvider: StateFlow<String?> = _activeServingProvider.asStateFlow()
 
-    private val _quickSuggestions = MutableStateFlow(
-        listOf(
-            "✉️ Open Gmail",
-            "▶️ Open YouTube",
-            "💬 Open WhatsApp",
-            "⚙️ Open Settings",
-            "🔋 Check Battery Status",
-            "⏱️ Set 5m Timer",
-            "🌐 Search AI News"
-        )
-    )
+    private val _quickSuggestions = MutableStateFlow<List<String>>(emptyList())
     val quickSuggestions: StateFlow<List<String>> = _quickSuggestions.asStateFlow()
 
     private val _currentRoutingMode = MutableStateFlow(llmRepository.getRoutingMode())
@@ -96,13 +85,11 @@ class ChatViewModel @Inject constructor(
     private val _isVoiceListening = MutableStateFlow(false)
     val isVoiceListening: StateFlow<Boolean> = _isVoiceListening.asStateFlow()
 
-    private val _currentCharacter = MutableStateFlow(secureStorage.getCharacter() ?: "aether")
-    val currentCharacter: StateFlow<String> = _currentCharacter.asStateFlow()
-
     val characterName: String
-        get() = "${_currentCharacter.value.replaceFirstChar { it.uppercase() }} (AI Companion)"
+        get() = "${Character.find(_currentCharacter.value).name} (AI Companion)"
 
     init {
+        chatEngine.setCharacter(_currentCharacter.value)
         observeChatEngine()
         setupVoiceCallback()
     }
@@ -121,28 +108,8 @@ class ChatViewModel @Inject constructor(
         viewModelScope.launch {
             chatEngine.messages.collect { engineMsgs ->
                 if (engineMsgs.isEmpty()) {
-                    _messages.update {
-                        listOf(
-                            UiMessage(
-                                role = "assistant",
-                                content = initialGreeting,
-                                providerName = "Orbital Router",
-                                modelName = "Executive Agent"
-                            )
-                        )
-                    }
+                    _messages.update { emptyList() }
                 } else {
-                    val greetingList = if (engineMsgs.firstOrNull()?.role != "assistant") {
-                        listOf(
-                            UiMessage(
-                                role = "assistant",
-                                content = initialGreeting,
-                                providerName = "Orbital Router",
-                                modelName = "Executive Agent"
-                            )
-                        )
-                    } else emptyList()
-
                     val mapped = engineMsgs.map { msg ->
                         val dummyAction = if (msg.actionLabel != null) DeviceAction("ACTION") else null
                         val suggestions = if (msg.role == "assistant") {
@@ -158,7 +125,7 @@ class ChatViewModel @Inject constructor(
                             nextStepSuggestions = suggestions
                         )
                     }
-                    _messages.update { greetingList + mapped }
+                    _messages.update { mapped }
 
                     val lastAssistant = engineMsgs.lastOrNull { it.role == "assistant" }
                     if (lastAssistant != null) {
@@ -178,7 +145,6 @@ class ChatViewModel @Inject constructor(
                 _isVoiceListening.update { false }
                 if (text.isNotBlank()) {
                     _inputText.update { text }
-                    sendMessage(text)
                 }
             }
 
@@ -284,9 +250,39 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    fun switchCharacter(characterId: String) {
+        val char = Character.find(characterId)
+        _currentCharacter.update { char.id }
+        secureStorage.saveSelectedCharacter(char.id)
+        secureStorage.saveCharacter(char.name)
+        chatEngine.setCharacter(char.id)
+
+        // Sync companion change to background OverlayService immediately
+        try {
+            val intent = Intent(context, OverlayService::class.java).apply {
+                action = OverlayService.ACTION_UPDATE_CHARACTER
+                putExtra("character", char.id)
+                putExtra("character_id", char.id)
+            }
+            context.startService(intent)
+        } catch (_: Exception) {}
+
+        MascotEventBus.postEvent(MascotEvent.Tap)
+    }
+
+    fun startNewChat() {
+        chatEngine.clearMessages()
+        _inputText.update { "" }
+        _currentStreamContent.update { "" }
+        _isStreaming.update { false }
+        _messages.update { emptyList() }
+        _quickSuggestions.update { emptyList() }
+    }
+
     fun refreshCharacter() {
-        val char = secureStorage.getCharacter() ?: "aether"
-        _currentCharacter.update { char }
+        val charId = secureStorage.getSelectedCharacter() ?: secureStorage.getCharacter()?.lowercase() ?: "lumy"
+        _currentCharacter.update { charId }
+        chatEngine.setCharacter(charId)
     }
 
     override fun onCleared() {
