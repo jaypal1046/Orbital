@@ -52,4 +52,6 @@
     <string name="label_open_source">Open Source</string>
     <string name="link_github">View on GitHub</string>
     <string name="link_license">MIT License</string>
+    <string name="accessibility_service_label">Orbital Autonomous Screen Automation</string>
+    <string name="accessibility_service_description">Allows Orbital AI Companion to read screen elements, identify interactive controls, and automate user-requested tasks across apps.</string>
 </resources>

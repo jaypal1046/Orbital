@@ -116,9 +116,12 @@ class ChatViewModel @Inject constructor(
                     _messages.update { emptyList() }
                 } else {
                     val mapped = engineMsgs.map { msg ->
-                        val dummyAction = if (msg.actionLabel != null) DeviceAction("ACTION") else null
+                        val action = if (msg.role == "assistant" && msg.content != null) {
+                            ActionParser.parse(msg.content).actions.firstOrNull()
+                        } else null
+
                         val suggestions = if (msg.role == "assistant") {
-                            NextStepSuggester.getSuggestions(dummyAction, msg.content ?: "")
+                            NextStepSuggester.getSuggestions(action, msg.content ?: "")
                         } else emptyList()
 
                         UiMessage(
@@ -134,7 +137,8 @@ class ChatViewModel @Inject constructor(
 
                     val lastAssistant = engineMsgs.lastOrNull { it.role == "assistant" }
                     if (lastAssistant != null) {
-                        val suggestions = NextStepSuggester.getSuggestions(null, lastAssistant.content ?: "")
+                        val lastAction = lastAssistant.content?.let { ActionParser.parse(it).actions.firstOrNull() }
+                        val suggestions = NextStepSuggester.getSuggestions(lastAction, lastAssistant.content ?: "")
                         if (suggestions.isNotEmpty()) {
                             _quickSuggestions.update { suggestions }
                         }

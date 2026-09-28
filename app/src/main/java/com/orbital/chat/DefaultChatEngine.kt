@@ -183,10 +183,29 @@ class DefaultChatEngine @Inject constructor(
             var actionLabel: String? = null
             var actionDetails: String? = null
 
+            var userDisplayText = parsed.userDisplayText
+
             if (parsed.actions.isNotEmpty()) {
                 val results = mutableListOf<String>()
                 parsed.actions.forEach { action ->
                     if (_pendingConfirmation.value != null) return@forEach
+
+                    // Check if critical parameters are missing
+                    val missingParams = com.orbital.action.ScreenNavigationLedger.getMissingParameters(action)
+                    if (missingParams.isNotEmpty()) {
+                        val clarification = com.orbital.action.ScreenNavigationLedger.buildClarificationQuestion(
+                            missingParams = missingParams,
+                            contextName = action.action.replace('_', ' ').lowercase()
+                        )
+                        if (userDisplayText.isBlank()) {
+                            userDisplayText = clarification
+                        } else {
+                            userDisplayText += "\n\n$clarification"
+                        }
+                        results += "ℹ️ Clarification required: missing ${missingParams.joinToString(", ")}"
+                        return@forEach
+                    }
+
                     if (deviceActionExecutor.requiresConfirmation(action)) {
                         _pendingConfirmation.value = action
                         results += "⏳ Approval needed: ${action.action.replace('_', ' ').lowercase()}"
@@ -214,7 +233,7 @@ class DefaultChatEngine @Inject constructor(
             // Add assistant message to memory
             val assistantMessage = ChatMessage(
                 role = "assistant",
-                content = parsed.userDisplayText,
+                content = userDisplayText,
                 actionLabel = actionLabel,
                 actionDetails = actionDetails
             )

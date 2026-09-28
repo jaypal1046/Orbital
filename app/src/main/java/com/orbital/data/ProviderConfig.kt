@@ -102,7 +102,7 @@ sealed class ProviderConfig {
     data class Pollinations(
         val apiKey: String = "free",
         val model: String = "openai",
-        val baseUrl: String = "https://gen.pollinations.ai/v1/chat/completions"
+        val baseUrl: String = "https://text.pollinations.ai/openai/chat/completions"
     ) : ProviderConfig()
 
     @Serializable
@@ -177,10 +177,11 @@ sealed class ProviderConfig {
 
     companion object {
         val defaultProviderOrder = listOf(
+            ProviderType.GEMINI,
             ProviderType.GROQ,
             ProviderType.CEREBRAS,
+            ProviderType.POLLINATIONS,
             ProviderType.ALPHAOX,
-            ProviderType.GEMINI,
             ProviderType.NVIDIA_NIM,
             ProviderType.MISTRAL,
             ProviderType.OPENROUTER,
@@ -190,7 +191,6 @@ sealed class ProviderConfig {
             ProviderType.CLOUDFLARE,
             ProviderType.COHERE,
             ProviderType.OLLAMA,
-            ProviderType.POLLINATIONS,
             ProviderType.KILO,
             ProviderType.OVH,
             ProviderType.LLM7,
@@ -198,8 +198,7 @@ sealed class ProviderConfig {
             ProviderType.ROUTEWAY,
             ProviderType.SAIL,
             ProviderType.RADEON,
-            ProviderType.MODELSCOPE,
-            ProviderType.AIHORDE
+            ProviderType.MODELSCOPE
         )
 
         val fastTierProviders = listOf(

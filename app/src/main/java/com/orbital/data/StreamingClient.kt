@@ -66,6 +66,10 @@ class StreamingClient(
             if (apiKey.isNotBlank() && apiKey != "free" && apiKey != "0000000000") {
                 requestBuilder.addHeader("Authorization", "Bearer $apiKey")
             }
+            if (apiEndpoint.contains("aihorde.net")) {
+                requestBuilder.addHeader("apikey", if (apiKey.isBlank()) "0000000000" else apiKey)
+                requestBuilder.addHeader("Client-Agent", "Orbital:1.0:android")
+            }
             requestBuilder.addHeader("Content-Type", "application/json")
         }
 
@@ -107,25 +111,17 @@ class StreamingClient(
                     connectionStatusCallback?.invoke(ConnectionStatus.CONNECTED)
 
                     response.body?.let { body ->
-                        val reader = body.charStream()
-                        val buffer = CharArray(8192)
-                        val lineBuilder = StringBuilder()
-
+                        val reader = body.charStream().buffered()
                         while (true) {
-                            val charsRead = reader.read(buffer)
-                            if (charsRead == -1) break
-                            lineBuilder.append(buffer, 0, charsRead)
-
-                            val lines = lineBuilder.toString().split("\n")
-                            lineBuilder.setLength(0)
-
-                            for (line in lines) {
-                                if (line.startsWith("data: ")) {
-                                    val data = line.substring(6).trim()
-                                    if (data == "[DONE]") {
-                                        onComplete()
-                                        return@onResponse
-                                    }
+                            val line = reader.readLine() ?: break
+                            val trimmed = line.trim()
+                            if (trimmed.startsWith("data:")) {
+                                val data = trimmed.removePrefix("data:").trim()
+                                if (data == "[DONE]") {
+                                    onComplete()
+                                    return@onResponse
+                                }
+                                if (data.isNotBlank()) {
                                     parseChunk(data, onChunk)
                                 }
                             }
@@ -165,8 +161,9 @@ class StreamingClient(
                 if (choices.length() > 0) {
                     val firstChoice = choices.getJSONObject(0)
                     val deltaObj = firstChoice.optJSONObject("delta")
-                    val content = deltaObj?.optString("content") ?: ""
-                    if (content.isNotBlank()) {
+                    val content = deltaObj?.optString("content")?.takeIf { it.isNotBlank() }
+                        ?: firstChoice.optString("text").takeIf { it.isNotBlank() }
+                    if (!content.isNullOrBlank()) {
                         onChunk(content)
                     }
                 }

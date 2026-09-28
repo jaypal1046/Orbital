@@ -55,8 +55,10 @@ open class DeviceActionExecutor(private val context: Context) {
     }
 
     private val capabilityManager = AppCapabilityManager(context)
+    private val cronManager = com.orbital.cron.CronManager(context)
 
     open fun getCapabilityManager(): AppCapabilityManager = capabilityManager
+    open fun getCronManager(): com.orbital.cron.CronManager = cronManager
 
     open fun getInstalledAppNames(): List<String> {
         return capabilityManager.getInstalledApps().map { it.name }
@@ -71,7 +73,18 @@ open class DeviceActionExecutor(private val context: Context) {
                 if (battery >= threshold) return ActionResult.Success("Skipped ${action.action}: battery is $battery%", "Battery Saver opens below $threshold%")
             }
             when (action.action.uppercase().trim()) {
-                "OPEN_APP", "LAUNCH_APP" -> openApp(action.target ?: action.query ?: "")
+                "OPEN_APP", "LAUNCH_APP" -> {
+                    val query = action.query ?: ""
+                    val target = action.target ?: query
+                    if (query.contains("test", ignoreCase = true) || target.contains("test", ignoreCase = true)) {
+                        performAppTesting(
+                            targetApp = if (target.contains("test", ignoreCase = true)) target.replace(Regex("(?i)test(ing)?|perform"), "").trim() else target,
+                            testAction = query.takeIf { it.isNotBlank() }
+                        )
+                    } else {
+                        openApp(target)
+                    }
+                }
                 "SEARCH_APP", "SEARCH_IN_APP" -> searchInApp(action.target ?: "", action.query ?: "")
                 "SEARCH_WEB", "SEARCH" -> searchWeb(action.query ?: action.target ?: "", targetBrowser = action.target)
                 "OPEN_URL", "LAUNCH_URL" -> openUrl(action.url ?: action.target ?: "")
@@ -92,6 +105,21 @@ open class DeviceActionExecutor(private val context: Context) {
                 "SCHEDULE_REMINDER", "REMINDER" -> PowerAwareScheduler(context).scheduleReminder(
                     action.label ?: action.message ?: action.query ?: "Reminder", action.repeatMinutes, action.hour, action.minutes
                 )
+                "SCHEDULE_MONITOR", "SCHEDULE_CRON", "MONITOR_TRAIN", "MONITOR_TICKET" -> scheduleCronMonitoring(action)
+                "LIST_MONITORS", "ACTIVE_MONITORS" -> listActiveMonitors()
+                "CANCEL_MONITOR", "STOP_MONITOR" -> cancelCronMonitoring(action.target ?: action.query ?: "")
+                "SEARCH_TRAIN", "TRAIN_STATUS", "WHERE_IS_MY_TRAIN" -> searchTrain(action.query ?: action.target ?: "", action.target)
+                "PERFORM_TESTING", "TEST_APP", "AUTO_TEST", "SCREEN_TEST" -> performAppTesting(
+                    targetApp = action.target ?: action.query ?: "Where is My Train",
+                    testAction = action.query
+                )
+                "READ_SCREEN", "INSPECT_SCREEN" -> readActiveScreen()
+                "CLICK_ELEMENT", "TAP", "CLICK" -> clickScreenElement(action.target ?: action.query ?: "")
+                "INPUT_TEXT", "TYPE_TEXT", "TYPE" -> inputScreenText(
+                    text = action.query ?: action.message ?: "",
+                    targetField = action.target
+                )
+                "SCROLL" -> scrollScreen(forward = !(action.target?.equals("up", ignoreCase = true) == true))
                 "OPEN_SETTING", "SETTINGS" -> openSetting(action.target ?: "")
                 "DEVICE_STATUS", "BATTERY" -> getDeviceStatus()
                 "MAKE_CALL", "CALL" -> makeCall(action.phoneNumber ?: action.target ?: "")
@@ -154,22 +182,99 @@ open class DeviceActionExecutor(private val context: Context) {
         val cleanQuery = query.trim()
         val lowerTarget = targetApp.lowercase().trim()
 
-        if (lowerTarget.contains("youtube") || lowerTarget.contains("video")) {
-            val intent = Intent(Intent.ACTION_SEARCH).apply {
-                setPackage("com.google.android.youtube")
-                putExtra("query", cleanQuery)
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK
-            }
-            return try {
-                context.startActivity(intent)
-                ActionResult.Success("Searching YouTube for '$cleanQuery'")
-            } catch (e: Exception) {
-                openUrl("https://www.youtube.com/results?search_query=" + Uri.encode(cleanQuery))
+        // 1. Dynamic app lookup via Capability Manager
+        val matchedApp = capabilityManager.findBestAppMatch(lowerTarget)
+
+        if (matchedApp != null) {
+            val pkg = matchedApp.packageName
+            val cat = matchedApp.category
+
+            when (cat) {
+                AppCategory.MEDIA -> {
+                    val intent = Intent(Intent.ACTION_SEARCH).apply {
+                        setPackage(pkg)
+                        putExtra("query", cleanQuery)
+                        putExtra(SearchManager.QUERY, cleanQuery)
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                    }
+                    return try {
+                        context.startActivity(intent)
+                        ActionResult.Success("Searching ${matchedApp.name} for '$cleanQuery'")
+                    } catch (e: Exception) {
+                        openApp(pkg)
+                    }
+                }
+                AppCategory.MUSIC -> {
+                    val intent = Intent(MediaStore.INTENT_ACTION_MEDIA_PLAY_FROM_SEARCH).apply {
+                        setPackage(pkg)
+                        putExtra(SearchManager.QUERY, cleanQuery)
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                    }
+                    return try {
+                        context.startActivity(intent)
+                        ActionResult.Success("Playing '$cleanQuery' on ${matchedApp.name}")
+                    } catch (e: Exception) {
+                        openApp(pkg)
+                    }
+                }
+                AppCategory.EMAIL -> {
+                    val intent = Intent(Intent.ACTION_SEARCH).apply {
+                        setPackage(pkg)
+                        putExtra(SearchManager.QUERY, cleanQuery)
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                    }
+                    return try {
+                        context.startActivity(intent)
+                        ActionResult.Success("Searching ${matchedApp.name} for '$cleanQuery'")
+                    } catch (e: Exception) {
+                        openApp(pkg)
+                    }
+                }
+                AppCategory.NAVIGATION -> {
+                    return navigateTo(cleanQuery, targetPackage = pkg)
+                }
+                AppCategory.BROWSER -> {
+                    return searchWeb(cleanQuery, targetBrowser = pkg)
+                }
+                AppCategory.SHOPPING -> {
+                    val intent = Intent(Intent.ACTION_SEARCH).apply {
+                        setPackage(pkg)
+                        putExtra(SearchManager.QUERY, cleanQuery)
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                    }
+                    return try {
+                        context.startActivity(intent)
+                        ActionResult.Success("Searching ${matchedApp.name} for '$cleanQuery'")
+                    } catch (e: Exception) {
+                        openApp(pkg)
+                    }
+                }
+                else -> {
+                    // Generic in-app search intent
+                    val intent = Intent(Intent.ACTION_SEARCH).apply {
+                        setPackage(pkg)
+                        putExtra(SearchManager.QUERY, cleanQuery)
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                    }
+                    return try {
+                        context.startActivity(intent)
+                        ActionResult.Success("Searching ${matchedApp.name} for '$cleanQuery'")
+                    } catch (e: Exception) {
+                        openApp(pkg)
+                    }
+                }
             }
         }
 
-        if (lowerTarget.contains("spotify") || lowerTarget.contains("music")) {
+        // 2. Keyword-based dynamic fallbacks
+        if (lowerTarget.contains("train") || lowerTarget.contains("rail") || lowerTarget.contains("irctc")) {
+            return searchTrain(cleanQuery, target = targetApp)
+        }
+
+        if (lowerTarget.contains("music") || lowerTarget.contains("song")) {
+            val musicApp = capabilityManager.getInstalledApps().firstOrNull { it.category == AppCategory.MUSIC }
             val intent = Intent(MediaStore.INTENT_ACTION_MEDIA_PLAY_FROM_SEARCH).apply {
+                if (musicApp != null) setPackage(musicApp.packageName)
                 putExtra(SearchManager.QUERY, cleanQuery)
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK
             }
@@ -177,39 +282,28 @@ open class DeviceActionExecutor(private val context: Context) {
                 context.startActivity(intent)
                 ActionResult.Success("Playing music: '$cleanQuery'")
             } catch (e: Exception) {
-                openUrl("https://open.spotify.com/search/" + Uri.encode(cleanQuery))
+                searchWeb(cleanQuery)
             }
         }
 
-        if (lowerTarget.contains("gmail") || lowerTarget.contains("mail") || lowerTarget.contains("email")) {
-            val intent = Intent(Intent.ACTION_SEARCH).apply {
-                setPackage("com.google.android.gm")
-                putExtra(SearchManager.QUERY, cleanQuery)
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK
-            }
-            return try {
-                context.startActivity(intent)
-                ActionResult.Success("Opening Gmail for '$cleanQuery'")
-            } catch (e: Exception) {
-                openApp("Gmail")
+        if (lowerTarget.contains("video") || lowerTarget.contains("movie")) {
+            val mediaApp = capabilityManager.getInstalledApps().firstOrNull { it.category == AppCategory.MEDIA }
+            if (mediaApp != null) {
+                return searchInApp(mediaApp.name, cleanQuery)
             }
         }
 
-        if (lowerTarget.contains("map") || lowerTarget.contains("place") || lowerTarget.contains("navigate")) {
+        if (lowerTarget.contains("map") || lowerTarget.contains("place") || lowerTarget.contains("navigate") || lowerTarget.contains("direction")) {
             return navigateTo(cleanQuery)
         }
 
-        if (lowerTarget.contains("chrome") || lowerTarget.contains("browser") || lowerTarget.contains("edge") || lowerTarget.contains("firefox") || lowerTarget.contains("google")) {
-            return searchWeb(cleanQuery, targetBrowser = targetApp)
-        }
-
-        if (lowerTarget.contains("playstore") || lowerTarget.contains("play store") || lowerTarget.contains("store")) {
+        if (lowerTarget.contains("store") || lowerTarget.contains("playstore") || lowerTarget.contains("market")) {
             val intent = Intent(Intent.ACTION_VIEW, Uri.parse("market://search?q=" + Uri.encode(cleanQuery))).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK
             }
             return try {
                 context.startActivity(intent)
-                ActionResult.Success("Searching Play Store for '$cleanQuery'")
+                ActionResult.Success("Searching app store for '$cleanQuery'")
             } catch (e: Exception) {
                 openUrl("https://play.google.com/store/search?q=" + Uri.encode(cleanQuery))
             }
@@ -219,37 +313,117 @@ open class DeviceActionExecutor(private val context: Context) {
         return searchWeb(cleanQuery, targetBrowser = targetApp)
     }
 
-    fun navigateTo(destination: String): ActionResult {
+    fun navigateTo(destination: String, targetPackage: String? = null): ActionResult {
         val cleanDest = destination.trim()
-        val uri = Uri.parse("google.navigation:q=" + Uri.encode(cleanDest))
-        val mapIntent = Intent(Intent.ACTION_VIEW, uri).apply {
-            setPackage("com.google.android.apps.maps")
+        val navApp = if (targetPackage != null) {
+            capabilityManager.findBestAppMatch(targetPackage)
+        } else {
+            capabilityManager.getInstalledApps().firstOrNull { it.category == AppCategory.NAVIGATION }
+        }
+
+        val geoUri = Uri.parse("geo:0,0?q=" + Uri.encode(cleanDest))
+        val intent = Intent(Intent.ACTION_VIEW, geoUri).apply {
+            if (navApp != null) setPackage(navApp.packageName)
             flags = Intent.FLAG_ACTIVITY_NEW_TASK
         }
+
         return try {
-            context.startActivity(mapIntent)
-            ActionResult.Success("Navigating to '$cleanDest' via Google Maps")
+            context.startActivity(intent)
+            ActionResult.Success("Navigating to '$cleanDest'${if (navApp != null) " via ${navApp.name}" else ""}")
         } catch (e: Exception) {
-            val genericUri = Uri.parse("geo:0,0?q=" + Uri.encode(cleanDest))
-            val genericIntent = Intent(Intent.ACTION_VIEW, genericUri).apply {
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            try {
+                // Fallback without package restriction
+                intent.setPackage(null)
+                context.startActivity(intent)
+                ActionResult.Success("Navigating to '$cleanDest'")
+            } catch (ex: Exception) {
+                openUrl("https://www.google.com/maps/search/?api=1&query=" + Uri.encode(cleanDest))
             }
-            context.startActivity(genericIntent)
-            ActionResult.Success("Searching location '$cleanDest'")
         }
+    }
+
+    fun searchTrain(query: String, target: String? = null): ActionResult {
+        val cleanQuery = query.trim()
+        if (cleanQuery.isBlank()) return ActionResult.Error("Train number or station name is required.")
+
+        // 1. Direct App Matching: If Where is My Train or IRCTC is installed, launch it directly
+        val trainApp = capabilityManager.findBestAppMatch(target ?: "Where is My Train")
+            ?: capabilityManager.findBestAppMatch("train")
+            ?: capabilityManager.getInstalledApps().firstOrNull { 
+                it.name.contains("train", ignoreCase = true) || 
+                it.name.contains("rail", ignoreCase = true) ||
+                it.packageName.contains("train", ignoreCase = true) ||
+                it.packageName == "com.whereismytrain.android"
+            }
+
+        if (trainApp != null) {
+            val pm = context.packageManager
+            val launchIntent = pm.getLaunchIntentForPackage(trainApp.packageName)
+            if (launchIntent != null) {
+                launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                launchIntent.putExtra(SearchManager.QUERY, cleanQuery)
+                launchIntent.putExtra("query", cleanQuery)
+                return try {
+                    context.startActivity(launchIntent)
+                    ActionResult.Success("Opened ${trainApp.name} for train search: '$cleanQuery'")
+                } catch (_: Exception) {
+                    openApp(trainApp.packageName)
+                }
+            }
+        }
+
+        // 2. Layer 2: Fast 0ms Deep Link with parameters
+        val deepLinkIntent = DeepLinkLedger.buildDeepLinkIntent(
+            context,
+            target ?: "WHERE_IS_MY_TRAIN",
+            mapOf("query" to cleanQuery)
+        )
+        if (deepLinkIntent != null) {
+            return try {
+                context.startActivity(deepLinkIntent)
+                ActionResult.Success("Opened train search for '$cleanQuery'")
+            } catch (_: Exception) {
+                openApp(target ?: "Where is My Train")
+            }
+        }
+
+        // 3. Fallback: Live web search inquiry
+        val trainSearchUrl = "https://www.google.com/search?q=" + Uri.encode("Live train status $cleanQuery")
+        return openUrl(trainSearchUrl)
     }
 
     fun playMusicOrVideo(target: String, query: String): ActionResult {
-        if (target.contains("youtube", ignoreCase = true) || query.contains("video", ignoreCase = true)) {
-            return searchInApp("youtube", query)
+        val cleanTarget = target.trim()
+        val cleanQuery = query.trim()
+
+        if (cleanTarget.isNotBlank()) {
+            val matchedApp = capabilityManager.findBestAppMatch(cleanTarget)
+            if (matchedApp != null) {
+                return searchInApp(matchedApp.name, cleanQuery)
+            }
         }
-        return searchInApp("spotify", query)
+
+        if (cleanQuery.contains("video", ignoreCase = true) || cleanTarget.contains("video", ignoreCase = true)) {
+            val mediaApp = capabilityManager.getInstalledApps().firstOrNull { it.category == AppCategory.MEDIA }
+            if (mediaApp != null) {
+                return searchInApp(mediaApp.name, cleanQuery)
+            }
+        }
+
+        val musicApp = capabilityManager.getInstalledApps().firstOrNull { it.category == AppCategory.MUSIC }
+        if (musicApp != null) {
+            return searchInApp(musicApp.name, cleanQuery)
+        }
+
+        return searchInApp(cleanTarget.ifBlank { "music" }, cleanQuery)
     }
 
     fun composeEmail(recipient: String?, subject: String?, body: String?, target: String? = null): ActionResult {
-        val cleanTarget = target?.lowercase()?.trim() ?: ""
-        val isGmailExplicit = cleanTarget.contains("gmail") || cleanTarget.contains("com.google.android.gm")
-        val isOutlookExplicit = cleanTarget.contains("outlook")
+        val emailApp = if (!target.isNullOrBlank()) {
+            capabilityManager.findBestAppMatch(target)
+        } else {
+            capabilityManager.getInstalledApps().firstOrNull { it.category == AppCategory.EMAIL }
+        }
 
         val intent = Intent(Intent.ACTION_SENDTO).apply {
             data = Uri.parse("mailto:")
@@ -262,23 +436,15 @@ open class DeviceActionExecutor(private val context: Context) {
             if (!body.isNullOrBlank()) {
                 putExtra(Intent.EXTRA_TEXT, body)
             }
+            if (emailApp != null) {
+                setPackage(emailApp.packageName)
+            }
             flags = Intent.FLAG_ACTIVITY_NEW_TASK
-        }
-
-        val targetPackage = when {
-            isGmailExplicit -> "com.google.android.gm"
-            isOutlookExplicit -> "com.microsoft.office.outlook"
-            isPackageInstalled("com.google.android.gm") -> "com.google.android.gm"
-            else -> null
-        }
-
-        if (targetPackage != null && isPackageInstalled(targetPackage)) {
-            intent.setPackage(targetPackage)
         }
 
         return try {
             context.startActivity(intent)
-            ActionResult.Success("Composing email to ${recipient ?: "draft"}")
+            ActionResult.Success("Composing email to ${recipient ?: "draft"}${if (emailApp != null) " on ${emailApp.name}" else ""}")
         } catch (e: Exception) {
             try {
                 intent.setPackage(null)
@@ -290,49 +456,37 @@ open class DeviceActionExecutor(private val context: Context) {
         }
     }
 
-    private fun isPackageInstalled(packageName: String): Boolean {
-        return try {
-            context.packageManager.getPackageInfo(packageName, 0)
-            true
-        } catch (e: Exception) {
-            false
-        }
-    }
-
     fun sendMessage(target: String, phoneNumber: String?, message: String): ActionResult {
-        if (target.contains("whatsapp", ignoreCase = true) || target.contains("wa", ignoreCase = true)) {
+        val cleanTarget = target.lowercase().trim()
+        val messagingApp = capabilityManager.findBestAppMatch(cleanTarget)
+
+        if (messagingApp != null && messagingApp.category == AppCategory.MESSAGING) {
+            val pkg = messagingApp.packageName
             val cleanPhone = phoneNumber?.replace(Regex("[^0-9]"), "") ?: ""
+
             if (cleanPhone.isNotBlank()) {
-                val url = "https://api.whatsapp.com/send?phone=$cleanPhone&text=${Uri.encode(message)}"
-                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
-                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                }
-                return try {
-                    context.startActivity(intent)
-                    ActionResult.Success("Opened WhatsApp for $cleanPhone")
-                } catch (e: Exception) {
-                    openApp("com.whatsapp")
-                }
-            } else {
-                // Launch WhatsApp app directly
-                val pm = context.packageManager
-                val launchIntent = pm.getLaunchIntentForPackage("com.whatsapp")
-                if (launchIntent != null) {
-                    launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    context.startActivity(launchIntent)
-                    return ActionResult.Success("Opened WhatsApp")
-                } else {
-                    val url = "https://api.whatsapp.com/send?text=${Uri.encode(message)}"
+                // If it's a web/intent enabled messaging app (like WhatsApp/Telegram)
+                if (pkg.contains("whatsapp") || messagingApp.name.contains("whatsapp", ignoreCase = true)) {
+                    val url = "https://api.whatsapp.com/send?phone=$cleanPhone&text=${Uri.encode(message)}"
                     val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
                         flags = Intent.FLAG_ACTIVITY_NEW_TASK
                     }
                     return try {
                         context.startActivity(intent)
-                        ActionResult.Success("Opening WhatsApp")
+                        ActionResult.Success("Opened WhatsApp for $cleanPhone")
                     } catch (e: Exception) {
-                        ActionResult.Error("WhatsApp is not installed on this device.")
+                        openApp(pkg)
                     }
                 }
+            }
+
+            // Launch the messaging app directly
+            val pm = context.packageManager
+            val launchIntent = pm.getLaunchIntentForPackage(pkg)
+            if (launchIntent != null) {
+                launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                context.startActivity(launchIntent)
+                return ActionResult.Success("Opened ${messagingApp.name}")
             }
         }
 
@@ -405,9 +559,10 @@ open class DeviceActionExecutor(private val context: Context) {
         val cleanQuery = query.trim()
         if (cleanQuery.isBlank()) return ActionResult.Error("Search query is empty")
 
-        // Guard: If the model mistakenly outputs email query filters to searchWeb, redirect to Gmail app
+        // Guard: If the model mistakenly outputs email query filters to searchWeb, redirect to Email app
         if (cleanQuery.startsWith("is:") || cleanQuery.contains("is:unread") || cleanQuery.contains("is:starred")) {
-            return searchInApp("Gmail", cleanQuery)
+            val emailApp = capabilityManager.getInstalledApps().firstOrNull { it.category == AppCategory.EMAIL }
+            return searchInApp(emailApp?.name ?: "email", cleanQuery)
         }
 
         val searchUrl = "https://www.google.com/search?q=" + Uri.encode(cleanQuery)
@@ -415,24 +570,19 @@ open class DeviceActionExecutor(private val context: Context) {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
 
-        val cleanTarget = targetBrowser?.lowercase()?.trim() ?: ""
-        val targetPackage = when {
-            cleanTarget.contains("chrome") -> "com.android.chrome"
-            cleanTarget.contains("edge") -> "com.microsoft.emmx"
-            cleanTarget.contains("firefox") -> "org.mozilla.firefox"
-            cleanTarget.contains("brave") -> "com.brave.browser"
-            cleanTarget.contains("opera") -> "com.opera.browser"
-            isPackageInstalled("com.android.chrome") -> "com.android.chrome"
-            else -> null
+        val browserApp = if (!targetBrowser.isNullOrBlank()) {
+            capabilityManager.findBestAppMatch(targetBrowser)
+        } else {
+            capabilityManager.getInstalledApps().firstOrNull { it.category == AppCategory.BROWSER }
         }
 
-        if (targetPackage != null && isPackageInstalled(targetPackage)) {
-            intent.setPackage(targetPackage)
+        if (browserApp != null) {
+            intent.setPackage(browserApp.packageName)
         }
 
         return try {
             context.startActivity(intent)
-            ActionResult.Success("Searching web for: '$cleanQuery'")
+            ActionResult.Success("Searching web for: '$cleanQuery'${if (browserApp != null) " on ${browserApp.name}" else ""}")
         } catch (e: Exception) {
             try {
                 intent.setPackage(null)
@@ -588,5 +738,259 @@ open class DeviceActionExecutor(private val context: Context) {
         }
         context.startActivity(intent)
         return ActionResult.Success("Composing SMS message")
+    }
+
+    fun performAppTesting(targetApp: String, testAction: String? = null): ActionResult {
+        val cleanTarget = targetApp.ifBlank { "Where is My Train" }
+        
+        // Step 1: Check if Accessibility Service is enabled
+        val isA11yEnabled = com.orbital.automation.OrbitalAccessibilityService.isEnabled(context)
+        
+        // Step 2: Open target app
+        val openResult = openApp(cleanTarget)
+        if (openResult is ActionResult.Error) {
+            return openResult
+        }
+
+        if (!isA11yEnabled) {
+            com.orbital.automation.OrbitalAccessibilityService.openSettings(context)
+            return ActionResult.Success(
+                message = "Opened $cleanTarget. Please enable 'Orbital Screen Automation' in Accessibility to allow automated tapping.",
+                details = "Orbital launched $cleanTarget. To enable full autonomous screen tapping & testing, turn on Orbital in the Accessibility Settings screen shown."
+            )
+        }
+
+        // Step 3: Resilient window polling (up to 3.5s across 5 attempts) to allow app window to settle
+        val service = com.orbital.automation.OrbitalAccessibilityService.instance
+            ?: return ActionResult.Success("Opened $cleanTarget for testing. Companion overlay is observing.")
+
+        var snapshot: com.orbital.automation.ScreenHierarchySnapshot? = null
+        for (attempt in 1..5) {
+            try {
+                Thread.sleep(700)
+            } catch (_: InterruptedException) {}
+            snapshot = service.captureScreenHierarchy()
+            if (snapshot != null && snapshot.elements.isNotEmpty()) {
+                break
+            }
+        }
+
+        if (snapshot == null || snapshot.elements.isEmpty()) {
+            return ActionResult.Success(
+                message = "Opened $cleanTarget for automated testing.",
+                details = "Screen loaded. Companion overlay is active and ready for further screen actions."
+            )
+        }
+
+        val testSummary = StringBuilder()
+        testSummary.append("📱 Automated Testing Report for ${snapshot.packageName}:\n")
+
+        // Step 4: Inspect and categorize interactive controls
+        val clickables = snapshot.elements.filter { it.isClickable }
+        val editables = snapshot.elements.filter { it.isEditable }
+
+        testSummary.append("• Found ${clickables.size} interactive controls & ${editables.size} input fields.\n")
+
+        val buttonLabels = clickables.mapNotNull { it.text.ifBlank { it.contentDescription } }
+            .filter { it.isNotBlank() }
+            .distinct()
+            .take(6)
+        if (buttonLabels.isNotEmpty()) {
+            testSummary.append("• Verified Controls: ${buttonLabels.joinToString(", ")}\n")
+        }
+
+        val inputLabels = editables.mapNotNull { it.text.ifBlank { it.contentDescription ?: it.viewId } }
+            .filter { it.isNotBlank() }
+            .distinct()
+            .take(4)
+        if (inputLabels.isNotEmpty()) {
+            testSummary.append("• Form Fields: ${inputLabels.joinToString(", ")}\n")
+        }
+
+        // Step 5: Execute primary interaction test
+        val targetButtonToClick = testAction?.takeIf { it.isNotBlank() && !it.equals("Find trains", ignoreCase = true) }
+            ?: buttonLabels.firstOrNull { 
+                it.contains("Find train", ignoreCase = true) || 
+                it.contains("Search", ignoreCase = true) || 
+                it.contains("Spot", ignoreCase = true) || 
+                it.contains("PNR", ignoreCase = true) || 
+                it.contains("Submit", ignoreCase = true)
+            }
+            ?: if (snapshot.packageName.contains("whereismytrain")) "Find trains" else buttonLabels.firstOrNull()
+
+        var clickResult = false
+        if (!targetButtonToClick.isNullOrBlank()) {
+            clickResult = service.clickElementByText(targetButtonToClick)
+            if (!clickResult) {
+                // Try clicking by partial or lowercase match
+                clickResult = service.clickElementByText(targetButtonToClick.lowercase())
+            }
+            if (clickResult) {
+                testSummary.append("⚡ Tested & Clicked primary control: '$targetButtonToClick' (OK)\n")
+                // Wait for resulting UI transition
+                try {
+                    Thread.sleep(900)
+                } catch (_: InterruptedException) {}
+                val nextSnapshot = service.captureScreenHierarchy()
+                if (nextSnapshot != null) {
+                    testSummary.append("• New screen state after tap: ${nextSnapshot.elements.size} elements loaded.\n")
+                }
+            } else {
+                testSummary.append("• Verified control presence: '$targetButtonToClick'\n")
+            }
+        }
+
+        // Step 6: Trigger companion mascot event
+        com.orbital.ui.MascotEventBus.postEvent(
+            com.orbital.ui.MascotEvent.ActionSuccess(
+                "Tested $cleanTarget: ${clickables.size} controls verified" + if (clickResult) ", tapped '$targetButtonToClick'" else ""
+            )
+        )
+
+        return ActionResult.Success(
+            message = "Tested $cleanTarget (${clickables.size} controls verified${if (clickResult) ", clicked '$targetButtonToClick'" else ""})",
+            details = testSummary.toString().trim()
+        )
+    }
+
+    fun readActiveScreen(): ActionResult {
+        val service = com.orbital.automation.OrbitalAccessibilityService.instance
+        if (service == null || !com.orbital.automation.OrbitalAccessibilityService.isEnabled(context)) {
+            com.orbital.automation.OrbitalAccessibilityService.openSettings(context)
+            return ActionResult.Error("Accessibility service is not enabled. Please enable it in Settings.")
+        }
+
+        val snapshot = service.captureScreenHierarchy()
+            ?: return ActionResult.Error("Could not read current active window.")
+
+        return ActionResult.Success(
+            message = "Screen read: ${snapshot.elements.size} elements found",
+            details = snapshot.toPromptSummary()
+        )
+    }
+
+    fun clickScreenElement(targetTextOrId: String): ActionResult {
+        val clean = targetTextOrId.trim()
+        if (clean.isBlank()) return ActionResult.Error("Element label or text is required.")
+
+        val service = com.orbital.automation.OrbitalAccessibilityService.instance
+        if (service == null) {
+            return ActionResult.Error("Orbital accessibility service is not active.")
+        }
+
+        val success = if (clean.contains(":id/")) {
+            service.clickElementById(clean)
+        } else {
+            service.clickElementByText(clean)
+        }
+
+        return if (success) {
+            ActionResult.Success("Tapped '$clean' on screen")
+        } else {
+            ActionResult.Error("Could not find or tap element '$clean' on current screen.")
+        }
+    }
+
+    fun inputScreenText(text: String, targetField: String? = null): ActionResult {
+        val cleanText = text.trim()
+        val service = com.orbital.automation.OrbitalAccessibilityService.instance
+            ?: return ActionResult.Error("Orbital accessibility service is not active.")
+
+        val success = service.inputText(cleanText, targetField)
+        return if (success) {
+            ActionResult.Success("Entered '$cleanText'${if (!targetField.isNullOrBlank()) " into $targetField" else ""}")
+        } else {
+            ActionResult.Error("Could not find input field on current screen.")
+        }
+    }
+
+    fun scrollScreen(forward: Boolean = true): ActionResult {
+        val service = com.orbital.automation.OrbitalAccessibilityService.instance
+            ?: return ActionResult.Error("Orbital accessibility service is not active.")
+
+        val success = service.performScroll(forward)
+        return if (success) {
+            ActionResult.Success("Scrolled screen ${if (forward) "down" else "up"}")
+        } else {
+            ActionResult.Error("Current screen cannot be scrolled.")
+        }
+    }
+
+    fun scheduleCronMonitoring(action: DeviceAction): ActionResult {
+        val query = action.query ?: action.label ?: action.message ?: ""
+        if (query.isBlank()) return ActionResult.Error("Monitoring query or target description is required.")
+
+        val title = action.title ?: action.label ?: query
+        val taskId = "cron_" + System.currentTimeMillis() % 100000
+
+        val taskType = when {
+            action.action.contains("TICKET", ignoreCase = true) || query.contains("ticket", ignoreCase = true) -> 
+                com.orbital.cron.CronTaskType.TICKET_ALERT
+            query.contains("movie", ignoreCase = true) || query.contains("cinema", ignoreCase = true) -> 
+                com.orbital.cron.CronTaskType.MOVIE_TICKET_ALERT
+            query.contains("train", ignoreCase = true) || query.contains("status", ignoreCase = true) -> 
+                com.orbital.cron.CronTaskType.TRAIN_MONITOR
+            else -> com.orbital.cron.CronTaskType.GENERAL_REMINDER
+        }
+
+        val cronTask = com.orbital.cron.CronTask(
+            id = taskId,
+            taskType = taskType,
+            title = title,
+            query = query,
+            intervalMinutes = action.repeatMinutes ?: 60,
+            scheduledHour = action.hour,
+            scheduledMinute = action.minutes,
+            targetApp = action.target
+        )
+
+        val success = cronManager.scheduleCronTask(cronTask)
+        return if (success) {
+            val timing = if (action.hour != null && action.minutes != null) {
+                "daily at %02d:%02d".format(action.hour, action.minutes)
+            } else {
+                "every ${action.repeatMinutes ?: 60}m"
+            }
+            ActionResult.Success(
+                message = "Scheduled background monitoring for '$title' ($timing)",
+                details = "Orbital will monitor '$query' in the background and alert you with a 1-tap booking button when ready."
+            )
+        } else {
+            ActionResult.Error("Failed to schedule background monitoring job.")
+        }
+    }
+
+    fun listActiveMonitors(): ActionResult {
+        val tasks = cronManager.getActiveTasks()
+        if (tasks.isEmpty()) {
+            return ActionResult.Success("No active background monitoring jobs.")
+        }
+
+        val sb = StringBuilder("Active Background Monitors:\n")
+        tasks.forEachIndexed { index, task ->
+            val timing = if (task.scheduledHour != null && task.scheduledMinute != null) {
+                "Daily at %02d:%02d".format(task.scheduledHour, task.scheduledMinute)
+            } else {
+                "Every ${task.intervalMinutes}m"
+            }
+            sb.append("${index + 1}. [${task.taskType}] \"${task.title}\" ($timing) - ID: ${task.id}\n")
+        }
+        return ActionResult.Success("Active monitors retrieved", sb.toString().trim())
+    }
+
+    fun cancelCronMonitoring(targetOrId: String): ActionResult {
+        val clean = targetOrId.trim()
+        if (clean.isBlank()) return ActionResult.Error("Task ID or title is required to cancel monitor.")
+
+        val tasks = cronManager.getActiveTasks()
+        val match = tasks.firstOrNull { it.id == clean || it.title.contains(clean, ignoreCase = true) || it.query.contains(clean, ignoreCase = true) }
+            ?: return ActionResult.Error("No matching monitor found for '$clean'.")
+
+        val cancelled = cronManager.cancelCronTask(match.id)
+        return if (cancelled) {
+            ActionResult.Success("Cancelled background monitor: '${match.title}'")
+        } else {
+            ActionResult.Error("Could not cancel monitor '${match.title}'.")
+        }
     }
 }

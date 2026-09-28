@@ -267,7 +267,7 @@ open class LlmRepository(
                 modelRouter.handleProviderError(activeType, error, configStore)
                 val next = modelRouter.getNextAvailableProvider(configStore, routerConfig)
                 if (next != null && next != activeType) {
-                    Log.i(TAG, "Silent Auto-Failover: Provider $activeType encountered error. Failing over to: $next")
+                    Log.i(TAG, "Silent Auto-Failover: Provider $activeType encountered error ($errMsg). Failing over to: $next")
                     modelRouter.setCurrentProvider(next)
                     streamCompletion(model, messages, onChunk, onComplete, onError)
                 } else {
@@ -275,7 +275,7 @@ open class LlmRepository(
                         is503Overload -> "The AI model is experiencing temporary high demand (503). Please retry in a few seconds or switch models in Settings."
                         errMsg.contains("429") || errMsg.contains("quota", ignoreCase = true) || errMsg.contains("RESOURCE_EXHAUSTED", ignoreCase = true) ->
                             "All configured AI providers are temporarily rate-limited. Please wait a moment or configure backup keys."
-                        else -> "AI request failed: ${errMsg.take(120)}"
+                        else -> "AI request failed: ${errMsg.take(160)}"
                     }
                     onError(IOException(friendlyMsg))
                 }

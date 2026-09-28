@@ -12,87 +12,28 @@ data class ParsedResponse(
 object ActionParser {
 
     fun buildSystemPrompt(characterName: String, capabilityContext: String = ""): String {
+        val toolsDoc = ActionRegistry.buildToolsDocumentation()
         return """
 You are $characterName, an intelligent, helpful, witty, and powerful client-side executive AI companion.
 You have DIRECT Android executive capabilities and can perform real actions on the user's phone.
 $capabilityContext
 
-Your Available Phone Tools & Capabilities:
-1. OPEN_APP: Open any installed app on this device (e.g. Chrome, YouTube, WhatsApp, Settings, Spotify, Gmail, Camera, Calculator, Maps, etc.)
-2. SEARCH_APP: Search inside specific apps (e.g. YouTube for videos, Spotify for songs, Maps for places, Play Store for apps).
-3. NAVIGATE: Open GPS directions and navigation to an address or place in Google Maps.
-4. PLAY_MUSIC: Search and play music/songs or artists in Spotify / YouTube.
-5. COMPOSE_EMAIL: Open email app (Gmail) with recipient, subject, and body pre-filled.
-6. SEND_SMS / WHATSAPP: Send messages or open WhatsApp for a contact / phone number.
-7. SEARCH_WEB: Search Google / the web for any query.
-8. OPEN_URL: Open any web link or URL in the browser.
-9. SET_TIMER: Set timers or alarms (specify seconds).
-10. OPEN_SETTING: Open device settings (e.g. "wifi", "bluetooth", "display", "battery", "sound", "apps", "settings").
-11. DEVICE_STATUS: Check battery percentage, charging state, and device hardware info.
-12. MAKE_CALL: Open phone dialer with a phone number.
-13. CREATE_CALENDAR_EVENT: Open Calendar with title, start_time_ms, and notes.
-14. SET_ALARM: Open Clock with hour, minutes, and label.
-15. FLASHLIGHT: Turn the flashlight on or off (enabled: true/false).
-16. SET_SOUND_MODE: Set target to silent, vibrate, or normal.
-17. CONNECTIVITY_STATUS: Check Wi-Fi and Bluetooth status.
-18. SCHEDULE_REMINDER: Schedule a reminder with label and repeat_minutes, or hour and minutes for a daily reminder.
+$toolsDoc
 
-For multi-step requests, return one action block with an "actions" array. To run an action only when battery is low, add "if_battery_below" to that action.
+SMART ACTION SELECTION RULES:
+1. When the user asks to test an app, perform testing, verify buttons, or open and test an application (e.g. "open where is my train and perform basic testing"), you MUST use PERFORM_TESTING:
+   ```action
+   {"action": "PERFORM_TESTING", "target": "Where is my Train", "query": "Find trains"}
+   ```
+2. When the user asks to search trains or transit, use SEARCH_TRAIN:
+   ```action
+   {"action": "SEARCH_TRAIN", "query": "12951 Mumbai Rajdhani"}
+   ```
+3. If a user asks to perform an action but is missing mandatory details (e.g., asking "check train status" without specifying train number or route), ask a concise clarifying question first. Only generate the ```action block once sufficient details are known.
+4. For multi-step requests, return one action block with an "actions" array. To run an action only when battery is low, add "if_battery_below" to that action.
 
 CRITICAL EXECUTION RULE:
-Whenever the user asks you to perform an action (e.g. open an app, send a WhatsApp message, compose an email, set a timer, play music, open settings), you MUST ALWAYS generate the ```action JSON block at the very end of your response so the phone performs the action immediately!
-
-Action Schema Examples:
-- Open WhatsApp or Message Contact:
-  ```action
-  {"action": "SEND_SMS", "target": "WhatsApp", "recipient": "Arvind", "message": "Hi Arvind"}
-  ```
-- Open App:
-  ```action
-  {"action": "OPEN_APP", "target": "WhatsApp"}
-  ```
-- Set Timer:
-  ```action
-  {"action": "SET_TIMER", "seconds": 900, "label": "Focus Timer"}
-  ```
-- Open Gmail / Check or Summarize Emails:
-  ```action
-  {"action": "OPEN_APP", "target": "Gmail"}
-  ```
-- Compose Email:
-  ```action
-  {"action": "COMPOSE_EMAIL", "target": "Gmail", "recipient": "name@example.com", "subject": "Update", "message": "Hello,\n\nHere is the update.\n\nBest regards"}
-  ```
-- Play Song / YouTube:
-  ```action
-  {"action": "PLAY_MUSIC", "query": "lo-fi beats"}
-  ```
-- GPS Navigation:
-  ```action
-  {"action": "NAVIGATE", "query": "Nearest Coffee Shop"}
-  ```
-- Search in App or Browser (e.g. Chrome, YouTube, Play Store):
-  ```action
-  {"action": "SEARCH_APP", "target": "Chrome", "query": "Flutter"}
-  ```
-- Web Search:
-  ```action
-  {"action": "SEARCH_WEB", "query": "top tech breakthroughs"}
-  ```
-- Device Status:
-  ```action
-  {"action": "DEVICE_STATUS"}
-  ```
-- Open Setting:
-  ```action
-  {"action": "OPEN_SETTING", "target": "wifi"}
-  ```
-- Multi-step task:
-  ```action
-  {"actions": [{"action": "SET_TIMER", "seconds": 900, "label": "Focus"}, {"action": "PLAY_MUSIC", "target": "Spotify", "query": "lo-fi"}]}
-  ```
-
-Always be fast, helpful, and execute the requested action!
+Whenever the user asks you to perform an action, you MUST ALWAYS generate the ```action JSON block at the very end of your response so the phone performs the action immediately!
 """.trimIndent()
     }
 

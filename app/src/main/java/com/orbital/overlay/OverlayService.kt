@@ -79,6 +79,9 @@ class OverlayService : Service() {
     @Inject
     lateinit var llmRepository: LlmRepository
 
+    @Inject
+    lateinit var deviceActionExecutor: DeviceActionExecutor
+
     private lateinit var windowManager: WindowManager
     private lateinit var overlayView: View
     private lateinit var bubbleAvatarContainer: FrameLayout
@@ -1200,6 +1203,71 @@ class OverlayService : Service() {
                                         )
                                     )
                                 )
+                            }
+                        }
+
+                        // Laptop-to-Mobile AI Automation Endpoints
+                        get("/api/device/capabilities") {
+                            val apps = deviceActionExecutor.getCapabilityManager().getInstalledApps()
+                            call.respond(HttpStatusCode.OK, mapOf("apps" to apps))
+                        }
+
+                        get("/api/device/status") {
+                            val status = deviceActionExecutor.getDeviceStatus()
+                            call.respond(HttpStatusCode.OK, mapOf("status" to status))
+                        }
+
+                        post("/api/action/execute") {
+                            val action = call.receive<com.orbital.action.DeviceAction>()
+                            when (val result = deviceActionExecutor.execute(action)) {
+                                is ActionResult.Success -> call.respond(
+                                    HttpStatusCode.OK,
+                                    mapOf("status" to "success", "message" to result.message, "details" to (result.details ?: ""))
+                                )
+                                is ActionResult.Error -> call.respond(
+                                    HttpStatusCode.BadRequest,
+                                    mapOf("status" to "error", "errorMessage" to result.errorMessage)
+                                )
+                            }
+                        }
+
+                        get("/api/screen/snapshot") {
+                            val snapshot = com.orbital.automation.OrbitalAccessibilityService.instance?.captureScreenHierarchy()
+                            if (snapshot != null) {
+                                call.respond(HttpStatusCode.OK, mapOf("status" to "success", "snapshot" to snapshot))
+                            } else {
+                                call.respond(HttpStatusCode.OK, mapOf("status" to "unavailable", "message" to "Accessibility service not active or screen unavailable"))
+                            }
+                        }
+
+                        // Distributed Multi-Agent Protocol (Laptop AI <-> Phone AI)
+                        get("/api/agent/handshake") {
+                            val character = currentCharacter
+                            val currentStatus = deviceActionExecutor.getDeviceStatus()
+                            call.respond(
+                                HttpStatusCode.OK,
+                                mapOf(
+                                    "status" to "connected",
+                                    "protocolVersion" to "2.0",
+                                    "companion" to character,
+                                    "device" to currentStatus
+                                )
+                            )
+                        }
+
+                        post("/api/agent/message") {
+                            val request = call.receive<Map<String, String>>()
+                            val prompt = request["prompt"] ?: ""
+                            val sender = request["sender"] ?: "Laptop-AI"
+
+                            if (prompt.isNotBlank()) {
+                                chatEngine.sendMessage(prompt)
+                                call.respond(
+                                    HttpStatusCode.OK,
+                                    mapOf("status" to "delivered", "sender" to sender, "prompt" to prompt)
+                                )
+                            } else {
+                                call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Prompt is empty"))
                             }
                         }
                     }

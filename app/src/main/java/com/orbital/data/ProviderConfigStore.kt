@@ -20,7 +20,7 @@ class ProviderConfigStore(
         // Load persisted keys and states from secure storage
         secureStorage?.let { storage ->
             ProviderRegistry.allProviders.forEach { info ->
-                val key = storage.getProviderApiKey(info.type.name) ?: ""
+                val key = getProviderKey(info.type)
                 val isEnabled = storage.isProviderEnabled(info.type.name)
                 updateProviderKey(info.type, key)
                 if (!isEnabled) {
@@ -188,10 +188,9 @@ class ProviderConfigStore(
     }
 
     fun isKeylessProvider(type: ProviderType): Boolean {
-        return type == ProviderType.KILO ||
-                type == ProviderType.OVH ||
-                type == ProviderType.POLLINATIONS ||
-                type == ProviderType.AIHORDE
+        return type == ProviderType.POLLINATIONS ||
+                type == ProviderType.KILO ||
+                type == ProviderType.OVH
     }
 
     fun allConfiguredTypes(): Set<ProviderType> = providerConfigs.keys

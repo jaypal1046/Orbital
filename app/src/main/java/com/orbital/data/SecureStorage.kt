@@ -31,11 +31,16 @@ open class SecureStorage(context: Context) {
     )
 
     open fun saveApiKey(apiKey: String) {
-        sharedPreferences.edit().putString(KEY_API_KEY, apiKey).apply()
+        val clean = apiKey.trim()
+        sharedPreferences.edit().putString(KEY_API_KEY, clean).apply()
+        if (clean.isNotBlank()) {
+            sharedPreferences.edit().putString("api_key_gemini", clean).apply()
+            sharedPreferences.edit().putString("api_key_google", clean).apply()
+        }
     }
 
     open fun getApiKey(): String? {
-        return sharedPreferences.getString(KEY_API_KEY, null)
+        return sharedPreferences.getString(KEY_API_KEY, null)?.trim()?.takeIf { it.isNotBlank() }
     }
 
     open fun saveProviderApiKey(provider: String, apiKey: String) {
@@ -57,6 +62,7 @@ open class SecureStorage(context: Context) {
         if (provider.equals("gemini", ignoreCase = true) || provider.equals("google", ignoreCase = true) || provider.contains("gemini", ignoreCase = true)) {
             val gKey = sharedPreferences.getString("api_key_gemini", null)
                 ?: sharedPreferences.getString("api_key_google", null)
+                ?: sharedPreferences.getString(KEY_API_KEY, null)
             if (!gKey.isNullOrBlank()) return gKey.trim()
         }
 

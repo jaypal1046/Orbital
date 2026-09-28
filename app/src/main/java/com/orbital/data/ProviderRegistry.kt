@@ -257,7 +257,7 @@ object ProviderRegistry {
             quotaDescription = "Free Pollen Capacity · Multi-modal",
             portalUrl = "https://enter.pollinations.ai",
             keyPlaceholder = "free (keyless or token)",
-            endpoint = "https://gen.pollinations.ai/v1/chat/completions"
+            endpoint = "https://text.pollinations.ai/openai/chat/completions"
         ),
         ProviderInfo(
             type = ProviderType.KILO,
