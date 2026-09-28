@@ -2,7 +2,10 @@ package com.orbital.ui
 
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
+import android.provider.Settings
 import android.widget.Toast
+import com.orbital.overlay.OverlayService
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -50,6 +53,8 @@ fun InAppChatScreen(
     var showLegalScreen by remember { mutableStateOf(false) }
     var legalTab by remember { mutableStateOf(LegalTab.PRIVACY) }
     var showAboutDialog by remember { mutableStateOf(false) }
+    var showFeedbackDialog by remember { mutableStateOf(false) }
+    var feedbackInitialLog by remember { mutableStateOf<String?>(null) }
 
     // Observe ViewModel state
     val messages by chatViewModel.messages.collectAsState()
@@ -88,6 +93,10 @@ fun InAppChatScreen(
                 onOpenCharacters = onOpenCharacters,
                 onOpenAutomations = onOpenAutomations,
                 onOpenRoutingMode = { showRoutingSheet = true },
+                onOpenFeedback = {
+                    feedbackInitialLog = null
+                    showFeedbackDialog = true
+                },
                 onOpenLegal = { tab ->
                     showLegalScreen = true
                     legalTab = tab
@@ -137,6 +146,13 @@ fun InAppChatScreen(
                     onSpeak = { text ->
                         chatViewModel.speak(text)
                     },
+                    onRetry = { msg ->
+                        chatViewModel.retryMessage(msg)
+                    },
+                    onReportError = { log ->
+                        feedbackInitialLog = log
+                        showFeedbackDialog = true
+                    },
                     onSuggestionClick = { suggestion ->
                         chatViewModel.onSuggestionClick(suggestion)
                     },
@@ -161,7 +177,10 @@ fun InAppChatScreen(
                     onVoiceClick = { chatViewModel.toggleVoiceListening() },
                     isStreaming = isStreaming,
                     onSendClick = { chatViewModel.onSendClick() },
-                    onQuickTemplateClick = { showActionTemplatesSheet = true }
+                    onQuickTemplateClick = { showActionTemplatesSheet = true },
+                    currentRoutingMode = currentRoutingMode,
+                    selectedPinnedProvider = selectedPinnedProvider?.name,
+                    onRoutingModeClick = { showRoutingSheet = true }
                 )
             }
         }
@@ -303,16 +322,43 @@ fun InAppChatScreen(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                Button(
-                    onClick = {
-                        showCharacterPickerSheet = false
-                        onOpenCharacters()
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF261E47)),
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.fillMaxWidth()
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text("View Full 3D/Sprite Character Gallery", color = Color(0xFFA78BFA), fontSize = 13.sp)
+                    Button(
+                        onClick = {
+                            showCharacterPickerSheet = false
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(context)) {
+                                val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION)
+                                context.startActivity(intent)
+                            } else {
+                                val intent = Intent(context, OverlayService::class.java).apply {
+                                    action = OverlayService.ACTION_START
+                                    putExtra("character_id", currentCharacterId)
+                                }
+                                context.startService(intent)
+                                Toast.makeText(context, "Floating Companion Launched!", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF38BDF8)),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("🚀 Float Mascot", color = Color(0xFF0F172A), fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    }
+
+                    Button(
+                        onClick = {
+                            showCharacterPickerSheet = false
+                            onOpenCharacters()
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E243C)),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("Gallery", color = Color(0xFFA78BFA), fontSize = 13.sp)
+                    }
                 }
                 Spacer(modifier = Modifier.height(16.dp))
             }
@@ -468,9 +514,19 @@ fun InAppChatScreen(
         AboutDialog(
             onDismiss = { showAboutDialog = false },
             onOpenGithub = {
-                val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com"))
+                val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/jaypal1046/Orbital"))
                 context.startActivity(intent)
             }
+        )
+    }
+
+    // Feedback & Bug Report Dialog (Direct GitHub Issues)
+    if (showFeedbackDialog) {
+        FeedbackDialog(
+            initialErrorLog = feedbackInitialLog,
+            activeCharacterName = characterName,
+            activeProviderName = activeServingProvider ?: "Auto-Router",
+            onDismiss = { showFeedbackDialog = false }
         )
     }
 }

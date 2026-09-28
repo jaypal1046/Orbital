@@ -250,6 +250,21 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    fun retryMessage(message: UiMessage) {
+        if (_isStreaming.value) return
+        val currentMsgs = _messages.value
+        val targetIndex = currentMsgs.indexOf(message)
+        val userPrompt = if (targetIndex > 0) {
+            currentMsgs.take(targetIndex).lastOrNull { it.role == "user" }?.content
+        } else {
+            currentMsgs.lastOrNull { it.role == "user" }?.content
+        }
+
+        if (!userPrompt.isNullOrBlank()) {
+            sendMessage(userPrompt)
+        }
+    }
+
     fun switchCharacter(characterId: String) {
         val char = Character.find(characterId)
         _currentCharacter.update { char.id }

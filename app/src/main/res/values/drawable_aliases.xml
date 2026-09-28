@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <item type="drawable" name="aether_clicking">@drawable/aether_with_tools</item>
+    <item type="drawable" name="aether_cursor_follow">@drawable/aether_curious</item>
+    <item type="drawable" name="aether_excited">@drawable/aether_celebrating</item>
+    <item type="drawable" name="aether_floating">@drawable/aether_idle</item>
+    <item type="drawable" name="aether_happy">@drawable/aether_celebrating</item>
+    <item type="drawable" name="aether_hover">@drawable/aether_idle</item>
+    <item type="drawable" name="aether_looking">@drawable/aether_curious</item>
+    <item type="drawable" name="aether_love">@drawable/aether_celebrating</item>
+    <item type="drawable" name="aether_normal">@drawable/aether_idle</item>
+    <item type="drawable" name="aether_pointing">@drawable/aether_celebrating</item>
+    <item type="drawable" name="aether_power">@drawable/aether_magic_power</item>
+    <item type="drawable" name="aether_run">@drawable/aether_walk</item>
+    <item type="drawable" name="aether_spotlight">@drawable/aether_magic_power</item>
+    <item type="drawable" name="aether_tired">@drawable/aether_sad</item>
+    <item type="drawable" name="aether_walking_you">@drawable/aether_walk</item>
+    <item type="drawable" name="aether_wink">@drawable/aether_celebrating</item>
+    <item type="drawable" name="aether_working">@drawable/aether_with_tools</item>
+
+    <item type="drawable" name="lumy_clicking">@drawable/lumy_habitat_tools</item>
+    <item type="drawable" name="lumy_cursor_follow">@drawable/lumy_curious</item>
+    <item type="drawable" name="lumy_excited">@drawable/lumy_habitat_petted</item>
+    <item type="drawable" name="lumy_floating">@drawable/lumy_idle</item>
+    <item type="drawable" name="lumy_happy">@drawable/lumy_habitat_petted</item>
+    <item type="drawable" name="lumy_hero">@drawable/lumy_habitat_petted</item>
+    <item type="drawable" name="lumy_hover">@drawable/lumy_idle</item>
+    <item type="drawable" name="lumy_looking">@drawable/lumy_curious</item>
+    <item type="drawable" name="lumy_love">@drawable/lumy_habitat_petted</item>
+    <item type="drawable" name="lumy_normal">@drawable/lumy_idle</item>
+    <item type="drawable" name="lumy_pointing">@drawable/lumy_habitat_petted</item>
+    <item type="drawable" name="lumy_power">@drawable/lumy_magic_power</item>
+    <item type="drawable" name="lumy_run">@drawable/lumy_habitat_walk</item>
+    <item type="drawable" name="lumy_spotlight">@drawable/lumy_magic_power</item>
+    <item type="drawable" name="lumy_tired">@drawable/lumy_sad</item>
+    <item type="drawable" name="lumy_walk">@drawable/lumy_habitat_walk</item>
+    <item type="drawable" name="lumy_walking_you">@drawable/lumy_habitat_walk</item>
+    <item type="drawable" name="lumy_wink">@drawable/lumy_habitat_petted</item>
+    <item type="drawable" name="lumy_with_tools">@drawable/lumy_habitat_tools</item>
+    <item type="drawable" name="lumy_working">@drawable/lumy_habitat_tools</item>
+</resources>

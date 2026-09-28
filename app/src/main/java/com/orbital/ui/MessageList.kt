@@ -61,6 +61,8 @@ fun MessageList(
     modifier: Modifier = Modifier,
     onCopy: (String) -> Unit,
     onSpeak: (String) -> Unit,
+    onRetry: (UiMessage) -> Unit = {},
+    onReportError: (String) -> Unit = {},
     onSuggestionClick: (String) -> Unit,
     onAddStepToInput: (String) -> Unit
 ) {
@@ -210,6 +212,8 @@ fun MessageList(
                     characterId = characterId,
                     onCopy = { onCopy(msg.content) },
                     onSpeak = { onSpeak(msg.content) },
+                    onRetry = { onRetry(msg) },
+                    onReportError = onReportError,
                     onSuggestionClick = onSuggestionClick,
                     onAddStepToInput = onAddStepToInput
                 )

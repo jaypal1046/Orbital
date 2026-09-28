@@ -45,6 +45,7 @@ fun SideNavDrawer(
     onOpenRoutingMode: () -> Unit,
     onOpenLegal: (LegalTab) -> Unit,
     onOpenAbout: () -> Unit,
+    onOpenFeedback: () -> Unit = {},
     onCloseDrawer: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -154,73 +155,8 @@ fun SideNavDrawer(
                     .weight(1f)
                     .verticalScroll(scrollState)
             ) {
-                // SECTION: Active Companion Persona
+                // SECTION: Settings & Tools
                 Spacer(modifier = Modifier.height(14.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "AI Companion",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFFA78BFA),
-                        letterSpacing = 1.sp
-                    )
-                    Text(
-                        text = "All personas →",
-                        fontSize = 11.sp,
-                        color = Color(0xFF38BDF8),
-                        modifier = Modifier.clickable {
-                            onOpenCharacters()
-                            onCloseDrawer()
-                        }
-                    )
-                }
-                Spacer(modifier = Modifier.height(8.dp))
-
-                // Quick Companion Chips
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    listOf(Character.Lumy, Character.Aether, Character.Nexus, Character.Spark).forEach { char ->
-                        val isSelected = char.id.equals(currentCharacterId, ignoreCase = true)
-                        Surface(
-                            shape = RoundedCornerShape(12.dp),
-                            color = if (isSelected) Color(0xFF2E1065) else Color(0xFF161A2C),
-                            border = BorderStroke(
-                                1.dp,
-                                if (isSelected) Color(0xFF8B5CF6) else Color(0xFF252C48)
-                            ),
-                            modifier = Modifier
-                                .weight(1f)
-                                .clickable {
-                                    onSelectCharacter(char.id)
-                                    onCloseDrawer()
-                                }
-                        ) {
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                modifier = Modifier.padding(vertical = 8.dp, horizontal = 4.dp)
-                            ) {
-                                Text(text = char.emoji, fontSize = 18.sp)
-                                Spacer(modifier = Modifier.height(2.dp))
-                                Text(
-                                    text = char.name,
-                                    fontSize = 11.sp,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                    color = if (isSelected) Color(0xFFA78BFA) else Color(0xFF94A3B8),
-                                    maxLines = 1
-                                )
-                            }
-                        }
-                    }
-                }
-
-                // SECTION: Settings & System (Moved to side panel per user request)
-                Spacer(modifier = Modifier.height(18.dp))
                 Text(
                     text = "SETTINGS & TOOLS",
                     fontSize = 11.sp,
@@ -280,6 +216,17 @@ fun SideNavDrawer(
                             context.startService(intent)
                             Toast.makeText(context, "Floating Companion Overlay Active!", Toast.LENGTH_SHORT).show()
                         }
+                        onCloseDrawer()
+                    }
+                )
+
+                DrawerMenuItem(
+                    icon = Icons.Default.Warning,
+                    iconTint = Color(0xFFF43F5E),
+                    title = "Feedback & Bug Report",
+                    subtitle = "Submit issue or log directly to GitHub",
+                    onClick = {
+                        onOpenFeedback()
                         onCloseDrawer()
                     }
                 )

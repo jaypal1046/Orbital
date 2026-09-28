@@ -109,12 +109,9 @@ Always be fast, helpful, and execute the requested action!
         // Clean any leftover action fence if present
         val cleanedRaw = rawResponse.replace(Regex("(?s)```(?:action|json)?[\\s\\S]*"), "").trim()
 
-        // Fallback intent detection for direct command phrases if model forgot action block
-        val fallbackAction = detectDirectCommand(rawResponse)
-
         return ParsedResponse(
             userDisplayText = cleanedRaw.ifBlank { rawResponse.trim() },
-            action = fallbackAction
+            action = null
         )
     }
 
@@ -138,39 +135,6 @@ Always be fast, helpful, and execute the requested action!
             )
         } catch (e: Exception) {
             null
-        }
-    }
-
-    private fun detectDirectCommand(text: String): DeviceAction? {
-        val lower = text.lowercase()
-        return when {
-            (lower.contains("opened whatsapp") || lower.contains("opening whatsapp") || lower.contains("open whatsapp")) -> {
-                DeviceAction("OPEN_APP", target = "WhatsApp")
-            }
-            lower.contains("whatsapp") && (lower.contains("send") || lower.contains("message")) -> {
-                DeviceAction("SEND_SMS", target = "WhatsApp")
-            }
-            (lower.contains("opened gmail") || lower.contains("opening gmail") || lower.contains("open gmail")) -> {
-                DeviceAction("OPEN_APP", target = "Gmail")
-            }
-            (lower.contains("opened youtube") || lower.contains("opening youtube") || lower.contains("open youtube")) -> {
-                DeviceAction("OPEN_APP", target = "YouTube")
-            }
-            (lower.contains("opened chrome") || lower.contains("opening chrome") || lower.contains("open chrome")) -> {
-                DeviceAction("OPEN_APP", target = "Chrome")
-            }
-            (lower.contains("opened camera") || lower.contains("opening camera") || lower.contains("open camera")) -> {
-                DeviceAction("OPEN_APP", target = "Camera")
-            }
-            (lower.contains("opened settings") || lower.contains("opening settings") || lower.contains("open settings")) -> {
-                DeviceAction("OPEN_SETTING", target = "settings")
-            }
-            (lower.contains("timer") && (lower.contains("set") || lower.contains("setting"))) -> {
-                val minMatch = Regex("(\\d+)\\s*(?:min|minute)").find(lower)
-                val mins = minMatch?.groupValues?.get(1)?.toIntOrNull() ?: 5
-                DeviceAction("SET_TIMER", seconds = mins * 60, label = "Focus Timer")
-            }
-            else -> null
         }
     }
 }

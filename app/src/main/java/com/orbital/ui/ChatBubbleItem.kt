@@ -22,14 +22,23 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -50,11 +59,14 @@ fun ChatBubbleItem(
     isStreaming: Boolean = false,
     onCopy: () -> Unit,
     onSpeak: () -> Unit,
+    onRetry: () -> Unit = {},
+    onReportError: (String) -> Unit = {},
     onSuggestionClick: (String) -> Unit = {},
     onAddStepToInput: (String) -> Unit = {}
 ) {
     val isUser = message.role == "user"
     val character = remember(characterId) { Character.find(characterId) }
+    var showMoreMenu by remember { mutableStateOf(false) }
 
     if (isUser) {
         // Modern User Message Bubble (Hugs content, sleek gradient & subtle glowing border)
@@ -109,7 +121,7 @@ fun ChatBubbleItem(
             horizontalArrangement = Arrangement.Start,
             verticalAlignment = Alignment.Top
         ) {
-            val spriteRes = MascotSpriteHelper.getSprite(character.id, MascotState.HAPPY)
+            val spriteRes = MascotSpriteHelper.getSprite(character.id, MascotState.IDLE)
             Box(
                 modifier = Modifier
                     .size(36.dp)
@@ -315,45 +327,113 @@ fun ChatBubbleItem(
                         }
                     }
 
-                    // Bottom Provider Badge & Action Icons
+                    // Gemini-Style Bottom Action Footer (Retry, Copy, Speak, 3-Dots Menu)
                     if (!isStreaming) {
-                        Spacer(modifier = Modifier.height(8.dp))
+                        Spacer(modifier = Modifier.height(10.dp))
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            message.providerName?.let { provider ->
-                                Box(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(4.dp))
-                                        .background(Color(0xFF0F111A))
-                                        .padding(horizontal = 6.dp, vertical = 2.dp)
-                                ) {
-                                    Text(
-                                        text = "⚡ $provider",
-                                        fontSize = 10.sp,
-                                        color = Color(0xFFA78BFA),
-                                        fontWeight = FontWeight.SemiBold
-                                    )
-                                }
+                            // Retry / Regenerate
+                            IconButton(
+                                onClick = onRetry,
+                                modifier = Modifier.size(30.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Refresh,
+                                    contentDescription = "Retry & regenerate",
+                                    tint = Color(0xFF94A3B8),
+                                    modifier = Modifier.size(17.dp)
+                                )
                             }
 
-                            Row {
-                                IconButton(onClick = onCopy, modifier = Modifier.size(24.dp)) {
+                            // Copy
+                            IconButton(
+                                onClick = onCopy,
+                                modifier = Modifier.size(30.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Share,
+                                    contentDescription = "Copy message",
+                                    tint = Color(0xFF94A3B8),
+                                    modifier = Modifier.size(17.dp)
+                                )
+                            }
+
+                            // Speak / Read aloud
+                            IconButton(
+                                onClick = onSpeak,
+                                modifier = Modifier.size(30.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.PlayArrow,
+                                    contentDescription = "Read aloud",
+                                    tint = Color(0xFF94A3B8),
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.weight(1f))
+
+                            // 3-Dots Overflow Menu (Report issue & Model information)
+                            Box {
+                                IconButton(
+                                    onClick = { showMoreMenu = true },
+                                    modifier = Modifier.size(30.dp)
+                                ) {
                                     Icon(
-                                        Icons.Default.Share,
-                                        contentDescription = "Copy",
+                                        imageVector = Icons.Default.MoreVert,
+                                        contentDescription = "More options",
                                         tint = Color(0xFF94A3B8),
-                                        modifier = Modifier.size(14.dp)
+                                        modifier = Modifier.size(18.dp)
                                     )
                                 }
-                                IconButton(onClick = onSpeak, modifier = Modifier.size(24.dp)) {
-                                    Icon(
-                                        Icons.Default.PlayArrow,
-                                        contentDescription = "Speak",
-                                        tint = Color(0xFF94A3B8),
-                                        modifier = Modifier.size(14.dp)
+
+                                DropdownMenu(
+                                    expanded = showMoreMenu,
+                                    onDismissRequest = { showMoreMenu = false },
+                                    modifier = Modifier
+                                        .background(Color(0xFF1E2338))
+                                        .border(1.dp, Color(0xFF333D66), RoundedCornerShape(12.dp))
+                                ) {
+                                    DropdownMenuItem(
+                                        text = {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Warning,
+                                                    contentDescription = null,
+                                                    tint = Color(0xFFF43F5E),
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                                Spacer(modifier = Modifier.width(10.dp))
+                                                Text(
+                                                    text = "Report issue & Feedback",
+                                                    color = Color.White,
+                                                    fontSize = 13.sp,
+                                                    fontWeight = FontWeight.Medium
+                                                )
+                                            }
+                                        },
+                                        onClick = {
+                                            showMoreMenu = false
+                                            onReportError(message.content)
+                                        }
+                                    )
+
+                                    HorizontalDivider(color = Color(0xFF333D66), thickness = 0.8.dp)
+
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text(
+                                                text = "Used ${message.providerName ?: "Auto-Router"} model",
+                                                color = Color(0xFF94A3B8),
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Normal
+                                            )
+                                        },
+                                        onClick = { showMoreMenu = false },
+                                        enabled = false
                                     )
                                 }
                             }
