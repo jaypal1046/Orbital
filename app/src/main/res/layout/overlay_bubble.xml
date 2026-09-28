@@ -45,6 +45,15 @@
                 android:textStyle="bold" />
 
             <ImageView
+                android:id="@+id/chatExpandButton"
+                android:layout_width="24dp"
+                android:layout_height="24dp"
+                android:layout_marginEnd="8dp"
+                android:background="?android:attr/selectableItemBackgroundBorderless"
+                android:src="@drawable/ic_expand"
+                android:contentDescription="Open Full App" />
+
+            <ImageView
                 android:id="@+id/chatCloseButton"
                 android:layout_width="24dp"
                 android:layout_height="24dp"

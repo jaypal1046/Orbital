@@ -63,16 +63,20 @@ open class DeviceActionExecutor(private val context: Context) {
                     body = action.message ?: action.query,
                     target = action.target
                 )
-                "SET_TIMER", "TIMER" -> setTimer(action.seconds ?: 60, action.label ?: "AI Companion Timer")
+                "SET_TIMER", "TIMER" -> setTimer(action.seconds ?: 60, action.label ?: "Focus Timer")
                 "OPEN_SETTING", "SETTINGS" -> openSetting(action.target ?: "")
                 "DEVICE_STATUS", "BATTERY" -> getDeviceStatus()
                 "MAKE_CALL", "CALL" -> makeCall(action.phoneNumber ?: action.target ?: "")
-                "SEND_SMS", "SMS", "WHATSAPP", "SEND_MESSAGE" -> sendMessage(action.target ?: "sms", action.phoneNumber ?: action.recipient, action.message ?: action.query ?: "")
+                "SEND_SMS", "SMS", "WHATSAPP", "SEND_MESSAGE" -> sendMessage(
+                    action.target ?: if (action.action.equals("WHATSAPP", ignoreCase = true)) "whatsapp" else "sms",
+                    action.phoneNumber ?: action.recipient,
+                    action.message ?: action.query ?: ""
+                )
                 else -> ActionResult.Error("Unknown action type: ${action.action}")
             }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to execute action ${action.action}", e)
-            ActionResult.Error("Failed to execute ${action.action}: ${e.message}")
+            ActionResult.Error("Could not perform ${action.action}: ${e.message?.take(80) ?: "Action failed"}")
         }
     }
 
@@ -111,7 +115,7 @@ open class DeviceActionExecutor(private val context: Context) {
             return categoryResult
         }
 
-        return ActionResult.Error("App '$nameOrPackage' is not currently installed on your device.")
+        return ActionResult.Error("App '$nameOrPackage' is not installed.")
     }
 
     fun searchInApp(targetApp: String, query: String): ActionResult {
@@ -134,7 +138,6 @@ open class DeviceActionExecutor(private val context: Context) {
 
         if (lowerTarget.contains("spotify") || lowerTarget.contains("music")) {
             val intent = Intent(MediaStore.INTENT_ACTION_MEDIA_PLAY_FROM_SEARCH).apply {
-                putExtra(MediaStore.EXTRA_MEDIA_FOCUS, MediaStore.Audio.Playlists.ENTRY_CONTENT_TYPE)
                 putExtra(SearchManager.QUERY, cleanQuery)
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK
             }
@@ -154,8 +157,12 @@ open class DeviceActionExecutor(private val context: Context) {
             val intent = Intent(Intent.ACTION_VIEW, Uri.parse("market://search?q=" + Uri.encode(cleanQuery))).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK
             }
-            context.startActivity(intent)
-            return ActionResult.Success("Searching Play Store for '$cleanQuery'")
+            return try {
+                context.startActivity(intent)
+                ActionResult.Success("Searching Play Store for '$cleanQuery'")
+            } catch (e: Exception) {
+                openUrl("https://play.google.com/store/search?q=" + Uri.encode(cleanQuery))
+            }
         }
 
         // Default: Web search
@@ -243,21 +250,39 @@ open class DeviceActionExecutor(private val context: Context) {
     }
 
     fun sendMessage(target: String, phoneNumber: String?, message: String): ActionResult {
-        if (target.contains("whatsapp", ignoreCase = true)) {
+        if (target.contains("whatsapp", ignoreCase = true) || target.contains("wa", ignoreCase = true)) {
             val cleanPhone = phoneNumber?.replace(Regex("[^0-9]"), "") ?: ""
-            val url = if (cleanPhone.isNotBlank()) {
-                "https://api.whatsapp.com/send?phone=$cleanPhone&text=${Uri.encode(message)}"
+            if (cleanPhone.isNotBlank()) {
+                val url = "https://api.whatsapp.com/send?phone=$cleanPhone&text=${Uri.encode(message)}"
+                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                }
+                return try {
+                    context.startActivity(intent)
+                    ActionResult.Success("Opened WhatsApp for $cleanPhone")
+                } catch (e: Exception) {
+                    openApp("com.whatsapp")
+                }
             } else {
-                "https://api.whatsapp.com/send?text=${Uri.encode(message)}"
-            }
-            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK
-            }
-            return try {
-                context.startActivity(intent)
-                ActionResult.Success("Opening WhatsApp message")
-            } catch (e: Exception) {
-                sendSms(phoneNumber, message)
+                // Launch WhatsApp app directly
+                val pm = context.packageManager
+                val launchIntent = pm.getLaunchIntentForPackage("com.whatsapp")
+                if (launchIntent != null) {
+                    launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    context.startActivity(launchIntent)
+                    return ActionResult.Success("Opened WhatsApp")
+                } else {
+                    val url = "https://api.whatsapp.com/send?text=${Uri.encode(message)}"
+                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                    }
+                    return try {
+                        context.startActivity(intent)
+                        ActionResult.Success("Opening WhatsApp")
+                    } catch (e: Exception) {
+                        ActionResult.Error("WhatsApp is not installed on this device.")
+                    }
+                }
             }
         }
 
@@ -272,6 +297,25 @@ open class DeviceActionExecutor(private val context: Context) {
                 }
                 context.startActivity(intent)
                 ActionResult.Success("Opened Browser")
+            }
+            cleanName in listOf("clock", "alarm", "timer") -> {
+                val intent = Intent(AlarmClock.ACTION_SHOW_TIMERS).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                try {
+                    context.startActivity(intent)
+                    ActionResult.Success("Opened Clock app")
+                } catch (e: Exception) {
+                    val clockIntent = Intent(AlarmClock.ACTION_SHOW_ALARMS).apply {
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    try {
+                        context.startActivity(clockIntent)
+                        ActionResult.Success("Opened Clock app")
+                    } catch (_: Exception) {
+                        null
+                    }
+                }
             }
             cleanName in listOf("camera", "cam") -> {
                 val intent = Intent(MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA).apply {
@@ -341,8 +385,21 @@ open class DeviceActionExecutor(private val context: Context) {
         return try {
             context.startActivity(intent)
             ActionResult.Success("Set timer for ${seconds}s ($label)")
+        } catch (e: SecurityException) {
+            // OEM permission fallback: Launch clock app directly
+            val fallback = launchCategoryFallback("clock") ?: openApp("clock")
+            if (fallback is ActionResult.Success) {
+                ActionResult.Success("Opened Clock app (${seconds / 60}m timer)")
+            } else {
+                ActionResult.Error("Timer permission required. Please grant Alarm/Timer permission in App Settings.")
+            }
         } catch (e: Exception) {
-            ActionResult.Error("Could not launch clock/timer app: ${e.message}")
+            val fallback = launchCategoryFallback("clock") ?: openApp("clock")
+            if (fallback is ActionResult.Success) {
+                ActionResult.Success("Opened Clock app for timer")
+            } else {
+                ActionResult.Error("Could not launch timer app: ${e.message?.take(60) ?: "Error"}")
+            }
         }
     }
 

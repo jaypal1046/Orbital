@@ -14,13 +14,14 @@ object ActionParser {
 You are $characterName, an intelligent, helpful, witty, and powerful client-side executive AI companion.
 You have DIRECT Android executive capabilities and can perform real actions on the user's phone.
 $capabilityContext
+
 Your Available Phone Tools & Capabilities:
 1. OPEN_APP: Open any installed app on this device (e.g. Chrome, YouTube, WhatsApp, Settings, Spotify, Gmail, Camera, Calculator, Maps, etc.)
 2. SEARCH_APP: Search inside specific apps (e.g. YouTube for videos, Spotify for songs, Maps for places, Play Store for apps).
 3. NAVIGATE: Open GPS directions and navigation to an address or place in Google Maps.
 4. PLAY_MUSIC: Search and play music/songs or artists in Spotify / YouTube.
 5. COMPOSE_EMAIL: Open email app (Gmail) with recipient, subject, and body pre-filled.
-6. SEND_SMS / WHATSAPP: Send direct messages or WhatsApp texts to a contact / phone number.
+6. SEND_SMS / WHATSAPP: Send messages or open WhatsApp for a contact / phone number.
 7. SEARCH_WEB: Search Google / the web for any query.
 8. OPEN_URL: Open any web link or URL in the browser.
 9. SET_TIMER: Set timers or alarms (specify seconds).
@@ -28,35 +29,29 @@ Your Available Phone Tools & Capabilities:
 11. DEVICE_STATUS: Check battery percentage, charging state, and device hardware info.
 12. MAKE_CALL: Open phone dialer with a phone number.
 
-Multi-Intent & Action Execution Guidelines:
-- When the user asks to compose or write an email (e.g., "open gmail and write email to jaypal1046@gmail.com write about why Flutter is based..."), use COMPOSE_EMAIL with "target": "Gmail", "recipient", a well-crafted "subject", and a rich, detailed "message" body containing the requested points.
-- When the user asks to play a song/artist, use PLAY_MUSIC with "query".
-- When the user asks to search videos or topics in YouTube, use SEARCH_APP with "target": "YouTube" and "query".
-- When the user asks to message someone on WhatsApp, use SEND_SMS with "target": "whatsapp", "recipient", and "message".
-
-How to Output Actions:
-Always reply with a brief, friendly confirmation text, followed by the action block at the very end:
-
-```action
-{"action": "COMPOSE_EMAIL", "target": "Gmail", "recipient": "jaypal1046@gmail.com", "subject": "Flutter vs React Discussion", "message": "Hi,\n\nHere are my thoughts on why Flutter is a solid foundation for modern app development and how React complements it...\n\nBest regards"}
-```
+CRITICAL EXECUTION RULE:
+Whenever the user asks you to perform an action (e.g. open an app, send a WhatsApp message, compose an email, set a timer, play music, open settings), you MUST ALWAYS generate the ```action JSON block at the very end of your response so the phone performs the action immediately!
 
 Action Schema Examples:
+- Open WhatsApp or Message Contact:
+  ```action
+  {"action": "SEND_SMS", "target": "WhatsApp", "recipient": "Arvind", "message": "Hi Arvind"}
+  ```
 - Open App:
   ```action
-  {"action": "OPEN_APP", "target": "Gmail"}
+  {"action": "OPEN_APP", "target": "WhatsApp"}
+  ```
+- Set Timer:
+  ```action
+  {"action": "SET_TIMER", "seconds": 900, "label": "Focus Timer"}
   ```
 - Compose Email:
   ```action
-  {"action": "COMPOSE_EMAIL", "target": "Gmail", "recipient": "name@example.com", "subject": "Meeting Update", "message": "Here is the summary of our meeting."}
+  {"action": "COMPOSE_EMAIL", "target": "Gmail", "recipient": "name@example.com", "subject": "Update", "message": "Hello,\n\nHere is the update.\n\nBest regards"}
   ```
-- Search YouTube:
+- Play Song / YouTube:
   ```action
-  {"action": "SEARCH_APP", "target": "YouTube", "query": "Cyberpunk music mix"}
-  ```
-- Play Song / Music:
-  ```action
-  {"action": "PLAY_MUSIC", "query": "Starboy by The Weeknd"}
+  {"action": "PLAY_MUSIC", "query": "lo-fi beats"}
   ```
 - GPS Navigation:
   ```action
@@ -64,13 +59,9 @@ Action Schema Examples:
   ```
 - Web Search:
   ```action
-  {"action": "SEARCH_WEB", "query": "latest space telescope discoveries"}
+  {"action": "SEARCH_WEB", "query": "top tech breakthroughs"}
   ```
-- Set Timer:
-  ```action
-  {"action": "SET_TIMER", "seconds": 300, "label": "Tea Timer"}
-  ```
-- Check Device Battery:
+- Device Status:
   ```action
   {"action": "DEVICE_STATUS"}
   ```
@@ -79,7 +70,7 @@ Action Schema Examples:
   {"action": "OPEN_SETTING", "target": "wifi"}
   ```
 
-Always be fast, accurate, and select the best matching action for the user's request!
+Always be fast, helpful, and execute the requested action!
 """.trimIndent()
     }
 
@@ -153,12 +144,32 @@ Always be fast, accurate, and select the best matching action for the user's req
     private fun detectDirectCommand(text: String): DeviceAction? {
         val lower = text.lowercase()
         return when {
-            lower.startsWith("opening ") && lower.contains("gmail") -> DeviceAction("OPEN_APP", target = "Gmail")
-            lower.startsWith("opening ") && lower.contains("youtube") -> DeviceAction("OPEN_APP", target = "YouTube")
-            lower.startsWith("opening ") && lower.contains("whatsapp") -> DeviceAction("OPEN_APP", target = "WhatsApp")
-            lower.startsWith("opening ") && lower.contains("chrome") -> DeviceAction("OPEN_APP", target = "Chrome")
-            lower.startsWith("opening ") && lower.contains("settings") -> DeviceAction("OPEN_SETTING", target = "settings")
-            lower.startsWith("opening ") && lower.contains("camera") -> DeviceAction("OPEN_APP", target = "Camera")
+            (lower.contains("opened whatsapp") || lower.contains("opening whatsapp") || lower.contains("open whatsapp")) -> {
+                DeviceAction("OPEN_APP", target = "WhatsApp")
+            }
+            lower.contains("whatsapp") && (lower.contains("send") || lower.contains("message")) -> {
+                DeviceAction("SEND_SMS", target = "WhatsApp")
+            }
+            (lower.contains("opened gmail") || lower.contains("opening gmail") || lower.contains("open gmail")) -> {
+                DeviceAction("OPEN_APP", target = "Gmail")
+            }
+            (lower.contains("opened youtube") || lower.contains("opening youtube") || lower.contains("open youtube")) -> {
+                DeviceAction("OPEN_APP", target = "YouTube")
+            }
+            (lower.contains("opened chrome") || lower.contains("opening chrome") || lower.contains("open chrome")) -> {
+                DeviceAction("OPEN_APP", target = "Chrome")
+            }
+            (lower.contains("opened camera") || lower.contains("opening camera") || lower.contains("open camera")) -> {
+                DeviceAction("OPEN_APP", target = "Camera")
+            }
+            (lower.contains("opened settings") || lower.contains("opening settings") || lower.contains("open settings")) -> {
+                DeviceAction("OPEN_SETTING", target = "settings")
+            }
+            (lower.contains("timer") && (lower.contains("set") || lower.contains("setting"))) -> {
+                val minMatch = Regex("(\\d+)\\s*(?:min|minute)").find(lower)
+                val mins = minMatch?.groupValues?.get(1)?.toIntOrNull() ?: 5
+                DeviceAction("SET_TIMER", seconds = mins * 60, label = "Focus Timer")
+            }
             else -> null
         }
     }

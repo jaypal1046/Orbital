@@ -1,12 +1,17 @@
 package com.orbital.di
 
 import android.content.Context
+import androidx.room.Room
 import com.orbital.action.AppCapabilityManager
 import com.orbital.action.DeviceActionExecutor
 import com.orbital.chat.ChatEngine
 import com.orbital.chat.DefaultChatEngine
 import com.orbital.data.LlmRepository
 import com.orbital.data.SecureStorage
+import com.orbital.data.db.ChatDao
+import com.orbital.data.db.ChatEncryptionHelper
+import com.orbital.data.db.ChatHistoryRepository
+import com.orbital.data.db.OrbitalDatabase
 import com.orbital.voice.VoiceManager
 import dagger.Module
 import dagger.Provides
@@ -58,12 +63,41 @@ object AppModule {
 
     @Provides
     @Singleton
+    fun provideOrbitalDatabase(@ApplicationContext context: Context): OrbitalDatabase {
+        return Room.databaseBuilder(
+            context,
+            OrbitalDatabase::class.java,
+            "orbital_secure.db"
+        )
+            .fallbackToDestructiveMigration()
+            .build()
+    }
+
+    @Provides
+    @Singleton
+    fun provideChatDao(database: OrbitalDatabase): ChatDao {
+        return database.chatDao()
+    }
+
+    @Provides
+    @Singleton
+    fun provideChatHistoryRepository(
+        chatDao: ChatDao,
+        encryptionHelper: ChatEncryptionHelper
+    ): ChatHistoryRepository {
+        return ChatHistoryRepository(chatDao, encryptionHelper)
+    }
+
+    @Provides
+    @Singleton
     fun provideChatEngine(
+        @ApplicationContext context: Context,
         llmRepository: LlmRepository,
         actionExecutor: DeviceActionExecutor,
-        voiceManager: VoiceManager
+        voiceManager: VoiceManager,
+        chatHistoryRepository: ChatHistoryRepository
     ): ChatEngine {
-        return DefaultChatEngine(llmRepository, voiceManager, actionExecutor)
+        return DefaultChatEngine(context, llmRepository, voiceManager, actionExecutor, chatHistoryRepository)
     }
 }
 

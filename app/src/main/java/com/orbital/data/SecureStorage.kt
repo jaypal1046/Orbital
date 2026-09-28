@@ -115,11 +115,11 @@ open class SecureStorage(context: Context) {
         return sharedPreferences.getString(KEY_SAFETY_ACTION, null)
     }
 
-    fun saveSelectedCharacter(characterId: String) {
+    open fun saveSelectedCharacter(characterId: String) {
         sharedPreferences.edit().putString(KEY_SELECTED_CHARACTER, characterId).apply()
     }
 
-    fun getSelectedCharacter(): String? {
+    open fun getSelectedCharacter(): String? {
         return sharedPreferences.getString(KEY_SELECTED_CHARACTER, null)
     }
 

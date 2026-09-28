@@ -79,9 +79,42 @@ class ChatEngineTest {
         }
     }
 
+    private class FakeChatDao : com.orbital.data.db.ChatDao {
+        val messages = mutableListOf<com.orbital.data.db.ChatMessageEntity>()
+
+        override suspend fun insertMessage(message: com.orbital.data.db.ChatMessageEntity) {
+            messages.add(message)
+        }
+
+        override suspend fun insertMessages(messages: List<com.orbital.data.db.ChatMessageEntity>) {
+            this.messages.addAll(messages)
+        }
+
+        override suspend fun getMessagesSince(sinceTimestamp: Long): List<com.orbital.data.db.ChatMessageEntity> {
+            return messages.filter { it.timestamp >= sinceTimestamp }
+        }
+
+        override fun observeMessagesSince(sinceTimestamp: Long): kotlinx.coroutines.flow.Flow<List<com.orbital.data.db.ChatMessageEntity>> {
+            return kotlinx.coroutines.flow.flowOf(messages.filter { it.timestamp >= sinceTimestamp })
+        }
+
+        override suspend fun getAllMessages(): List<com.orbital.data.db.ChatMessageEntity> = messages.toList()
+
+        override suspend fun pruneOldMessages(cutoffTimestamp: Long): Int {
+            val initial = messages.size
+            messages.removeAll { it.timestamp < cutoffTimestamp }
+            return initial - messages.size
+        }
+
+        override suspend fun clearAllMessages() {
+            messages.clear()
+        }
+    }
+
     private lateinit var fakeLlmRepository: FakeLlmRepository
     private lateinit var fakeVoiceManager: FakeVoiceManager
     private lateinit var fakeDeviceActionExecutor: FakeDeviceActionExecutor
+    private lateinit var chatHistoryRepository: com.orbital.data.db.ChatHistoryRepository
     private lateinit var chatEngine: DefaultChatEngine
 
     @Before
@@ -92,8 +125,18 @@ class ChatEngineTest {
         fakeLlmRepository = FakeLlmRepository()
         fakeVoiceManager = FakeVoiceManager(context)
         fakeDeviceActionExecutor = FakeDeviceActionExecutor(context)
+        chatHistoryRepository = com.orbital.data.db.ChatHistoryRepository(
+            chatDao = FakeChatDao(),
+            encryptionHelper = com.orbital.data.db.ChatEncryptionHelper()
+        )
 
-        chatEngine = DefaultChatEngine(fakeLlmRepository, fakeVoiceManager, fakeDeviceActionExecutor)
+        chatEngine = DefaultChatEngine(
+            context = context,
+            llmRepository = fakeLlmRepository,
+            voiceManager = fakeVoiceManager,
+            deviceActionExecutor = fakeDeviceActionExecutor,
+            chatHistoryRepository = chatHistoryRepository
+        )
     }
 
     @After

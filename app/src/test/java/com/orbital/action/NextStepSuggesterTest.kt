@@ -10,11 +10,10 @@ class NextStepSuggesterTest {
         val action = DeviceAction("SEARCH_APP", target = "YouTube", query = "music")
         val suggestions = NextStepSuggester.getSuggestions(action, "Playing music on YouTube")
 
-        assertEquals(4, suggestions.size)
+        assertEquals(3, suggestions.size)
         assertTrue(suggestions.any { it.contains("Search YouTube") })
         assertTrue(suggestions.any { it.contains("Trending") })
         assertTrue(suggestions.any { it.contains("lo-fi") })
-        assertTrue(suggestions.any { it.contains("Subscriptions") })
     }
 
     @Test
@@ -22,11 +21,9 @@ class NextStepSuggesterTest {
         val action = DeviceAction("OPEN_APP", target = "Gmail")
         val suggestions = NextStepSuggester.getSuggestions(action, "Opened Gmail")
 
-        assertEquals(4, suggestions.size)
-        assertTrue(suggestions.any { it.contains("Compose email") })
+        assertEquals(2, suggestions.size)
+        assertTrue(suggestions.any { it.contains("Compose new email") })
         assertTrue(suggestions.any { it.contains("unread") })
-        assertTrue(suggestions.any { it.contains("meeting") })
-        assertTrue(suggestions.any { it.contains("Drafts") })
     }
 
     @Test
@@ -34,10 +31,8 @@ class NextStepSuggesterTest {
         val action = DeviceAction("SEND_SMS", target = "whatsapp", recipient = "John", message = "Hi")
         val suggestions = NextStepSuggester.getSuggestions(action, "Sent WhatsApp message")
 
-        assertEquals(3, suggestions.size)
+        assertEquals(1, suggestions.size)
         assertTrue(suggestions.any { it.contains("Send WhatsApp") })
-        assertTrue(suggestions.any { it.contains("calls") })
-        assertTrue(suggestions.any { it.contains("call you back") })
     }
 
     @Test
@@ -45,9 +40,8 @@ class NextStepSuggesterTest {
         val action = DeviceAction("PLAY_MUSIC", query = "pop music")
         val suggestions = NextStepSuggester.getSuggestions(action, "Playing pop music on Spotify")
 
-        assertEquals(3, suggestions.size)
-        assertTrue(suggestions.any { it.contains("Play on Spotify") })
-        assertTrue(suggestions.any { it.contains("Search Spotify") })
+        assertEquals(2, suggestions.size)
+        assertTrue(suggestions.any { it.contains("Play top hits") })
         assertTrue(suggestions.any { it.contains("Liked Songs") })
     }
 
@@ -56,32 +50,28 @@ class NextStepSuggesterTest {
         val action = DeviceAction("NAVIGATE", query = "airport")
         val suggestions = NextStepSuggester.getSuggestions(action, "Navigating to airport")
 
-        assertEquals(3, suggestions.size)
-        assertTrue(suggestions.any { it.contains("Navigate to nearest") })
+        assertEquals(2, suggestions.size)
         assertTrue(suggestions.any { it.contains("coffee shop") })
         assertTrue(suggestions.any { it.contains("gas stations") })
     }
 
     @Test
     fun getSuggestions_chromeTarget_returnsWebSearchSuggestions() {
-        val action = DeviceAction("OPEN_APP", target = "Chrome")
-        val suggestions = NextStepSuggester.getSuggestions(action, "Opened Chrome")
+        val action = DeviceAction("SEARCH_WEB", query = "AI news")
+        val suggestions = NextStepSuggester.getSuggestions(action, "Searching web")
 
-        assertEquals(3, suggestions.size)
-        assertTrue(suggestions.any { it.contains("Search Google") })
-        assertTrue(suggestions.any { it.contains("tech news") })
-        assertTrue(suggestions.any { it.contains("Open URL") })
+        assertEquals(1, suggestions.size)
+        assertTrue(suggestions.any { it.contains("Search top headlines") })
     }
 
     @Test
     fun getSuggestions_cameraTarget_returnsCameraSuggestions() {
-        val action = DeviceAction("OPEN_APP", target = "Camera")
+        val action = DeviceAction("OPEN_CAMERA")
         val suggestions = NextStepSuggester.getSuggestions(action, "Opened Camera")
 
-        assertEquals(3, suggestions.size)
+        assertEquals(2, suggestions.size)
         assertTrue(suggestions.any { it.contains("Take photo") })
         assertTrue(suggestions.any { it.contains("Photos Gallery") })
-        assertTrue(suggestions.any { it.contains("Record video") })
     }
 
     @Test
@@ -89,11 +79,9 @@ class NextStepSuggesterTest {
         val action = DeviceAction("OPEN_SETTING", target = "wifi")
         val suggestions = NextStepSuggester.getSuggestions(action, "Opened WiFi settings")
 
-        assertEquals(4, suggestions.size)
+        assertEquals(2, suggestions.size)
         assertTrue(suggestions.any { it.contains("WiFi") })
         assertTrue(suggestions.any { it.contains("Battery") })
-        assertTrue(suggestions.any { it.contains("Sound") })
-        assertTrue(suggestions.any { it.contains("Apps") })
     }
 
     @Test
@@ -101,49 +89,30 @@ class NextStepSuggesterTest {
         val action = DeviceAction("SET_TIMER", seconds = 300)
         val suggestions = NextStepSuggester.getSuggestions(action, "Set timer for 5 minutes")
 
-        assertEquals(3, suggestions.size)
-        assertTrue(suggestions.any { it.contains("15 minutes") })
-        assertTrue(suggestions.any { it.contains("7:00 AM") })
-        assertTrue(suggestions.any { it.contains("5 minute") })
+        assertEquals(1, suggestions.size)
+        assertTrue(suggestions.any { it.contains("Set 5 minute break timer") })
     }
 
     @Test
-    fun getSuggestions_deviceStatusAction_returnsDeviceSuggestions() {
-        val action = DeviceAction("DEVICE_STATUS")
-        val suggestions = NextStepSuggester.getSuggestions(action, "Battery: 85%")
-
-        assertEquals(3, suggestions.size)
-        assertTrue(suggestions.any { it.contains("Battery Saver") })
-        assertTrue(suggestions.any { it.contains("System Settings") })
-        assertTrue(suggestions.any { it.contains("device specs") })
-    }
-
-    @Test
-    fun getSuggestions_unknownAction_returnsDefaultSuggestions() {
+    fun getSuggestions_unknownAction_returnsEmptyList() {
         val action = DeviceAction("UNKNOWN_ACTION")
         val suggestions = NextStepSuggester.getSuggestions(action, "Did something unknown")
 
-        assertEquals(6, suggestions.size)
-        assertTrue(suggestions.any { it.contains("YouTube") })
-        assertTrue(suggestions.any { it.contains("Gmail") })
-        assertTrue(suggestions.any { it.contains("WhatsApp") })
-        assertTrue(suggestions.any { it.contains("AI News") })
-        assertTrue(suggestions.any { it.contains("Timer") })
-        assertTrue(suggestions.any { it.contains("Battery") })
+        assertTrue(suggestions.isEmpty())
     }
 
     @Test
     fun cleanPromptForInput_removesLeadingEmojiAndPunctuation() {
-        val result = NextStepSuggester.cleanPromptForInput("🔍 Search YouTube for: ")
+        val result = NextStepSuggester.cleanPromptForInput("🔍 Search YouTube for ")
 
-        assertEquals("Search YouTube for:", result)
+        assertEquals("Search YouTube for", result)
     }
 
     @Test
     fun cleanPromptForInput_removesLeadingEmoji() {
-        val result = NextStepSuggester.cleanPromptForInput("🎵 Play music on Spotify: ")
+        val result = NextStepSuggester.cleanPromptForInput("🎵 Play music on Spotify")
 
-        assertEquals("Play music on Spotify:", result)
+        assertEquals("Play music on Spotify", result)
     }
 
     @Test

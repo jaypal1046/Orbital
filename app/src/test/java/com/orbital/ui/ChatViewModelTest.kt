@@ -86,6 +86,12 @@ class ChatViewModelTest {
             isStreaming.value = false
         }
 
+        override fun clearMessages() {
+            _messages.value = emptyList()
+            streamingContent.value = ""
+            isStreaming.value = false
+        }
+
         override suspend fun executeTTSAndActions() {}
     }
 
@@ -140,11 +146,19 @@ class ChatViewModelTest {
     }
 
     private class FakeSecureStorage(context: Context) : SecureStorage(context) {
-        private var character: String = "aether"
+        private var character: String? = "aether"
+        private var selectedCharacter: String? = "aether"
 
-        override fun getCharacter(): String = character
+        override fun getCharacter(): String? = character
         override fun saveCharacter(character: String) {
             this.character = character
+            this.selectedCharacter = character
+        }
+
+        override fun getSelectedCharacter(): String? = selectedCharacter
+        override fun saveSelectedCharacter(characterId: String) {
+            this.selectedCharacter = characterId
+            this.character = characterId
         }
     }
 
@@ -167,6 +181,7 @@ class ChatViewModelTest {
         fakeSecureStorage = FakeSecureStorage(context)
 
         viewModel = ChatViewModel(
+            context = context,
             chatEngine = fakeChatEngine,
             llmRepository = fakeLlmRepository,
             voiceManager = fakeVoiceManager,
@@ -183,16 +198,14 @@ class ChatViewModelTest {
     @Test
     fun initialState_hasGreetingAndDefaultConfigurations() {
         val messages = viewModel.messages.value
-        assertEquals(1, messages.size)
-        assertEquals("assistant", messages[0].role)
-        assertTrue(messages[0].content.contains("aether", ignoreCase = true))
+        assertTrue(messages.isEmpty())
 
         assertEquals("", viewModel.inputText.value)
         assertFalse(viewModel.isStreaming.value)
         assertFalse(viewModel.isVoiceListening.value)
         assertEquals(RoutingMode.AUTO, viewModel.currentRoutingMode.value)
         assertEquals(ProviderType.GROQ, viewModel.selectedPinnedProvider.value)
-        assertTrue(viewModel.quickSuggestions.value.isNotEmpty())
+        assertTrue(viewModel.quickSuggestions.value.isEmpty())
     }
 
     @Test
@@ -203,9 +216,9 @@ class ChatViewModelTest {
         testDispatcher.scheduler.advanceUntilIdle()
 
         val messages = viewModel.messages.value
-        assertEquals(2, messages.size)
-        assertEquals("user", messages[1].role)
-        assertEquals("Turn on WiFi", messages[1].content)
+        assertEquals(1, messages.size)
+        assertEquals("user", messages[0].role)
+        assertEquals("Turn on WiFi", messages[0].content)
         assertTrue(viewModel.isStreaming.value)
         assertEquals("GROQ", viewModel.activeServingProvider.value)
 
@@ -232,8 +245,8 @@ class ChatViewModelTest {
 
         // 4. Verify assistant message added and action executed
         val messages = viewModel.messages.value
-        assertEquals(3, messages.size) // Greeting + User + Assistant
-        val assistantMsg = messages[2]
+        assertEquals(2, messages.size)
+        val assistantMsg = messages[1]
         assertEquals("assistant", assistantMsg.role)
         assertTrue(assistantMsg.content.contains("Opening settings now"))
         assertEquals("⚡ Executed: Opened Settings", assistantMsg.actionLabel)
@@ -320,10 +333,10 @@ class ChatViewModelTest {
 
     @Test
     fun refreshCharacter_reloadsCharacterFromSecureStorage() {
-        fakeSecureStorage.saveCharacter("lumina")
+        fakeSecureStorage.saveCharacter("lumy")
         viewModel.refreshCharacter()
 
-        assertEquals("lumina", viewModel.currentCharacter.value)
-        assertEquals("Lumina (AI Companion)", viewModel.characterName)
+        assertEquals("lumy", viewModel.currentCharacter.value)
+        assertEquals("Lumy (AI Companion)", viewModel.characterName)
     }
 }

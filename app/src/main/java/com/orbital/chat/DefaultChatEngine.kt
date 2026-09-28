@@ -6,7 +6,14 @@ import com.orbital.action.DeviceActionExecutor
 import com.orbital.data.ChatMessage
 import com.orbital.data.LlmRepository
 import com.orbital.data.ProviderType
+import com.orbital.data.db.ChatHistoryRepository
 import com.orbital.voice.VoiceManager
+import android.content.Context
+import android.content.Intent
+import android.os.Build
+import android.provider.Settings
+import com.orbital.overlay.OverlayService
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -19,9 +26,11 @@ import javax.inject.Singleton
 
 @Singleton
 class DefaultChatEngine @Inject constructor(
+    @ApplicationContext private val context: Context,
     private val llmRepository: LlmRepository,
     private val voiceManager: VoiceManager,
-    private val deviceActionExecutor: DeviceActionExecutor
+    private val deviceActionExecutor: DeviceActionExecutor,
+    private val chatHistoryRepository: ChatHistoryRepository
 ) : ChatEngine {
 
     private val _messages = MutableStateFlow<List<ChatMessage>>(emptyList())
@@ -37,7 +46,17 @@ class DefaultChatEngine @Inject constructor(
 
     private val scope = CoroutineScope(Dispatchers.Main)
     private var currentCharacter = "aether"
-    private var debounceJob: kotlinx.coroutines.Job? = null
+
+    init {
+        // Load recent 30-day encrypted history on startup and prune expired entries
+        scope.launch {
+            val history = chatHistoryRepository.loadRecentHistory30Days()
+            if (history.isNotEmpty()) {
+                _messages.update { history }
+            }
+            chatHistoryRepository.pruneOlderThan30Days()
+        }
+    }
 
     override fun setCharacter(character: String) {
         currentCharacter = character
@@ -53,9 +72,17 @@ class DefaultChatEngine @Inject constructor(
         isStreaming.value = true
         streamingContent.value = ""
 
-        // Add user message to the chat
+        // Add user message to memory
         _messages.update { currentMessages ->
             currentMessages + ChatMessage(
+                role = "user",
+                content = message
+            )
+        }
+
+        // Persist encrypted user message to SQL database
+        scope.launch {
+            chatHistoryRepository.saveMessage(
                 role = "user",
                 content = message
             )
@@ -66,15 +93,17 @@ class DefaultChatEngine @Inject constructor(
 
         // Build history with executive system prompt
         val chatHistory = mutableListOf<ChatMessage>()
-        chatHistory.add(ChatMessage(
-            role = "system",
-            content = ActionParser.buildSystemPrompt(
-                currentCharacter,
-                deviceActionExecutor.getCapabilityManager().buildDeviceCapabilitiesPrompt()
+        chatHistory.add(
+            ChatMessage(
+                role = "system",
+                content = ActionParser.buildSystemPrompt(
+                    currentCharacter,
+                    deviceActionExecutor.getCapabilityManager().buildDeviceCapabilitiesPrompt()
+                )
             )
-        ))
+        )
 
-        // Add last 10 messages from history
+        // Add last 10 messages from history for LLM context window
         messages.value.takeLast(10).forEach { msg ->
             chatHistory.add(ChatMessage(role = msg.role, content = msg.content))
         }
@@ -94,10 +123,18 @@ class DefaultChatEngine @Inject constructor(
                 onError = { error ->
                     isStreaming.value = false
                     val errText = error.message ?: "Request failed"
+                    val errorContent = if (streamingContent.value.isNotBlank()) streamingContent.value else "⚠️ $errText"
                     _messages.update { currentMessages ->
                         currentMessages + ChatMessage(
                             role = "assistant",
-                            content = if (streamingContent.value.isNotBlank()) streamingContent.value else "⚠️ $errText"
+                            content = errorContent
+                        )
+                    }
+                    scope.launch {
+                        chatHistoryRepository.saveMessage(
+                            role = "assistant",
+                            content = errorContent,
+                            providerName = activeProvider.value
                         )
                     }
                     streamingContent.value = ""
@@ -124,6 +161,9 @@ class DefaultChatEngine @Inject constructor(
                         actionLabel = "⚡ Executed: ${result.message}"
                         actionDetails = result.details
                         com.orbital.ui.MascotEventBus.postEvent(com.orbital.ui.MascotEvent.ActionSuccess(result.message))
+                        
+                        // Switch from full-screen app to floating avatar overlay over the executed action
+                        launchFloatingCompanionOverlay()
                     }
                     is ActionResult.Error -> {
                         actionLabel = "⚠️ Action Failed: ${result.errorMessage}"
@@ -134,11 +174,24 @@ class DefaultChatEngine @Inject constructor(
                 com.orbital.ui.MascotEventBus.postEvent(com.orbital.ui.MascotEvent.ResetToIdle)
             }
 
-            // Add assistant message to the chat
+            // Add assistant message to memory
+            val assistantMessage = ChatMessage(
+                role = "assistant",
+                content = parsed.userDisplayText,
+                actionLabel = actionLabel,
+                actionDetails = actionDetails
+            )
             _messages.update { currentMessages ->
-                currentMessages + ChatMessage(
+                currentMessages + assistantMessage
+            }
+
+            // Persist encrypted assistant message to SQL database
+            val provider = activeProvider.value
+            scope.launch {
+                chatHistoryRepository.saveMessage(
                     role = "assistant",
                     content = parsed.userDisplayText,
+                    providerName = provider,
                     actionLabel = actionLabel,
                     actionDetails = actionDetails
                 )
@@ -148,19 +201,31 @@ class DefaultChatEngine @Inject constructor(
         isStreaming.value = false
     }
 
+    private fun launchFloatingCompanionOverlay() {
+        try {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(context)) {
+                val overlayIntent = Intent(context, OverlayService::class.java).apply {
+                    action = OverlayService.ACTION_START
+                    putExtra("character", currentCharacter)
+                }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    context.startForegroundService(overlayIntent)
+                } else {
+                    context.startService(overlayIntent)
+                }
+            }
+        } catch (e: Exception) {
+            android.util.Log.w("DefaultChatEngine", "Failed to start floating companion overlay", e)
+        }
+    }
+
     override suspend fun executeTTSAndActions() {
         // Get the last assistant message
         val lastMessage = _messages.value.lastOrNull { it.role == "assistant" }
         lastMessage?.let { message ->
-            // Execute TTS
             val contentToSpeak = message.content
             if (!contentToSpeak.isNullOrBlank()) {
                 voiceManager.speak(contentToSpeak)
-            }
-
-            // Execute any device actions if present in the message
-            if (message.actionLabel != null && message.actionLabel!!.startsWith("⚡")) {
-                // Action was already executed in handleStreamCompletion
             }
         }
     }

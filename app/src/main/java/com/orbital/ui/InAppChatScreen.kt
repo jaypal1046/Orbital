@@ -73,12 +73,16 @@ fun InAppChatScreen(
         drawerContent = {
             SideNavDrawer(
                 currentCharacterId = currentCharacterId,
+                recentMessages = messages,
                 onSelectCharacter = { charId ->
                     chatViewModel.switchCharacter(charId)
                 },
                 onNewChat = {
                     chatViewModel.startNewChat()
                     Toast.makeText(context, "Started fresh chat session", Toast.LENGTH_SHORT).show()
+                },
+                onSelectRecentChat = { selectedMsg ->
+                    chatViewModel.onInputChange(selectedMsg.content)
                 },
                 onOpenKeys = onOpenKeys,
                 onOpenCharacters = onOpenCharacters,

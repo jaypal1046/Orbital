@@ -27,6 +27,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.style.TextOverflow
 import com.orbital.overlay.OverlayService
 import com.orbital.R
 
@@ -34,8 +35,10 @@ import com.orbital.R
 @Composable
 fun SideNavDrawer(
     currentCharacterId: String,
+    recentMessages: List<UiMessage> = emptyList(),
     onSelectCharacter: (String) -> Unit,
     onNewChat: () -> Unit,
+    onSelectRecentChat: (UiMessage) -> Unit = {},
     onOpenKeys: () -> Unit,
     onOpenCharacters: () -> Unit,
     onOpenAutomations: () -> Unit,
@@ -316,48 +319,89 @@ fun SideNavDrawer(
 
                 // SECTION: Recent Topics / History
                 Spacer(modifier = Modifier.height(18.dp))
-                Text(
-                    text = "RECENT CHATS",
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color(0xFFA78BFA),
-                    letterSpacing = 1.sp
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "RECENT CHATS (30 DAYS)",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFFA78BFA),
+                        letterSpacing = 1.sp
+                    )
+                    val totalUserChats = recentMessages.filter { it.role == "user" }.size
+                    if (totalUserChats > 0) {
+                        Text(
+                            text = "$totalUserChats saved",
+                            fontSize = 10.5.sp,
+                            color = Color(0xFF64748B)
+                        )
+                    }
+                }
                 Spacer(modifier = Modifier.height(8.dp))
 
-                val sampleChats = listOf(
-                    "YouTube & Lo-fi Music Session",
-                    "Gmail Summary & Device Actions",
-                    "Daily Focus Timer & Schedule",
-                    "AI News & Web Search"
-                )
+                val userChats = recentMessages
+                    .filter { it.role == "user" }
+                    .filter {
+                        if (searchQuery.isBlank()) true
+                        else it.content.contains(searchQuery, ignoreCase = true)
+                    }
+                    .reversed()
 
-                sampleChats.forEach { title ->
-                    Row(
+                if (userChats.isEmpty()) {
+                    Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(8.dp))
-                            .clickable {
-                                Toast.makeText(context, "Loaded: $title", Toast.LENGTH_SHORT).show()
-                                onCloseDrawer()
-                            }
-                            .padding(vertical = 10.dp, horizontal = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                            .padding(vertical = 12.dp),
+                        contentAlignment = Alignment.Center
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Face,
-                            contentDescription = null,
-                            tint = Color(0xFF64748B),
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(10.dp))
                         Text(
-                            text = title,
-                            fontSize = 13.sp,
-                            color = Color(0xFFCBD5E1),
-                            modifier = Modifier.weight(1f),
-                            maxLines = 1
+                            text = if (searchQuery.isNotBlank()) "No matching chats found" else "No recent chats yet",
+                            fontSize = 12.sp,
+                            color = Color(0xFF64748B)
                         )
+                    }
+                } else {
+                    userChats.take(20).forEach { msg ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable {
+                                    onSelectRecentChat(msg)
+                                    onCloseDrawer()
+                                }
+                                .padding(vertical = 8.dp, horizontal = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Face,
+                                contentDescription = null,
+                                tint = Color(0xFFA78BFA),
+                                modifier = Modifier.size(15.dp)
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = msg.content,
+                                    fontSize = 13.sp,
+                                    color = Color(0xFFE2E8F0),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                if (msg.actionLabel != null) {
+                                    Text(
+                                        text = msg.actionLabel,
+                                        fontSize = 10.5.sp,
+                                        color = Color(0xFF34D399),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
                 Spacer(modifier = Modifier.height(16.dp))

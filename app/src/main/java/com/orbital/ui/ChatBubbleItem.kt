@@ -207,26 +207,54 @@ fun ChatBubbleItem(
                     // Action Execution Badge
                     message.actionLabel?.let { badge ->
                         Spacer(modifier = Modifier.height(10.dp))
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(
-                                    if (badge.startsWith("⚡")) Color(0xFF064E3B) else Color(0xFF7F1D1D)
-                                )
-                                .border(
-                                    1.dp,
-                                    if (badge.startsWith("⚡")) Color(0xFF059669) else Color(0xFFDC2626),
-                                    RoundedCornerShape(8.dp)
-                                )
-                                .padding(horizontal = 10.dp, vertical = 6.dp)
+                        val isSuccess = badge.startsWith("⚡")
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = if (isSuccess) Color(0xFF064E3B).copy(alpha = 0.6f) else Color(0xFF450A0A).copy(alpha = 0.7f),
+                            border = BorderStroke(
+                                1.dp,
+                                if (isSuccess) Color(0xFF059669) else Color(0xFFDC2626).copy(alpha = 0.6f)
+                            ),
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text(
-                                text = badge,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = if (badge.startsWith("⚡")) Color(0xFF6EE7B7) else Color(0xFFFCA5A5)
-                            )
+                            Column(modifier = Modifier.padding(10.dp)) {
+                                Text(
+                                    text = badge,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = if (isSuccess) Color(0xFF6EE7B7) else Color(0xFFFCA5A5)
+                                )
+
+                                if (!isSuccess) {
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Row(
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Surface(
+                                            shape = RoundedCornerShape(6.dp),
+                                            color = Color(0xFF7F1D1D),
+                                            modifier = Modifier.clickable {
+                                                try {
+                                                    val intent = android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                                        data = android.net.Uri.parse("package:${context.packageName}")
+                                                        addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                                                    }
+                                                    context.startActivity(intent)
+                                                } catch (_: Exception) {}
+                                            }
+                                        ) {
+                                            Text(
+                                                text = "⚙️ App Settings",
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Medium,
+                                                color = Color.White,
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
 

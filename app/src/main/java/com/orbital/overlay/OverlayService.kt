@@ -86,6 +86,7 @@ class OverlayService : Service() {
     private lateinit var chatInputEditText: android.widget.EditText
     private lateinit var chatSendButton: View
     private lateinit var chatMicButton: View
+    private lateinit var chatExpandButton: View
     private lateinit var chatCloseButton: View
     private lateinit var chatCompanionName: TextView
     private lateinit var connectionIndicator: View
@@ -170,6 +171,20 @@ class OverlayService : Service() {
         serviceScope.launch {
             com.orbital.ui.MascotEventBus.currentState.collect { state ->
                 setMascotState(state)
+            }
+        }
+
+        // Observe global MascotEventBus action events (e.g. celebratory jump on ActionSuccess)
+        serviceScope.launch {
+            com.orbital.ui.MascotEventBus.events.collect { event ->
+                when (event) {
+                    is com.orbital.ui.MascotEvent.ActionSuccess -> {
+                        playMascotJumpAnimation {
+                            // Visual jump reaction on action completion
+                        }
+                    }
+                    else -> {}
+                }
             }
         }
 
@@ -462,6 +477,7 @@ class OverlayService : Service() {
         chatSendButton = overlayView.findViewById(R.id.chatSendButton)
         chatMicButton = overlayView.findViewById(R.id.chatMicButton)
         chatCloseButton = overlayView.findViewById(R.id.chatCloseButton)
+        chatExpandButton = overlayView.findViewById(R.id.chatExpandButton)
         chatCompanionName = overlayView.findViewById(R.id.chatCompanionName)
         connectionIndicator = overlayView.findViewById(R.id.connectionIndicator)
         voiceStatusIndicator = overlayView.findViewById(R.id.voiceStatusIndicator)
@@ -471,6 +487,14 @@ class OverlayService : Service() {
         com.orbital.ui.EmotionMediaLoader.loadEmotion(this, currentCharacter, com.orbital.ui.MascotState.IDLE, characterImage, false)
 
         // Setup Chat buttons
+        chatExpandButton.setOnClickListener {
+            toggleChatPanel(false)
+            val appIntent = Intent(this@OverlayService, com.orbital.ui.MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            }
+            startActivity(appIntent)
+        }
+
         chatCloseButton.setOnClickListener {
             toggleChatPanel(false)
             com.orbital.ui.MascotEventBus.postEvent(com.orbital.ui.MascotEvent.ResetToIdle)
