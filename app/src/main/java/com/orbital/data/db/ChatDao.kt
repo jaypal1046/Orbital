@@ -24,6 +24,12 @@ interface ChatDao {
     @Query("SELECT * FROM chat_messages ORDER BY timestamp ASC")
     suspend fun getAllMessages(): List<ChatMessageEntity>
 
+    @Query("SELECT * FROM chat_messages WHERE sessionId = :sessionId ORDER BY timestamp ASC")
+    suspend fun getSessionMessages(sessionId: String): List<ChatMessageEntity>
+
+    @Query("UPDATE chat_messages SET sessionTitle = :title WHERE sessionId = :sessionId")
+    suspend fun renameSession(sessionId: String, title: String): Int
+
     @Query("DELETE FROM chat_messages WHERE timestamp < :cutoffTimestamp")
     suspend fun pruneOldMessages(cutoffTimestamp: Long): Int
 

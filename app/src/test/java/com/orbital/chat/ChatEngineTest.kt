@@ -100,6 +100,20 @@ class ChatEngineTest {
 
         override suspend fun getAllMessages(): List<com.orbital.data.db.ChatMessageEntity> = messages.toList()
 
+        override suspend fun getSessionMessages(sessionId: String): List<com.orbital.data.db.ChatMessageEntity> =
+            messages.filter { it.sessionId == sessionId }
+
+        override suspend fun renameSession(sessionId: String, title: String): Int {
+            var changes = 0
+            messages.replaceAll { message ->
+                if (message.sessionId == sessionId) {
+                    changes++
+                    message.copy(sessionTitle = title)
+                } else message
+            }
+            return changes
+        }
+
         override suspend fun pruneOldMessages(cutoffTimestamp: Long): Int {
             val initial = messages.size
             messages.removeAll { it.timestamp < cutoffTimestamp }

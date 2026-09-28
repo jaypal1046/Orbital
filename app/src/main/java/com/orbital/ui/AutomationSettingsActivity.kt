@@ -1,6 +1,9 @@
 package com.orbital.ui
 
 import android.os.Bundle
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -47,13 +50,11 @@ class AutomationSettingsActivity : ComponentActivity() {
             ) {
                 AutomationSettingsScreen(
                     onBack = { finish() },
-                    onSave = { enabled, startHour, endHour ->
+                    onSave = { enabled, startHour, workWifi, homeWifi ->
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS, Manifest.permission.ACCESS_FINE_LOCATION), 1)
                         if (enabled) {
-                            powerAwareScheduler.scheduleTimeWindowTask(
-                                PowerAwareScheduler.DailySummaryWorker::class.java,
-                                startHour,
-                                endHour
-                            )
+                            powerAwareScheduler.scheduleDailyBriefing(startHour)
+                            powerAwareScheduler.saveWifiAutomations(workWifi, homeWifi)
                             Toast.makeText(this, "Automation schedule updated!", Toast.LENGTH_SHORT).show()
                         } else {
                             Toast.makeText(this, "Automation disabled", Toast.LENGTH_SHORT).show()
@@ -70,14 +71,15 @@ class AutomationSettingsActivity : ComponentActivity() {
 @Composable
 fun AutomationSettingsScreen(
     onBack: () -> Unit,
-    onSave: (Boolean, Int, Int) -> Unit
+    onSave: (Boolean, Int, String, String) -> Unit
 ) {
     var isEnabled by remember { mutableStateOf(true) }
     var dailySummaryEnabled by remember { mutableStateOf(true) }
     var voiceTranscriptionEnabled by remember { mutableStateOf(true) }
     var memoryCleanupEnabled by remember { mutableStateOf(true) }
     var startHour by remember { mutableStateOf(2) }
-    var endHour by remember { mutableStateOf(5) }
+    var workWifi by remember { mutableStateOf("") }
+    var homeWifi by remember { mutableStateOf("") }
 
     Scaffold(
         topBar = {
@@ -265,43 +267,37 @@ fun AutomationSettingsScreen(
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text(
-                        text = "Power & Night Schedule",
+                        text = "Daily Briefing",
                         fontWeight = FontWeight.Bold,
                         color = Color.White,
                         fontSize = 14.sp
                     )
                     Text(
-                        text = "Tasks execute during low-usage hours when battery is charging.",
+                        text = "Briefing arrives near your selected hour. Android may delay it briefly to save power.",
                         color = Color(0xFF94A3B8),
                         fontSize = 12.sp,
                         modifier = Modifier.padding(top = 2.dp, bottom = 14.dp)
                     )
 
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        TimeHourPickerCard(
-                            label = "Start Window",
-                            hour = startHour,
-                            onHourChange = { startHour = it },
-                            modifier = Modifier.weight(1f)
-                        )
-                        TimeHourPickerCard(
-                            label = "End Window",
-                            hour = endHour,
-                            onHourChange = { endHour = it },
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
+                    TimeHourPickerCard(
+                        label = "Briefing hour",
+                        hour = startHour,
+                        onHourChange = { startHour = it },
+                        modifier = Modifier.fillMaxWidth()
+                    )
                 }
             }
+
+            Spacer(modifier = Modifier.height(16.dp))
+            Text(text = "WI-FI ROUTINES", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFFA78BFA), letterSpacing = 1.sp)
+            OutlinedTextField(value = workWifi, onValueChange = { workWifi = it }, label = { Text("Work Wi-Fi name") }, singleLine = true, modifier = Modifier.fillMaxWidth().padding(top = 8.dp))
+            OutlinedTextField(value = homeWifi, onValueChange = { homeWifi = it }, label = { Text("Home Wi-Fi name") }, singleLine = true, modifier = Modifier.fillMaxWidth().padding(top = 8.dp))
 
             Spacer(modifier = Modifier.height(24.dp))
 
             // Save CTA Button
             Button(
-                onClick = { onSave(isEnabled, startHour, endHour) },
+                onClick = { onSave(isEnabled, startHour, workWifi, homeWifi) },
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(50.dp),

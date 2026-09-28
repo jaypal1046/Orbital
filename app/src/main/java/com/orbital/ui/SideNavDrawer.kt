@@ -30,15 +30,18 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.text.style.TextOverflow
 import com.orbital.overlay.OverlayService
 import com.orbital.R
+import com.orbital.data.db.ChatSessionSummary
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SideNavDrawer(
     currentCharacterId: String,
-    recentMessages: List<UiMessage> = emptyList(),
+    sessions: List<ChatSessionSummary> = emptyList(),
     onSelectCharacter: (String) -> Unit,
     onNewChat: () -> Unit,
-    onSelectRecentChat: (UiMessage) -> Unit = {},
+    onSelectSession: (String) -> Unit = {},
+    onRenameSession: (String, String) -> Unit = { _, _ -> },
+    onShareChat: (Boolean) -> Unit = {},
     onOpenKeys: () -> Unit,
     onOpenCharacters: () -> Unit,
     onOpenAutomations: () -> Unit,
@@ -51,6 +54,7 @@ fun SideNavDrawer(
 ) {
     val context = LocalContext.current
     var searchQuery by remember { mutableStateOf("") }
+    var sessionToRename by remember { mutableStateOf<ChatSessionSummary?>(null) }
     val scrollState = rememberScrollState()
 
     ModalDrawerSheet(
@@ -278,10 +282,9 @@ fun SideNavDrawer(
                         color = Color(0xFFA78BFA),
                         letterSpacing = 1.sp
                     )
-                    val totalUserChats = recentMessages.filter { it.role == "user" }.size
-                    if (totalUserChats > 0) {
+                    if (sessions.isNotEmpty()) {
                         Text(
-                            text = "$totalUserChats saved",
+                            text = "${sessions.size} saved",
                             fontSize = 10.5.sp,
                             color = Color(0xFF64748B)
                         )
@@ -289,15 +292,12 @@ fun SideNavDrawer(
                 }
                 Spacer(modifier = Modifier.height(8.dp))
 
-                val userChats = recentMessages
-                    .filter { it.role == "user" }
-                    .filter {
+                val matchingSessions = sessions.filter {
                         if (searchQuery.isBlank()) true
-                        else it.content.contains(searchQuery, ignoreCase = true)
+                        else it.title.contains(searchQuery, ignoreCase = true) || it.preview.contains(searchQuery, ignoreCase = true)
                     }
-                    .reversed()
 
-                if (userChats.isEmpty()) {
+                if (matchingSessions.isEmpty()) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -311,13 +311,13 @@ fun SideNavDrawer(
                         )
                     }
                 } else {
-                    userChats.take(20).forEach { msg ->
+                    matchingSessions.take(20).forEach { session ->
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(8.dp))
                                 .clickable {
-                                    onSelectRecentChat(msg)
+                                    onSelectSession(session.id)
                                     onCloseDrawer()
                                 }
                                 .padding(vertical = 8.dp, horizontal = 8.dp),
@@ -332,24 +332,29 @@ fun SideNavDrawer(
                             Spacer(modifier = Modifier.width(10.dp))
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    text = msg.content,
+                                    text = session.title,
                                     fontSize = 13.sp,
                                     color = Color(0xFFE2E8F0),
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
-                                if (msg.actionLabel != null) {
-                                    Text(
-                                        text = msg.actionLabel,
-                                        fontSize = 10.5.sp,
-                                        color = Color(0xFF34D399),
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                }
+                                Text(
+                                    text = session.preview,
+                                    fontSize = 10.5.sp,
+                                    color = Color(0xFF94A3B8),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                            IconButton(onClick = { sessionToRename = session }) {
+                                Icon(Icons.Default.Edit, contentDescription = "Rename chat", tint = Color(0xFF94A3B8), modifier = Modifier.size(16.dp))
                             }
                         }
                     }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(onClick = { onShareChat(false) }) { Text("Share text", fontSize = 11.sp) }
+                    TextButton(onClick = { onShareChat(true) }) { Text("Export .md", fontSize = 11.sp) }
                 }
                 Spacer(modifier = Modifier.height(16.dp))
             }
@@ -390,6 +395,18 @@ fun SideNavDrawer(
                 }
             }
         }
+    }
+    sessionToRename?.let { session ->
+        var title by remember(session.id) { mutableStateOf(session.title) }
+        AlertDialog(
+            onDismissRequest = { sessionToRename = null },
+            title = { Text("Rename chat") },
+            text = { OutlinedTextField(value = title, onValueChange = { title = it }, singleLine = true) },
+            confirmButton = {
+                TextButton(onClick = { onRenameSession(session.id, title); sessionToRename = null }) { Text("Save") }
+            },
+            dismissButton = { TextButton(onClick = { sessionToRename = null }) { Text("Cancel") } }
+        )
     }
 }
 

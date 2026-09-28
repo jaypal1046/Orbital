@@ -44,10 +44,15 @@ class CharacterSelectionActivity : ComponentActivity() {
     private val overlayPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { _ ->
+        val char = secureStorage.getSelectedCharacter() ?: "aether"
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && Settings.canDrawOverlays(this)) {
-            val char = secureStorage.getSelectedCharacter() ?: "aether"
             startOverlayService(char)
         }
+        val mainIntent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+        }
+        startActivity(mainIntent)
+        finish()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -81,6 +86,10 @@ class CharacterSelectionActivity : ComponentActivity() {
                             } else {
                                 startOverlayService(character.id)
                                 Toast.makeText(this, "Active companion set to ${character.name}!", Toast.LENGTH_SHORT).show()
+                                val mainIntent = Intent(this, MainActivity::class.java).apply {
+                                    flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                                }
+                                startActivity(mainIntent)
                                 finish()
                             }
                         },

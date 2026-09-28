@@ -2,6 +2,7 @@ package com.orbital.chat
 
 import com.orbital.action.ActionParser
 import com.orbital.action.ActionResult
+import com.orbital.action.DeviceAction
 import com.orbital.action.DeviceActionExecutor
 import com.orbital.data.ChatMessage
 import com.orbital.data.LlmRepository
@@ -23,6 +24,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 import javax.inject.Singleton
+import java.util.UUID
 
 @Singleton
 class DefaultChatEngine @Inject constructor(
@@ -39,6 +41,10 @@ class DefaultChatEngine @Inject constructor(
     override val streamingContent = MutableStateFlow<String>("")
     override val isStreaming = MutableStateFlow<Boolean>(false)
     override val activeProvider = MutableStateFlow<String?>(null)
+    private val _pendingConfirmation = MutableStateFlow<DeviceAction?>(null)
+    override val pendingConfirmation: StateFlow<DeviceAction?> = _pendingConfirmation.asStateFlow()
+    private val _sessions = MutableStateFlow(emptyList<com.orbital.data.db.ChatSessionSummary>())
+    override val sessions: StateFlow<List<com.orbital.data.db.ChatSessionSummary>> = _sessions.asStateFlow()
 
     // Keep backward compatibility
     override val streamingChunk: StateFlow<String>
@@ -46,15 +52,19 @@ class DefaultChatEngine @Inject constructor(
 
     private val scope = CoroutineScope(Dispatchers.Main)
     private var currentCharacter = "aether"
+    private var currentSessionId = UUID.randomUUID().toString()
+    private var currentSessionTitle = "New chat"
 
     init {
-        // Load recent 30-day encrypted history on startup and prune expired entries
+        // Restore the latest encrypted session and prune expired history.
         scope.launch {
-            val history = chatHistoryRepository.loadRecentHistory30Days()
-            if (history.isNotEmpty()) {
-                _messages.update { history }
-            }
             chatHistoryRepository.pruneOlderThan30Days()
+            refreshSessions()
+            _sessions.value.firstOrNull()?.let { session ->
+                currentSessionId = session.id
+                currentSessionTitle = session.title
+                _messages.value = chatHistoryRepository.loadSession(session.id)
+            }
         }
     }
 
@@ -68,9 +78,40 @@ class DefaultChatEngine @Inject constructor(
         isStreaming.value = false
     }
 
+    override fun newSession() {
+        currentSessionId = UUID.randomUUID().toString()
+        currentSessionTitle = "New chat"
+        clearMessages()
+    }
+
+    override fun loadSession(sessionId: String) {
+        scope.launch {
+            val session = _sessions.value.firstOrNull { it.id == sessionId } ?: return@launch
+            currentSessionId = session.id
+            currentSessionTitle = session.title
+            _messages.value = chatHistoryRepository.loadSession(session.id)
+            streamingContent.value = ""
+            isStreaming.value = false
+        }
+    }
+
+    override fun renameSession(sessionId: String, title: String) {
+        val cleanTitle = title.trim().take(60)
+        if (cleanTitle.isBlank()) return
+        scope.launch {
+            chatHistoryRepository.renameSession(sessionId, cleanTitle)
+            if (sessionId == currentSessionId) currentSessionTitle = cleanTitle
+            refreshSessions()
+        }
+    }
+
     override suspend fun sendMessage(message: String) {
         isStreaming.value = true
         streamingContent.value = ""
+
+        if (_messages.value.none { it.role == "user" }) {
+            currentSessionTitle = message.trim().take(60)
+        }
 
         // Add user message to memory
         _messages.update { currentMessages ->
@@ -81,12 +122,7 @@ class DefaultChatEngine @Inject constructor(
         }
 
         // Persist encrypted user message to SQL database
-        scope.launch {
-            chatHistoryRepository.saveMessage(
-                role = "user",
-                content = message
-            )
-        }
+        persistMessage(role = "user", content = message)
 
         val activeType = llmRepository.getCurrentProviderType() ?: ProviderType.GROQ
         activeProvider.value = activeType.name
@@ -130,13 +166,7 @@ class DefaultChatEngine @Inject constructor(
                             content = errorContent
                         )
                     }
-                    scope.launch {
-                        chatHistoryRepository.saveMessage(
-                            role = "assistant",
-                            content = errorContent,
-                            providerName = activeProvider.value
-                        )
-                    }
+                    persistMessage(role = "assistant", content = errorContent, providerName = activeProvider.value)
                     streamingContent.value = ""
                 }
             )
@@ -153,23 +183,30 @@ class DefaultChatEngine @Inject constructor(
             var actionLabel: String? = null
             var actionDetails: String? = null
 
-            if (parsed.action != null) {
-                com.orbital.ui.MascotEventBus.postEvent(com.orbital.ui.MascotEvent.ActionExecuting(parsed.action.action))
-                val result = deviceActionExecutor.execute(parsed.action)
-                when (result) {
-                    is ActionResult.Success -> {
-                        actionLabel = "⚡ Executed: ${result.message}"
-                        actionDetails = result.details
-                        com.orbital.ui.MascotEventBus.postEvent(com.orbital.ui.MascotEvent.ActionSuccess(result.message))
-                        
-                        // Switch from full-screen app to floating avatar overlay over the executed action
-                        launchFloatingCompanionOverlay()
+            if (parsed.actions.isNotEmpty()) {
+                val results = mutableListOf<String>()
+                parsed.actions.forEach { action ->
+                    if (_pendingConfirmation.value != null) return@forEach
+                    if (deviceActionExecutor.requiresConfirmation(action)) {
+                        _pendingConfirmation.value = action
+                        results += "⏳ Approval needed: ${action.action.replace('_', ' ').lowercase()}"
+                        return@forEach
                     }
-                    is ActionResult.Error -> {
-                        actionLabel = "⚠️ Action Failed: ${result.errorMessage}"
-                        com.orbital.ui.MascotEventBus.postEvent(com.orbital.ui.MascotEvent.ActionFailed(result.errorMessage))
+                    com.orbital.ui.MascotEventBus.postEvent(com.orbital.ui.MascotEvent.ActionExecuting(action.action))
+                    when (val result = deviceActionExecutor.execute(action)) {
+                        is ActionResult.Success -> {
+                            results += "⚡ Executed: ${result.message}"
+                            actionDetails = listOfNotNull(actionDetails, result.details).joinToString("\n").takeIf { it.isNotBlank() }
+                            com.orbital.ui.MascotEventBus.postEvent(com.orbital.ui.MascotEvent.ActionSuccess(result.message))
+                            launchFloatingCompanionOverlay()
+                        }
+                        is ActionResult.Error -> {
+                            results += "⚠️ ${result.errorMessage}"
+                            com.orbital.ui.MascotEventBus.postEvent(com.orbital.ui.MascotEvent.ActionFailed(result.errorMessage))
+                        }
                     }
                 }
+                actionLabel = results.joinToString("\n").takeIf { it.isNotBlank() }
             } else {
                 com.orbital.ui.MascotEventBus.postEvent(com.orbital.ui.MascotEvent.ResetToIdle)
             }
@@ -187,18 +224,64 @@ class DefaultChatEngine @Inject constructor(
 
             // Persist encrypted assistant message to SQL database
             val provider = activeProvider.value
-            scope.launch {
-                chatHistoryRepository.saveMessage(
-                    role = "assistant",
-                    content = parsed.userDisplayText,
-                    providerName = provider,
-                    actionLabel = actionLabel,
-                    actionDetails = actionDetails
-                )
-            }
+            persistMessage(
+                role = "assistant", content = parsed.userDisplayText, providerName = provider,
+                actionLabel = actionLabel, actionDetails = actionDetails
+            )
         }
         streamingContent.value = ""
         isStreaming.value = false
+    }
+
+    override fun confirmPendingAction() {
+        val action = _pendingConfirmation.value ?: return
+        _pendingConfirmation.value = null
+        scope.launch {
+            com.orbital.ui.MascotEventBus.postEvent(com.orbital.ui.MascotEvent.ActionExecuting(action.action))
+            val result = deviceActionExecutor.execute(action)
+            val (label, details) = when (result) {
+                is ActionResult.Success -> {
+                    com.orbital.ui.MascotEventBus.postEvent(com.orbital.ui.MascotEvent.ActionSuccess(result.message))
+                    launchFloatingCompanionOverlay()
+                    "⚡ Executed: ${result.message}" to result.details
+                }
+                is ActionResult.Error -> {
+                    com.orbital.ui.MascotEventBus.postEvent(com.orbital.ui.MascotEvent.ActionFailed(result.errorMessage))
+                    "⚠️ Action Failed: ${result.errorMessage}" to null
+                }
+            }
+            addActionMessage("Confirmed.", label, details)
+        }
+    }
+
+    override fun cancelPendingAction() {
+        val action = _pendingConfirmation.value ?: return
+        _pendingConfirmation.value = null
+        addActionMessage("Cancelled.", "Cancelled: ${action.action.replace('_', ' ').lowercase()}", null)
+    }
+
+    private fun addActionMessage(content: String, actionLabel: String, actionDetails: String?) {
+        _messages.update { it + ChatMessage(role = "assistant", content = content, actionLabel = actionLabel, actionDetails = actionDetails) }
+        persistMessage(role = "assistant", content = content, providerName = activeProvider.value, actionLabel = actionLabel, actionDetails = actionDetails)
+    }
+
+    private fun persistMessage(
+        role: String,
+        content: String,
+        providerName: String? = null,
+        actionLabel: String? = null,
+        actionDetails: String? = null
+    ) = scope.launch {
+        chatHistoryRepository.saveMessage(
+            role = role, content = content, providerName = providerName,
+            actionLabel = actionLabel, actionDetails = actionDetails,
+            sessionId = currentSessionId, sessionTitle = currentSessionTitle
+        )
+        refreshSessions()
+    }
+
+    private suspend fun refreshSessions() {
+        _sessions.value = chatHistoryRepository.loadSessionSummaries()
     }
 
     private fun launchFloatingCompanionOverlay() {

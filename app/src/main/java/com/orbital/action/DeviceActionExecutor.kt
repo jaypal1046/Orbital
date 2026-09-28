@@ -1,6 +1,10 @@
 package com.orbital.action
 
 import android.app.SearchManager
+import android.bluetooth.BluetoothAdapter
+import android.hardware.camera2.CameraCharacteristics
+import android.hardware.camera2.CameraManager
+import android.media.AudioManager
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
@@ -9,9 +13,12 @@ import android.net.Uri
 import android.os.BatteryManager
 import android.os.Build
 import android.provider.AlarmClock
+import android.provider.CalendarContract
 import android.provider.MediaStore
 import android.provider.Settings
+import android.net.wifi.WifiManager
 import android.util.Log
+import com.orbital.power.PowerAwareScheduler
 import kotlinx.serialization.Serializable
 
 sealed class ActionResult {
@@ -30,7 +37,15 @@ data class DeviceAction(
     val phoneNumber: String? = null,
     val recipient: String? = null,
     val subject: String? = null,
-    val message: String? = null
+    val message: String? = null,
+    val title: String? = null,
+    val startTimeMillis: Long? = null,
+    val notes: String? = null,
+    val hour: Int? = null,
+    val minutes: Int? = null,
+    val enabled: Boolean? = null,
+    val ifBatteryBelow: Int? = null,
+    val repeatMinutes: Long? = null
 )
 
 open class DeviceActionExecutor(private val context: Context) {
@@ -50,10 +65,15 @@ open class DeviceActionExecutor(private val context: Context) {
     open fun execute(action: DeviceAction): ActionResult {
         Log.i(TAG, "Executing dynamic device action: ${action.action} on target: ${action.target ?: action.query ?: action.url}")
         return try {
+            action.ifBatteryBelow?.let { threshold ->
+                val battery = batteryPercent()
+                if (battery < 0) return ActionResult.Error("Could not read battery level")
+                if (battery >= threshold) return ActionResult.Success("Skipped ${action.action}: battery is $battery%", "Battery Saver opens below $threshold%")
+            }
             when (action.action.uppercase().trim()) {
                 "OPEN_APP", "LAUNCH_APP" -> openApp(action.target ?: action.query ?: "")
                 "SEARCH_APP", "SEARCH_IN_APP" -> searchInApp(action.target ?: "", action.query ?: "")
-                "SEARCH_WEB", "SEARCH" -> searchWeb(action.query ?: action.target ?: "")
+                "SEARCH_WEB", "SEARCH" -> searchWeb(action.query ?: action.target ?: "", targetBrowser = action.target)
                 "OPEN_URL", "LAUNCH_URL" -> openUrl(action.url ?: action.target ?: "")
                 "NAVIGATE", "DIRECTIONS", "MAPS" -> navigateTo(action.query ?: action.target ?: "")
                 "PLAY_MUSIC", "PLAY_MEDIA", "PLAY" -> playMusicOrVideo(action.target ?: "", action.query ?: action.label ?: "")
@@ -64,6 +84,14 @@ open class DeviceActionExecutor(private val context: Context) {
                     target = action.target
                 )
                 "SET_TIMER", "TIMER" -> setTimer(action.seconds ?: 60, action.label ?: "Focus Timer")
+                "SET_ALARM", "ALARM" -> setAlarm(action.hour, action.minutes, action.label ?: "Alarm")
+                "CREATE_CALENDAR_EVENT", "CALENDAR_EVENT" -> createCalendarEvent(action.title, action.startTimeMillis, action.notes)
+                "FLASHLIGHT", "TORCH" -> setFlashlight(action.enabled ?: action.target.equals("on", ignoreCase = true))
+                "SET_SOUND_MODE", "SOUND_MODE" -> setSoundMode(action.target ?: "")
+                "CONNECTIVITY_STATUS", "NETWORK_STATUS" -> getConnectivityStatus()
+                "SCHEDULE_REMINDER", "REMINDER" -> PowerAwareScheduler(context).scheduleReminder(
+                    action.label ?: action.message ?: action.query ?: "Reminder", action.repeatMinutes, action.hour, action.minutes
+                )
                 "OPEN_SETTING", "SETTINGS" -> openSetting(action.target ?: "")
                 "DEVICE_STATUS", "BATTERY" -> getDeviceStatus()
                 "MAKE_CALL", "CALL" -> makeCall(action.phoneNumber ?: action.target ?: "")
@@ -79,6 +107,10 @@ open class DeviceActionExecutor(private val context: Context) {
             ActionResult.Error("Could not perform ${action.action}: ${e.message?.take(80) ?: "Action failed"}")
         }
     }
+
+    fun requiresConfirmation(action: DeviceAction): Boolean = action.action.uppercase().trim() in setOf(
+        "SEND_SMS", "SMS", "WHATSAPP", "SEND_MESSAGE", "MAKE_CALL", "CALL"
+    )
 
     fun openApp(nameOrPackage: String): ActionResult {
         val rawName = nameOrPackage.trim()
@@ -149,8 +181,26 @@ open class DeviceActionExecutor(private val context: Context) {
             }
         }
 
+        if (lowerTarget.contains("gmail") || lowerTarget.contains("mail") || lowerTarget.contains("email")) {
+            val intent = Intent(Intent.ACTION_SEARCH).apply {
+                setPackage("com.google.android.gm")
+                putExtra(SearchManager.QUERY, cleanQuery)
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            return try {
+                context.startActivity(intent)
+                ActionResult.Success("Opening Gmail for '$cleanQuery'")
+            } catch (e: Exception) {
+                openApp("Gmail")
+            }
+        }
+
         if (lowerTarget.contains("map") || lowerTarget.contains("place") || lowerTarget.contains("navigate")) {
             return navigateTo(cleanQuery)
+        }
+
+        if (lowerTarget.contains("chrome") || lowerTarget.contains("browser") || lowerTarget.contains("edge") || lowerTarget.contains("firefox") || lowerTarget.contains("google")) {
+            return searchWeb(cleanQuery, targetBrowser = targetApp)
         }
 
         if (lowerTarget.contains("playstore") || lowerTarget.contains("play store") || lowerTarget.contains("store")) {
@@ -166,7 +216,7 @@ open class DeviceActionExecutor(private val context: Context) {
         }
 
         // Default: Web search
-        return searchWeb(cleanQuery)
+        return searchWeb(cleanQuery, targetBrowser = targetApp)
     }
 
     fun navigateTo(destination: String): ActionResult {
@@ -351,16 +401,47 @@ open class DeviceActionExecutor(private val context: Context) {
         }
     }
 
-    fun searchWeb(query: String): ActionResult {
+    fun searchWeb(query: String, targetBrowser: String? = null): ActionResult {
         val cleanQuery = query.trim()
         if (cleanQuery.isBlank()) return ActionResult.Error("Search query is empty")
 
-        val intent = Intent(Intent.ACTION_WEB_SEARCH).apply {
-            putExtra(SearchManager.QUERY, cleanQuery)
+        // Guard: If the model mistakenly outputs email query filters to searchWeb, redirect to Gmail app
+        if (cleanQuery.startsWith("is:") || cleanQuery.contains("is:unread") || cleanQuery.contains("is:starred")) {
+            return searchInApp("Gmail", cleanQuery)
+        }
+
+        val searchUrl = "https://www.google.com/search?q=" + Uri.encode(cleanQuery)
+        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(searchUrl)).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
-        context.startActivity(intent)
-        return ActionResult.Success("Searching web for: '$cleanQuery'")
+
+        val cleanTarget = targetBrowser?.lowercase()?.trim() ?: ""
+        val targetPackage = when {
+            cleanTarget.contains("chrome") -> "com.android.chrome"
+            cleanTarget.contains("edge") -> "com.microsoft.emmx"
+            cleanTarget.contains("firefox") -> "org.mozilla.firefox"
+            cleanTarget.contains("brave") -> "com.brave.browser"
+            cleanTarget.contains("opera") -> "com.opera.browser"
+            isPackageInstalled("com.android.chrome") -> "com.android.chrome"
+            else -> null
+        }
+
+        if (targetPackage != null && isPackageInstalled(targetPackage)) {
+            intent.setPackage(targetPackage)
+        }
+
+        return try {
+            context.startActivity(intent)
+            ActionResult.Success("Searching web for: '$cleanQuery'")
+        } catch (e: Exception) {
+            try {
+                intent.setPackage(null)
+                context.startActivity(intent)
+                ActionResult.Success("Searching web for: '$cleanQuery'")
+            } catch (ex: Exception) {
+                ActionResult.Error("No browser available on device.")
+            }
+        }
     }
 
     fun openUrl(url: String): ActionResult {
@@ -403,6 +484,57 @@ open class DeviceActionExecutor(private val context: Context) {
         }
     }
 
+    fun setAlarm(hour: Int?, minutes: Int?, label: String): ActionResult {
+        if (hour == null || minutes == null) return ActionResult.Error("Alarm hour and minutes are required")
+        val intent = Intent(AlarmClock.ACTION_SET_ALARM).apply {
+            putExtra(AlarmClock.EXTRA_HOUR, hour)
+            putExtra(AlarmClock.EXTRA_MINUTES, minutes)
+            putExtra(AlarmClock.EXTRA_MESSAGE, label)
+            putExtra(AlarmClock.EXTRA_SKIP_UI, false)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        context.startActivity(intent)
+        return ActionResult.Success("Set alarm for %02d:%02d".format(hour, minutes))
+    }
+
+    fun createCalendarEvent(title: String?, startTimeMillis: Long?, notes: String?): ActionResult {
+        if (title.isNullOrBlank() || startTimeMillis == null) return ActionResult.Error("Calendar event title and start time are required")
+        val intent = Intent(Intent.ACTION_INSERT, CalendarContract.Events.CONTENT_URI).apply {
+            putExtra(CalendarContract.Events.TITLE, title)
+            putExtra(CalendarContract.Events.DESCRIPTION, notes)
+            putExtra(CalendarContract.EXTRA_EVENT_BEGIN_TIME, startTimeMillis)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        context.startActivity(intent)
+        return ActionResult.Success("Opening Calendar for $title")
+    }
+
+    fun setFlashlight(enabled: Boolean): ActionResult {
+        val cameraManager = context.getSystemService(CameraManager::class.java)
+        val cameraId = cameraManager.cameraIdList.firstOrNull {
+            cameraManager.getCameraCharacteristics(it).get(CameraCharacteristics.FLASH_INFO_AVAILABLE) == true
+        } ?: return ActionResult.Error("No flashlight is available on this device")
+        cameraManager.setTorchMode(cameraId, enabled)
+        return ActionResult.Success("Flashlight ${if (enabled) "on" else "off"}")
+    }
+
+    fun setSoundMode(mode: String): ActionResult {
+        val ringerMode = when (mode.lowercase().trim()) {
+            "silent" -> AudioManager.RINGER_MODE_SILENT
+            "vibrate", "vibration" -> AudioManager.RINGER_MODE_VIBRATE
+            "normal", "ring" -> AudioManager.RINGER_MODE_NORMAL
+            else -> return ActionResult.Error("Sound mode must be silent, vibrate, or normal")
+        }
+        (context.getSystemService(Context.AUDIO_SERVICE) as AudioManager).ringerMode = ringerMode
+        return ActionResult.Success("Sound mode set to ${mode.lowercase()}")
+    }
+
+    fun getConnectivityStatus(): ActionResult {
+        val wifiEnabled = (context.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager).isWifiEnabled
+        val bluetooth = try { BluetoothAdapter.getDefaultAdapter()?.isEnabled?.toString() ?: "Unavailable" } catch (_: SecurityException) { "Permission required" }
+        return ActionResult.Success("Connectivity checked", "Wi-Fi: ${if (wifiEnabled) "On" else "Off"}\nBluetooth: $bluetooth")
+    }
+
     fun openSetting(target: String): ActionResult {
         val intent = when (target.lowercase().trim()) {
             "wifi" -> Intent(Settings.ACTION_WIFI_SETTINGS)
@@ -430,6 +562,13 @@ open class DeviceActionExecutor(private val context: Context) {
 
         val statusInfo = "Battery: $batteryPct% ${if (isCharging) "(Charging ⚡)" else ""}\nDevice: ${Build.MANUFACTURER} ${Build.MODEL}\nAndroid: ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})"
         return ActionResult.Success("Device status checked", statusInfo)
+    }
+
+    private fun batteryPercent(): Int {
+        val batteryIntent = context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+        val level = batteryIntent?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
+        val scale = batteryIntent?.getIntExtra(BatteryManager.EXTRA_SCALE, -1) ?: -1
+        return if (level >= 0 && scale > 0) level * 100 / scale else -1
     }
 
     fun makeCall(phoneNumber: String): ActionResult {

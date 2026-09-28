@@ -21,5 +21,7 @@ data class ChatMessageEntity(
     val modelName: String? = null,
     val actionLabel: String? = null,
     val actionDetails: String? = null,
+    val sessionId: String = "default",
+    val sessionTitle: String = "Past conversation",
     val timestamp: Long = System.currentTimeMillis()
 )

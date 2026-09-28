@@ -63,9 +63,7 @@ class StreamingClient(
                 .addHeader("Content-Type", "application/json")
         } else {
             requestBuilder.url(apiEndpoint)
-            if (apiKey.isNotBlank() && apiKey != "free" && apiKey != "0000000000" &&
-                !apiEndpoint.contains("kilo.ai") && !apiEndpoint.contains("ovh.net")
-            ) {
+            if (apiKey.isNotBlank() && apiKey != "free" && apiKey != "0000000000") {
                 requestBuilder.addHeader("Authorization", "Bearer $apiKey")
             }
             requestBuilder.addHeader("Content-Type", "application/json")

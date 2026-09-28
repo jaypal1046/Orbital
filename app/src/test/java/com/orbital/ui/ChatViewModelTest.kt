@@ -43,6 +43,8 @@ class ChatViewModelTest {
         override val streamingContent = MutableStateFlow("")
         override val isStreaming = MutableStateFlow(false)
         override val activeProvider = MutableStateFlow<String?>("GROQ")
+        override val pendingConfirmation: StateFlow<DeviceAction?> = MutableStateFlow(null)
+        override val sessions = MutableStateFlow(emptyList<com.orbital.data.db.ChatSessionSummary>())
 
         var lastSentMessage: String? = null
         var lastCharacter: String? = null
@@ -92,7 +94,15 @@ class ChatViewModelTest {
             isStreaming.value = false
         }
 
+        override fun newSession() = clearMessages()
+        override fun loadSession(sessionId: String) {}
+        override fun renameSession(sessionId: String, title: String) {}
+
         override suspend fun executeTTSAndActions() {}
+
+        override fun confirmPendingAction() {}
+
+        override fun cancelPendingAction() {}
     }
 
     private class FakeLlmRepository : LlmRepository() {

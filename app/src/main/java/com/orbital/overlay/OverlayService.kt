@@ -9,9 +9,11 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
 import android.graphics.PixelFormat
 import android.os.Build
 import android.os.IBinder
+import android.app.usage.UsageStatsManager
 import android.provider.Settings
 import android.util.Log
 import android.view.Gravity
@@ -39,6 +41,7 @@ import com.orbital.data.ChatResponse
 import com.orbital.data.LlmRepository
 import com.orbital.data.SecureStorage
 import com.orbital.data.ServerConfig
+import com.orbital.power.PowerAwareScheduler
 import dagger.hilt.android.AndroidEntryPoint
 import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.*
@@ -78,7 +81,7 @@ class OverlayService : Service() {
 
     private lateinit var windowManager: WindowManager
     private lateinit var overlayView: View
-    private lateinit var bubbleAvatarContainer: View
+    private lateinit var bubbleAvatarContainer: FrameLayout
     private lateinit var chatPanel: View
     private lateinit var chatMessagesContainer: LinearLayout
     private lateinit var chatSuggestionsContainer: LinearLayout
@@ -92,6 +95,7 @@ class OverlayService : Service() {
     private lateinit var connectionIndicator: View
     private lateinit var voiceStatusIndicator: View
     private lateinit var characterImage: ImageView
+    private var voiceHudAnimator: android.animation.ObjectAnimator? = null
 
     private var isOverlayAttached = false
     private lateinit var windowParams: WindowManager.LayoutParams
@@ -104,6 +108,7 @@ class OverlayService : Service() {
 
     private var currentVoiceStatus: String = "idle"
     private var currentCharacter: String = "aether"
+    private var lowBatteryNotified = false
 
     // Server-related fields
     private var server: ApplicationEngine? = null
@@ -142,6 +147,22 @@ class OverlayService : Service() {
         }
     }
 
+    private val batteryReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            val level = intent?.getIntExtra(android.os.BatteryManager.EXTRA_LEVEL, -1) ?: -1
+            val scale = intent?.getIntExtra(android.os.BatteryManager.EXTRA_SCALE, -1) ?: -1
+            val charging = intent?.getIntExtra(android.os.BatteryManager.EXTRA_STATUS, -1) == android.os.BatteryManager.BATTERY_STATUS_CHARGING
+            val percent = if (level >= 0 && scale > 0) level * 100 / scale else return
+            if (percent < 20 && !charging && !lowBatteryNotified) {
+                lowBatteryNotified = true
+                setMascotState(com.orbital.ui.MascotState.SAD)
+                PowerAwareScheduler.notify(this@OverlayService, 202, "Battery low", "Battery is $percent%. Tap to optimize settings.", optimizeBattery = true)
+            } else if (percent >= 20 || charging) {
+                lowBatteryNotified = false
+            }
+        }
+    }
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
@@ -156,6 +177,7 @@ class OverlayService : Service() {
             addAction(ACTION_PERMISSION_REVOKED)
         })
         registerReceiver(configChangeReceiver, IntentFilter(Intent.ACTION_CONFIGURATION_CHANGED))
+        registerReceiver(batteryReceiver, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
 
         // Load the selected character from storage
         val secureStorage = SecureStorage(this)
@@ -588,17 +610,9 @@ class OverlayService : Service() {
                         val dy = Math.abs(event.rawY - initialTouchY)
 
                         if (!isDragging && dx < 15 && dy < 15) {
-                            if (duration >= 500) {
-                                // Long Press -> Whisper Mode (Voice)
-                                com.orbital.ui.MascotEventBus.postEvent(com.orbital.ui.MascotEvent.VoiceListening)
-                                voiceManager.startListening()
-                            } else {
-                                // Tap / Click -> Trigger Tap Event + Jump Animation + Toggle Chat Panel
-                                com.orbital.ui.MascotEventBus.postEvent(com.orbital.ui.MascotEvent.Tap)
-                                playMascotJumpAnimation {
-                                    val shouldOpen = chatPanel.visibility != View.VISIBLE
-                                    toggleChatPanel(shouldOpen)
-                                }
+                            com.orbital.ui.MascotEventBus.postEvent(com.orbital.ui.MascotEvent.Tap)
+                            playMascotJumpAnimation {
+                                toggleChatPanel(chatPanel.visibility != View.VISIBLE)
                             }
                         } else if (isDragging && chatPanel.visibility != View.VISIBLE) {
                             snapToNearestEdge()
@@ -917,7 +931,7 @@ class OverlayService : Service() {
         chatSuggestionsContainer.removeAllViews()
         val density = resources.displayMetrics.density
 
-        val quickList = listOf(
+        val quickList = listOfNotNull(foregroundSuggestion()) + listOf(
             "✉️ Open Gmail",
             "▶️ Open YouTube",
             "💬 Open WhatsApp",
@@ -944,6 +958,22 @@ class OverlayService : Service() {
                 }
             }
             chatSuggestionsContainer.addView(chip)
+        }
+    }
+
+    private fun foregroundSuggestion(): String? {
+        val usage = getSystemService(Context.USAGE_STATS_SERVICE) as? UsageStatsManager ?: return null
+        val packageName = try {
+            usage.queryUsageStats(UsageStatsManager.INTERVAL_DAILY, System.currentTimeMillis() - 60_000, System.currentTimeMillis())
+                .maxByOrNull { it.lastTimeUsed }?.packageName
+        } catch (_: SecurityException) { null } ?: return null
+        return when {
+            packageName.contains("gmail") -> "✦ Summarize recent emails"
+            packageName.contains("whatsapp") -> "✦ Draft a quick reply"
+            packageName.contains("youtube") -> "✦ Find a focus video"
+            packageName.contains("maps") -> "✦ Navigate home"
+            packageName.contains("chrome") || packageName.contains("browser") -> "✦ Summarize this page"
+            else -> null
         }
     }
 
@@ -993,6 +1023,7 @@ class OverlayService : Service() {
             if (stopService) {
                 try { unregisterReceiver(statusReceiver) } catch (_: Exception) {}
                 try { unregisterReceiver(configChangeReceiver) } catch (_: Exception) {}
+                try { unregisterReceiver(batteryReceiver) } catch (_: Exception) {}
                 voiceManager.shutdown()
                 stopSelf()
             }
@@ -1037,8 +1068,32 @@ class OverlayService : Service() {
             else -> Color.TRANSPARENT
         }
         if (::voiceStatusIndicator.isInitialized) {
-            voiceStatusIndicator.setBackgroundColor(colorRes)
+            if (status == "listening") startVoiceHud(colorRes) else {
+                stopVoiceHud()
+                voiceStatusIndicator.setBackgroundColor(colorRes)
+                voiceStatusIndicator.alpha = if (colorRes == Color.TRANSPARENT) 0f else 1f
+            }
         }
+    }
+
+    private fun startVoiceHud(color: Int) {
+        voiceStatusIndicator.background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setStroke((2 * resources.displayMetrics.density).toInt(), color) }
+        voiceHudAnimator?.cancel()
+        voiceHudAnimator = android.animation.ObjectAnimator.ofPropertyValuesHolder(
+            voiceStatusIndicator,
+            android.animation.PropertyValuesHolder.ofFloat(View.SCALE_X, 1f, 1.35f),
+            android.animation.PropertyValuesHolder.ofFloat(View.SCALE_Y, 1f, 1.35f)
+        ).apply {
+            duration = 600; repeatMode = android.animation.ValueAnimator.REVERSE; repeatCount = android.animation.ValueAnimator.INFINITE
+            start()
+        }
+        voiceStatusIndicator.animate().alpha(0.9f).setDuration(150).start()
+    }
+
+    private fun stopVoiceHud() {
+        voiceHudAnimator?.cancel()
+        voiceHudAnimator = null
+        voiceStatusIndicator.animate().alpha(0f).setDuration(150).start()
     }
 
     private fun updateCharacter(character: String) {
@@ -1078,6 +1133,7 @@ class OverlayService : Service() {
                 windowManager.removeView(overlayView)
                 unregisterReceiver(statusReceiver)
                 unregisterReceiver(configChangeReceiver)
+                unregisterReceiver(batteryReceiver)
             }
             stopEmbeddedServer()
         } catch (_: Exception) {}

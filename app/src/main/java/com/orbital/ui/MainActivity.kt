@@ -30,21 +30,26 @@ class MainActivity : ComponentActivity() {
         // Permission handled
     }
 
+    private val setupWizardLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { _ ->
+        checkPermissions()
+    }
+
     private val chatViewModel: ChatViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        checkPermissions()
+        renderMainChat()
 
         val secureStorage = SecureStorage(this)
         if (!secureStorage.isSetupComplete()) {
-            showSetupWizard()
-            finish()
-            return
+            val intent = Intent(this, SetupWizardActivity::class.java)
+            setupWizardLauncher.launch(intent)
+        } else {
+            checkPermissions()
         }
-
-        renderMainChat()
     }
 
     private fun checkPermissions() {

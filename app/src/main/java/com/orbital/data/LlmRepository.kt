@@ -253,6 +253,17 @@ open class LlmRepository(
             onChunk = onChunk,
             onComplete = onComplete,
             onError = { error ->
+                val errMsg = error.message ?: ""
+                val is503Overload = errMsg.contains("503") || errMsg.contains("high demand", ignoreCase = true)
+
+                // Self-healing: If Groq 70B encounters a 503 high-demand spike, auto-failover to ultra-fast 8B model
+                if (is503Overload && activeType == ProviderType.GROQ && !activeModel.contains("8b")) {
+                    Log.i(TAG, "Self-healing: Groq model high demand (503), auto-failing over to llama-3.1-8b-instant")
+                    setProviderModel(ProviderType.GROQ, "llama-3.1-8b-instant")
+                    streamCompletion(model, messages, onChunk, onComplete, onError)
+                    return@streamCompletion
+                }
+
                 modelRouter.handleProviderError(activeType, error, configStore)
                 val next = modelRouter.getNextAvailableProvider(configStore, routerConfig)
                 if (next != null && next != activeType) {
@@ -260,13 +271,11 @@ open class LlmRepository(
                     modelRouter.setCurrentProvider(next)
                     streamCompletion(model, messages, onChunk, onComplete, onError)
                 } else {
-                    val friendlyMsg = if (error.message?.contains("429") == true ||
-                        error.message?.contains("quota", ignoreCase = true) == true ||
-                        error.message?.contains("RESOURCE_EXHAUSTED", ignoreCase = true) == true
-                    ) {
-                        "All configured AI providers are temporarily rate-limited. Please wait a moment or configure backup keys."
-                    } else {
-                        "AI request failed: ${error.message?.take(120)}"
+                    val friendlyMsg = when {
+                        is503Overload -> "The AI model is experiencing temporary high demand (503). Please retry in a few seconds or switch models in Settings."
+                        errMsg.contains("429") || errMsg.contains("quota", ignoreCase = true) || errMsg.contains("RESOURCE_EXHAUSTED", ignoreCase = true) ->
+                            "All configured AI providers are temporarily rate-limited. Please wait a moment or configure backup keys."
+                        else -> "AI request failed: ${errMsg.take(120)}"
                     }
                     onError(IOException(friendlyMsg))
                 }

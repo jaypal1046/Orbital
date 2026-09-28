@@ -58,6 +58,7 @@ fun InAppChatScreen(
 
     // Observe ViewModel state
     val messages by chatViewModel.messages.collectAsState()
+    val sessions by chatViewModel.sessions.collectAsState()
     val inputText by chatViewModel.inputText.collectAsState()
     val isStreaming by chatViewModel.isStreaming.collectAsState()
     val currentStreamContent by chatViewModel.currentStreamContent.collectAsState()
@@ -67,6 +68,7 @@ fun InAppChatScreen(
     val selectedPinnedProvider by chatViewModel.selectedPinnedProvider.collectAsState()
     val isVoiceListening by chatViewModel.isVoiceListening.collectAsState()
     val currentCharacterId by chatViewModel.currentCharacter.collectAsState()
+    val pendingConfirmation by chatViewModel.pendingConfirmation.collectAsState()
     val characterName = chatViewModel.characterName
 
     var showRoutingSheet by remember { mutableStateOf(false) }
@@ -78,7 +80,7 @@ fun InAppChatScreen(
         drawerContent = {
             SideNavDrawer(
                 currentCharacterId = currentCharacterId,
-                recentMessages = messages,
+                sessions = sessions,
                 onSelectCharacter = { charId ->
                     chatViewModel.switchCharacter(charId)
                 },
@@ -86,9 +88,9 @@ fun InAppChatScreen(
                     chatViewModel.startNewChat()
                     Toast.makeText(context, "Started fresh chat session", Toast.LENGTH_SHORT).show()
                 },
-                onSelectRecentChat = { selectedMsg ->
-                    chatViewModel.onInputChange(selectedMsg.content)
-                },
+                onSelectSession = chatViewModel::loadSession,
+                onRenameSession = chatViewModel::renameSession,
+                onShareChat = chatViewModel::shareCurrentChat,
                 onOpenKeys = onOpenKeys,
                 onOpenCharacters = onOpenCharacters,
                 onOpenAutomations = onOpenAutomations,
@@ -184,6 +186,23 @@ fun InAppChatScreen(
                 )
             }
         }
+    }
+
+    pendingConfirmation?.let { action ->
+        AlertDialog(
+            onDismissRequest = chatViewModel::cancelPendingAction,
+            title = { Text("Confirm ${action.action.replace('_', ' ').lowercase()}") },
+            text = {
+                Text(listOfNotNull(action.recipient ?: action.phoneNumber, action.message).joinToString("\n").ifBlank { "This action needs your approval." })
+            },
+            confirmButton = { TextButton(onClick = chatViewModel::confirmPendingAction) { Text("Confirm") } },
+            dismissButton = {
+                Row {
+                    TextButton(onClick = chatViewModel::editPendingAction) { Text("Edit") }
+                    TextButton(onClick = chatViewModel::cancelPendingAction) { Text("Cancel") }
+                }
+            }
+        )
     }
 
     // Quick Character Switcher Bottom Sheet (Triggered by Face Icon in TopBar)

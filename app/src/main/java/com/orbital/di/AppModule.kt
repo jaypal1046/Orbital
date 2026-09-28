@@ -69,6 +69,7 @@ object AppModule {
             OrbitalDatabase::class.java,
             "orbital_secure.db"
         )
+            .addMigrations(OrbitalDatabase.MIGRATION_1_2)
             .fallbackToDestructiveMigration()
             .build()
     }
