@@ -1,9 +1,18 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application") version "8.6.0"
     id("org.jetbrains.kotlin.android") version "1.9.23"
     id("org.jetbrains.kotlin.plugin.serialization") version "1.9.23"
     id("com.google.dagger.hilt.android") version "2.48.1" apply true
     id("org.jetbrains.kotlin.kapt") version "1.9.23" apply true
+}
+
+val localProperties = Properties().apply {
+    val localFile = rootProject.file("local.properties")
+    if (localFile.exists()) {
+        localFile.inputStream().use { load(it) }
+    }
 }
 
 android {
@@ -25,9 +34,30 @@ android {
         }
     }
 
+    signingConfigs {
+        create("release") {
+            val keyFile = rootProject.file("orbital-release-key.jks")
+            if (keyFile.exists()) {
+                storeFile = keyFile
+                storePassword = localProperties.getProperty("RELEASE_KEYSTORE_PASSWORD")
+                    ?: System.getenv("RELEASE_KEYSTORE_PASSWORD")
+                    ?: ""
+                keyAlias = "orbital-key"
+                keyPassword = localProperties.getProperty("RELEASE_KEY_PASSWORD")
+                    ?: System.getenv("RELEASE_KEY_PASSWORD")
+                    ?: ""
+            }
+        }
+    }
+
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
+            val releaseSigning = signingConfigs.findByName("release")
+            if (releaseSigning?.storeFile?.exists() == true) {
+                signingConfig = releaseSigning
+            }
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
