@@ -11,7 +11,7 @@
 # Java class files
 *.class
 *.pro
-
+*.py
 # Generated files
 bin/
 gen/

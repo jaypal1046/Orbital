@@ -53,8 +53,10 @@ class PowerAwareScheduler(private val context: Context) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 manager.createNotificationChannel(android.app.NotificationChannel(CHANNEL_ID, "Orbital automations", android.app.NotificationManager.IMPORTANCE_DEFAULT))
             }
-            val intent = Intent(if (optimizeBattery) Settings.ACTION_BATTERY_SAVER_SETTINGS else Intent.ACTION_MAIN).apply {
-                if (!optimizeBattery) setClassName(context, "com.orbital.ui.MainActivity")
+            val intent = if (optimizeBattery) {
+                Intent(Settings.ACTION_BATTERY_SAVER_SETTINGS)
+            } else {
+                Intent(context, com.orbital.ui.MainActivity::class.java)
             }
             val pending = PendingIntent.getActivity(context, id, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
             NotificationManagerCompat.from(context).notify(id, NotificationCompat.Builder(context, CHANNEL_ID)
