@@ -160,14 +160,14 @@ object ActionRegistry {
             description = "Launch target app, explore active screen structure, interact with primary buttons, and perform automated screen verification",
             requiredParams = listOf("target"),
             optionalParams = listOf("query"),
-            exampleJson = """{"action": "PERFORM_TESTING", "target": "Where is my Train", "query": "Find trains"}"""
+            exampleJson = """{"action": "PERFORM_TESTING", "target": "App Name", "query": "Search query or button label"}"""
         ),
         ActionDefinition(
             type = "SCHEDULE_MONITOR",
-            description = "Schedule autonomous background cron monitoring for ticket availability, train live delays, or alerts via WorkManager",
+            description = "Schedule autonomous background cron monitoring for periodic alerts or status checks via WorkManager",
             requiredParams = listOf("query"),
             optionalParams = listOf("title", "hour", "minutes", "repeat_minutes", "target"),
-            exampleJson = """{"action": "SCHEDULE_MONITOR", "title": "Train 12951 Daily Alert", "query": "12951 Mumbai to Delhi", "hour": 8, "minutes": 0, "target": "Where is My Train"}"""
+            exampleJson = """{"action": "SCHEDULE_MONITOR", "title": "Daily Status Alert", "query": "Status query details", "hour": 8, "minutes": 0, "target": "App Name"}"""
         ),
         ActionDefinition(
             type = "LIST_MONITORS",

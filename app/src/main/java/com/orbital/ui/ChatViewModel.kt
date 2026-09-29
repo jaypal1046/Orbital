@@ -12,6 +12,7 @@ import com.orbital.data.ChatMessage
 import com.orbital.data.LlmRepository
 import com.orbital.data.ProviderType
 import com.orbital.data.RoutingMode
+import com.orbital.data.ActionApprovalMode
 import com.orbital.data.SecureStorage
 import com.orbital.voice.VoiceManager
 import android.content.Context
@@ -37,6 +38,8 @@ data class UiMessage(
     val modelName: String? = null,
     val actionLabel: String? = null,
     val actionDetails: String? = null,
+    val steps: List<com.orbital.action.ExecutionStep> = emptyList(),
+    val durationMs: Long = 0L,
     val nextStepSuggestions: List<String> = emptyList(),
     val timestamp: Long = System.currentTimeMillis()
 )
@@ -85,6 +88,9 @@ class ChatViewModel @Inject constructor(
     private val _selectedPinnedProvider = MutableStateFlow<ProviderType?>(llmRepository.getCurrentProviderType())
     val selectedPinnedProvider: StateFlow<ProviderType?> = _selectedPinnedProvider.asStateFlow()
 
+    private val _actionApprovalMode = MutableStateFlow(secureStorage.getActionApprovalMode())
+    val actionApprovalMode: StateFlow<ActionApprovalMode> = _actionApprovalMode.asStateFlow()
+
     private val _isVoiceListening = MutableStateFlow(false)
     val isVoiceListening: StateFlow<Boolean> = _isVoiceListening.asStateFlow()
     val pendingConfirmation = chatEngine.pendingConfirmation
@@ -130,6 +136,8 @@ class ChatViewModel @Inject constructor(
                             providerName = _activeServingProvider.value ?: "Orbital Router",
                             actionLabel = msg.actionLabel,
                             actionDetails = msg.actionDetails,
+                            steps = msg.steps ?: emptyList(),
+                            durationMs = msg.executionDurationMs,
                             nextStepSuggestions = suggestions
                         )
                     }
@@ -200,6 +208,11 @@ class ChatViewModel @Inject constructor(
     fun onRoutingModeChanged(mode: RoutingMode) {
         _currentRoutingMode.update { mode }
         llmRepository.setRoutingMode(mode)
+    }
+
+    fun onActionApprovalModeChanged(mode: ActionApprovalMode) {
+        _actionApprovalMode.update { mode }
+        secureStorage.saveActionApprovalMode(mode)
     }
 
     fun onPinnedProviderChanged(provider: ProviderType) {

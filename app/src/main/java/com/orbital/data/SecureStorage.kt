@@ -129,6 +129,19 @@ open class SecureStorage(context: Context) {
         return sharedPreferences.getString(KEY_SELECTED_CHARACTER, null)
     }
 
+    open fun saveActionApprovalMode(mode: ActionApprovalMode) {
+        sharedPreferences.edit().putString("action_approval_mode", mode.name).apply()
+    }
+
+    open fun getActionApprovalMode(): ActionApprovalMode {
+        val saved = sharedPreferences.getString("action_approval_mode", ActionApprovalMode.AUTO_SAFE.name)
+        return try {
+            ActionApprovalMode.valueOf(saved ?: ActionApprovalMode.AUTO_SAFE.name)
+        } catch (_: Exception) {
+            ActionApprovalMode.AUTO_SAFE
+        }
+    }
+
     fun isSetupComplete(): Boolean {
         return sharedPreferences.getBoolean(KEY_SETUP_COMPLETE, false)
     }

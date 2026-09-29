@@ -106,6 +106,10 @@ fun AutomationSettingsScreen(
         },
         containerColor = Color(0xFF0A0C14)
     ) { padding ->
+        val context = androidx.compose.ui.platform.LocalContext.current
+        val secureStorage = remember { com.orbital.data.SecureStorage(context) }
+        var selectedApprovalMode by remember { mutableStateOf(secureStorage.getActionApprovalMode()) }
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -113,6 +117,92 @@ fun AutomationSettingsScreen(
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp, vertical = 12.dp)
         ) {
+            // Action Approval / Execution Mode Card (Antigravity Style)
+            Text(
+                text = "ACTION EXECUTION MODE",
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFFA78BFA),
+                letterSpacing = 1.sp,
+                modifier = Modifier.padding(bottom = 8.dp)
+            )
+
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF131626)),
+                border = BorderStroke(1.dp, Color(0xFF222842))
+            ) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    com.orbital.data.ActionApprovalMode.values().forEach { mode ->
+                        val isSelected = selectedApprovalMode == mode
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = if (isSelected) Color(0xFF1E1B4B) else Color(0xFF161A2C),
+                            border = BorderStroke(
+                                1.dp,
+                                if (isSelected) Color(0xFF8B5CF6) else Color(0xFF262D4A)
+                            ),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp)
+                                .clickable {
+                                    selectedApprovalMode = mode
+                                    secureStorage.saveActionApprovalMode(mode)
+                                    Toast.makeText(context, "Action mode set to ${mode.displayName}", Toast.LENGTH_SHORT).show()
+                                }
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = mode.emoji,
+                                    fontSize = 18.sp
+                                )
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = mode.displayName,
+                                        fontWeight = FontWeight.SemiBold,
+                                        fontSize = 13.sp,
+                                        color = if (isSelected) Color.White else Color(0xFFCBD5E1)
+                                    )
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = mode.subtitle,
+                                        fontSize = 11.sp,
+                                        color = Color(0xFF94A3B8),
+                                        lineHeight = 14.sp
+                                    )
+                                }
+                                if (isSelected) {
+                                    Icon(
+                                        imageVector = Icons.Default.CheckCircle,
+                                        contentDescription = "Selected",
+                                        tint = Color(0xFFC084FC),
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(18.dp))
+
+            Text(
+                text = "BACKGROUND AUTOMATION",
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFFA78BFA),
+                letterSpacing = 1.sp,
+                modifier = Modifier.padding(bottom = 8.dp)
+            )
+
             // Master Automation Toggle Card
             Card(
                 modifier = Modifier.fillMaxWidth(),

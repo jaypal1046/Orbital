@@ -254,6 +254,12 @@ enum class RoutingMode(val displayName: String, val subtitle: String, val emoji:
     PINNED("Pinned Provider", "Route strictly to your selected provider", "🎯")
 }
 
+enum class ActionApprovalMode(val displayName: String, val subtitle: String, val emoji: String) {
+    ALWAYS_PROCEED("Always Proceed", "Autonomous execution without confirmation prompts (Antigravity mode)", "⚡"),
+    REQUEST_FOR_ACTION("Request for Action", "Always ask for confirmation before executing any action", "🛡️"),
+    AUTO_SAFE("Smart Safe", "Auto-run safe search/screen actions; confirm sensitive actions (SMS/Calls)", "⚖️")
+}
+
 enum class ProviderState {
     AVAILABLE,
     UNAVAILABLE,
@@ -277,7 +283,9 @@ data class ChatMessage(
     val role: String,
     val content: String?,
     val actionLabel: String? = null,
-    val actionDetails: String? = null
+    val actionDetails: String? = null,
+    val steps: List<com.orbital.action.ExecutionStep>? = null,
+    val executionDurationMs: Long = 0L
 ) {
     // For Gemini format compatibility
     @Serializable

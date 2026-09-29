@@ -220,13 +220,17 @@ fun MessageList(
             }
 
             // Live Streaming Bubble
-            if (isStreaming && currentStreamContent.isNotBlank()) {
+            if (isStreaming) {
                 item {
-                    val cleanStreamText = com.orbital.action.ActionParser.parse(currentStreamContent).userDisplayText
+                    val cleanStreamText = if (currentStreamContent.isNotBlank()) {
+                        com.orbital.action.ActionParser.parse(currentStreamContent).userDisplayText
+                    } else {
+                        ""
+                    }
                     ChatBubbleItem(
                         message = UiMessage(
                             role = "assistant",
-                            content = cleanStreamText.ifBlank { "Executing task..." },
+                            content = cleanStreamText,
                             providerName = activeServingProvider ?: "Auto-Router",
                             modelName = "streaming"
                         ),
@@ -238,10 +242,6 @@ fun MessageList(
                         onSuggestionClick = {},
                         onAddStepToInput = {}
                     )
-                }
-            } else if (isStreaming && currentStreamContent.isBlank()) {
-                item {
-                    StreamingIndicator()
                 }
             }
         }

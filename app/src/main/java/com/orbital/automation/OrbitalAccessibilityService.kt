@@ -38,8 +38,7 @@ data class ScreenHierarchySnapshot(
         if (!activityTitle.isNullOrBlank()) {
             sb.append("Screen Title: $activityTitle\n")
         }
-        sb.append("Visible UI Elements & Controls:\n")
-        elements.forEachIndexed { index, el ->
+        val labeledElements = elements.mapIndexedNotNull { index, el ->
             val type = when {
                 el.isEditable -> "[Input Field]"
                 el.isClickable -> "[Button/Tab]"
@@ -47,12 +46,20 @@ data class ScreenHierarchySnapshot(
             }
             val label = el.text.ifBlank { el.contentDescription ?: el.viewId ?: "" }
             if (label.isNotBlank()) {
-                sb.append("  ${index + 1}. $type \"$label\"")
-                if (el.viewId != null) sb.append(" (id: ${el.viewId})")
-                sb.append("\n")
-            }
+                val idStr = if (el.viewId != null) " (id: ${el.viewId})" else ""
+                "  ${index + 1}. $type \"$label\"$idStr"
+            } else null
         }
-        return sb.toString()
+
+        if (labeledElements.isNotEmpty()) {
+            sb.append("Visible UI Elements & Controls (${labeledElements.size}):\n")
+            labeledElements.forEach { sb.append(it).append("\n") }
+        } else {
+            sb.append("Visible UI Elements: 0 text/interactive elements detected.\n")
+            sb.append("• Notice: The screen may still be loading, rendering a canvas/custom view, or secured.\n")
+            sb.append("• Quick Action: Tap 'Read Live Screen' to re-scan or switch to Web Search fallback.\n")
+        }
+        return sb.toString().trimEnd()
     }
 }
 

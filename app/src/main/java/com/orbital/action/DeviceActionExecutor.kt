@@ -73,18 +73,7 @@ open class DeviceActionExecutor(private val context: Context) {
                 if (battery >= threshold) return ActionResult.Success("Skipped ${action.action}: battery is $battery%", "Battery Saver opens below $threshold%")
             }
             when (action.action.uppercase().trim()) {
-                "OPEN_APP", "LAUNCH_APP" -> {
-                    val query = action.query ?: ""
-                    val target = action.target ?: query
-                    if (query.contains("test", ignoreCase = true) || target.contains("test", ignoreCase = true)) {
-                        performAppTesting(
-                            targetApp = if (target.contains("test", ignoreCase = true)) target.replace(Regex("(?i)test(ing)?|perform"), "").trim() else target,
-                            testAction = query.takeIf { it.isNotBlank() }
-                        )
-                    } else {
-                        openApp(target)
-                    }
-                }
+                "OPEN_APP", "LAUNCH_APP" -> openApp(action.target ?: action.query ?: "")
                 "SEARCH_APP", "SEARCH_IN_APP" -> searchInApp(action.target ?: "", action.query ?: "")
                 "SEARCH_WEB", "SEARCH" -> searchWeb(action.query ?: action.target ?: "", targetBrowser = action.target)
                 "OPEN_URL", "LAUNCH_URL" -> openUrl(action.url ?: action.target ?: "")
@@ -96,7 +85,7 @@ open class DeviceActionExecutor(private val context: Context) {
                     body = action.message ?: action.query,
                     target = action.target
                 )
-                "SET_TIMER", "TIMER" -> setTimer(action.seconds ?: 60, action.label ?: "Focus Timer")
+                "SET_TIMER", "TIMER" -> setTimer(action.seconds ?: 60, action.label ?: "Timer")
                 "SET_ALARM", "ALARM" -> setAlarm(action.hour, action.minutes, action.label ?: "Alarm")
                 "CREATE_CALENDAR_EVENT", "CALENDAR_EVENT" -> createCalendarEvent(action.title, action.startTimeMillis, action.notes)
                 "FLASHLIGHT", "TORCH" -> setFlashlight(action.enabled ?: action.target.equals("on", ignoreCase = true))
@@ -105,12 +94,11 @@ open class DeviceActionExecutor(private val context: Context) {
                 "SCHEDULE_REMINDER", "REMINDER" -> PowerAwareScheduler(context).scheduleReminder(
                     action.label ?: action.message ?: action.query ?: "Reminder", action.repeatMinutes, action.hour, action.minutes
                 )
-                "SCHEDULE_MONITOR", "SCHEDULE_CRON", "MONITOR_TRAIN", "MONITOR_TICKET" -> scheduleCronMonitoring(action)
+                "SCHEDULE_MONITOR", "SCHEDULE_CRON" -> scheduleCronMonitoring(action)
                 "LIST_MONITORS", "ACTIVE_MONITORS" -> listActiveMonitors()
                 "CANCEL_MONITOR", "STOP_MONITOR" -> cancelCronMonitoring(action.target ?: action.query ?: "")
-                "SEARCH_TRAIN", "TRAIN_STATUS", "WHERE_IS_MY_TRAIN" -> searchTrain(action.query ?: action.target ?: "", action.target)
                 "PERFORM_TESTING", "TEST_APP", "AUTO_TEST", "SCREEN_TEST" -> performAppTesting(
-                    targetApp = action.target ?: action.query ?: "Where is My Train",
+                    targetApp = action.target ?: action.query ?: "",
                     testAction = action.query
                 )
                 "READ_SCREEN", "INSPECT_SCREEN" -> readActiveScreen()
@@ -136,9 +124,16 @@ open class DeviceActionExecutor(private val context: Context) {
         }
     }
 
-    fun requiresConfirmation(action: DeviceAction): Boolean = action.action.uppercase().trim() in setOf(
-        "SEND_SMS", "SMS", "WHATSAPP", "SEND_MESSAGE", "MAKE_CALL", "CALL"
-    )
+    fun requiresConfirmation(action: DeviceAction, mode: com.orbital.data.ActionApprovalMode? = null): Boolean {
+        val resolvedMode = mode ?: com.orbital.data.SecureStorage(context).getActionApprovalMode()
+        return when (resolvedMode) {
+            com.orbital.data.ActionApprovalMode.ALWAYS_PROCEED -> false
+            com.orbital.data.ActionApprovalMode.REQUEST_FOR_ACTION -> true
+            com.orbital.data.ActionApprovalMode.AUTO_SAFE -> action.action.uppercase().trim() in setOf(
+                "SEND_SMS", "SMS", "WHATSAPP", "SEND_MESSAGE", "MAKE_CALL", "CALL", "OPEN_SETTING", "SETTINGS"
+            )
+        }
+    }
 
     fun openApp(nameOrPackage: String): ActionResult {
         val rawName = nameOrPackage.trim()
@@ -344,51 +339,45 @@ open class DeviceActionExecutor(private val context: Context) {
 
     fun searchTrain(query: String, target: String? = null): ActionResult {
         val cleanQuery = query.trim()
-        if (cleanQuery.isBlank()) return ActionResult.Error("Train number or station name is required.")
+        if (cleanQuery.isBlank()) return ActionResult.Error("Train query or station name is required.")
 
-        // 1. Direct App Matching: If Where is My Train or IRCTC is installed, launch it directly
-        val trainApp = capabilityManager.findBestAppMatch(target ?: "Where is My Train")
-            ?: capabilityManager.findBestAppMatch("train")
-            ?: capabilityManager.getInstalledApps().firstOrNull { 
-                it.name.contains("train", ignoreCase = true) || 
+        // 1. Dynamic app lookup via Capability Manager
+        val targetSearch = target ?: "train"
+        val matchedApp = capabilityManager.findBestAppMatch(targetSearch)
+            ?: capabilityManager.getInstalledApps().firstOrNull {
+                it.name.contains("train", ignoreCase = true) ||
                 it.name.contains("rail", ignoreCase = true) ||
-                it.packageName.contains("train", ignoreCase = true) ||
-                it.packageName == "com.whereismytrain.android"
+                it.name.contains("transit", ignoreCase = true)
             }
 
-        if (trainApp != null) {
+        if (matchedApp != null) {
             val pm = context.packageManager
-            val launchIntent = pm.getLaunchIntentForPackage(trainApp.packageName)
+            val launchIntent = pm.getLaunchIntentForPackage(matchedApp.packageName)
             if (launchIntent != null) {
                 launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 launchIntent.putExtra(SearchManager.QUERY, cleanQuery)
                 launchIntent.putExtra("query", cleanQuery)
                 return try {
                     context.startActivity(launchIntent)
-                    ActionResult.Success("Opened ${trainApp.name} for train search: '$cleanQuery'")
-                } catch (_: Exception) {
-                    openApp(trainApp.packageName)
+                    ActionResult.Success("Opened ${matchedApp.name} for '$cleanQuery'", "• App: ${matchedApp.name}\n• Query: $cleanQuery")
+                } catch (e: Exception) {
+                    openApp(matchedApp.packageName)
                 }
             }
         }
 
-        // 2. Layer 2: Fast 0ms Deep Link with parameters
-        val deepLinkIntent = DeepLinkLedger.buildDeepLinkIntent(
-            context,
-            target ?: "WHERE_IS_MY_TRAIN",
-            mapOf("query" to cleanQuery)
-        )
-        if (deepLinkIntent != null) {
-            return try {
-                context.startActivity(deepLinkIntent)
-                ActionResult.Success("Opened train search for '$cleanQuery'")
-            } catch (_: Exception) {
-                openApp(target ?: "Where is My Train")
-            }
+        // 2. Generic Search Intent
+        val searchIntent = Intent(Intent.ACTION_SEARCH).apply {
+            putExtra(SearchManager.QUERY, cleanQuery)
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK
         }
+        try {
+            context.startActivity(searchIntent)
+            return ActionResult.Success("Searching for '$cleanQuery'")
+        } catch (_: Exception) {}
 
-        // 3. Fallback: Live web search inquiry
-        val trainSearchUrl = "https://www.google.com/search?q=" + Uri.encode("Live train status $cleanQuery")
+        // 3. Web search fallback
+        val trainSearchUrl = "https://www.google.com/search?q=" + Uri.encode("Train $cleanQuery")
         return openUrl(trainSearchUrl)
     }
 
@@ -741,22 +730,23 @@ open class DeviceActionExecutor(private val context: Context) {
     }
 
     fun performAppTesting(targetApp: String, testAction: String? = null): ActionResult {
-        val cleanTarget = targetApp.ifBlank { "Where is My Train" }
+        val cleanTarget = targetApp.trim()
         
         // Step 1: Check if Accessibility Service is enabled
         val isA11yEnabled = com.orbital.automation.OrbitalAccessibilityService.isEnabled(context)
         
-        // Step 2: Open target app
-        val openResult = openApp(cleanTarget)
-        if (openResult is ActionResult.Error) {
-            return openResult
+        // Step 2: Open target app if specified
+        if (cleanTarget.isNotBlank()) {
+            val openResult = openApp(cleanTarget)
+            if (openResult is ActionResult.Error) {
+                return openResult
+            }
         }
 
         if (!isA11yEnabled) {
-            com.orbital.automation.OrbitalAccessibilityService.openSettings(context)
             return ActionResult.Success(
-                message = "Opened $cleanTarget. Please enable 'Orbital Screen Automation' in Accessibility to allow automated tapping.",
-                details = "Orbital launched $cleanTarget. To enable full autonomous screen tapping & testing, turn on Orbital in the Accessibility Settings screen shown."
+                message = "Opened $cleanTarget.",
+                details = "Launched $cleanTarget. Companion floating HUD is active and ready."
             )
         }
 
@@ -808,15 +798,13 @@ open class DeviceActionExecutor(private val context: Context) {
         }
 
         // Step 5: Execute primary interaction test
-        val targetButtonToClick = testAction?.takeIf { it.isNotBlank() && !it.equals("Find trains", ignoreCase = true) }
+        val targetButtonToClick = testAction?.takeIf { it.isNotBlank() }
             ?: buttonLabels.firstOrNull { 
-                it.contains("Find train", ignoreCase = true) || 
                 it.contains("Search", ignoreCase = true) || 
-                it.contains("Spot", ignoreCase = true) || 
-                it.contains("PNR", ignoreCase = true) || 
-                it.contains("Submit", ignoreCase = true)
-            }
-            ?: if (snapshot.packageName.contains("whereismytrain")) "Find trains" else buttonLabels.firstOrNull()
+                it.contains("Submit", ignoreCase = true) ||
+                it.contains("Continue", ignoreCase = true) ||
+                it.contains("Next", ignoreCase = true)
+            } ?: buttonLabels.firstOrNull()
 
         var clickResult = false
         if (!targetButtonToClick.isNullOrBlank()) {
@@ -856,15 +844,21 @@ open class DeviceActionExecutor(private val context: Context) {
     fun readActiveScreen(): ActionResult {
         val service = com.orbital.automation.OrbitalAccessibilityService.instance
         if (service == null || !com.orbital.automation.OrbitalAccessibilityService.isEnabled(context)) {
-            com.orbital.automation.OrbitalAccessibilityService.openSettings(context)
-            return ActionResult.Error("Accessibility service is not enabled. Please enable it in Settings.")
+            return ActionResult.Error("Accessibility service is currently disabled. Enable it only if you want automated screen reading.")
         }
 
         val snapshot = service.captureScreenHierarchy()
-            ?: return ActionResult.Error("Could not read current active window.")
+            ?: return ActionResult.Error("Could not read current active window. The screen may be transitioning or protected.")
+
+        val hasElements = snapshot.elements.any { it.text.isNotBlank() || !it.contentDescription.isNullOrBlank() }
+        val msg = if (hasElements) {
+            "Screen read: ${snapshot.elements.size} elements found (${snapshot.packageName})"
+        } else {
+            "Screen read: 0 elements detected on ${snapshot.packageName} (Screen loading or custom surface)"
+        }
 
         return ActionResult.Success(
-            message = "Screen read: ${snapshot.elements.size} elements found",
+            message = msg,
             details = snapshot.toPromptSummary()
         )
     }

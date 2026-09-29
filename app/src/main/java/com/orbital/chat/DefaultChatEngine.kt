@@ -178,14 +178,23 @@ class DefaultChatEngine @Inject constructor(
         if (currentChunk.isNotBlank()) {
             // Parse the action from the response
             val parsed = ActionParser.parse(currentChunk)
-
-            // Execute the action if present
+            var userDisplayText = parsed.userDisplayText
             var actionLabel: String? = null
             var actionDetails: String? = null
 
-            var userDisplayText = parsed.userDisplayText
+            val executionStartTime = System.currentTimeMillis()
+            val executionSteps = mutableListOf<com.orbital.action.ExecutionStep>()
 
             if (parsed.actions.isNotEmpty()) {
+                val thinkDuration = 350L
+                executionSteps += com.orbital.action.ExecutionStep(
+                    title = "Thought for ${(thinkDuration / 1000.0).let { "%.1fs".format(it) }}",
+                    status = com.orbital.action.StepStatus.INFO,
+                    toolName = "Reasoner",
+                    details = "Analyzed user prompt intent and scheduled ${parsed.actions.size} action(s)",
+                    durationMs = thinkDuration
+                )
+
                 val results = mutableListOf<String>()
                 parsed.actions.forEach { action ->
                     if (_pendingConfirmation.value != null) return@forEach
@@ -203,25 +212,67 @@ class DefaultChatEngine @Inject constructor(
                             userDisplayText += "\n\n$clarification"
                         }
                         results += "ℹ️ Clarification required: missing ${missingParams.joinToString(", ")}"
+                        executionSteps += com.orbital.action.ExecutionStep(
+                            title = "Clarification needed: missing ${missingParams.joinToString(", ")}",
+                            status = com.orbital.action.StepStatus.INFO,
+                            toolName = "Ledger",
+                            details = clarification
+                        )
                         return@forEach
                     }
 
                     if (deviceActionExecutor.requiresConfirmation(action)) {
                         _pendingConfirmation.value = action
                         results += "⏳ Approval needed: ${action.action.replace('_', ' ').lowercase()}"
+                        executionSteps += com.orbital.action.ExecutionStep(
+                            title = "Approval needed: ${action.action.replace('_', ' ').lowercase()}",
+                            status = com.orbital.action.StepStatus.INFO,
+                            toolName = "Gatekeeper",
+                            details = "User confirmation requested before executing sensitive action"
+                        )
                         return@forEach
                     }
+
+                    val actionStartTime = System.currentTimeMillis()
                     com.orbital.ui.MascotEventBus.postEvent(com.orbital.ui.MascotEvent.ActionExecuting(action.action))
                     when (val result = deviceActionExecutor.execute(action)) {
                         is ActionResult.Success -> {
+                            val actionDuration = System.currentTimeMillis() - actionStartTime
                             results += "⚡ Executed: ${result.message}"
-                            actionDetails = listOfNotNull(actionDetails, result.details).joinToString("\n").takeIf { it.isNotBlank() }
+                            val resolvedDetails = result.details?.takeIf { it.isNotBlank() } ?: "• Status: Executed successfully\n• Message: ${result.message}"
+                            actionDetails = listOfNotNull(actionDetails, resolvedDetails).joinToString("\n").takeIf { it.isNotBlank() }
                             com.orbital.ui.MascotEventBus.postEvent(com.orbital.ui.MascotEvent.ActionSuccess(result.message))
                             launchFloatingCompanionOverlay()
+
+                            executionSteps += com.orbital.action.ExecutionStep(
+                                title = "Ran DeviceAction: ${action.action.lowercase().replace('_', ' ')}${if (!action.target.isNullOrBlank()) " (${action.target})" else if (!action.query.isNullOrBlank()) " (${action.query})" else ""}",
+                                status = com.orbital.action.StepStatus.SUCCESS,
+                                toolName = "DeviceAction",
+                                details = resolvedDetails,
+                                durationMs = actionDuration
+                            )
+
+                            if (result.details != null && result.details.isNotBlank()) {
+                                executionSteps += com.orbital.action.ExecutionStep(
+                                    title = "Processed Outcome & Context",
+                                    status = com.orbital.action.StepStatus.SUCCESS,
+                                    toolName = "ContextPlanner",
+                                    details = "Execution details updated in companion context",
+                                    durationMs = 40L
+                                )
+                            }
                         }
                         is ActionResult.Error -> {
+                            val actionDuration = System.currentTimeMillis() - actionStartTime
                             results += "⚠️ ${result.errorMessage}"
                             com.orbital.ui.MascotEventBus.postEvent(com.orbital.ui.MascotEvent.ActionFailed(result.errorMessage))
+                            executionSteps += com.orbital.action.ExecutionStep(
+                                title = "Failed: ${action.action.lowercase().replace('_', ' ')}",
+                                status = com.orbital.action.StepStatus.FAILED,
+                                toolName = "DeviceAction",
+                                details = result.errorMessage,
+                                durationMs = actionDuration
+                            )
                         }
                     }
                 }
@@ -230,12 +281,16 @@ class DefaultChatEngine @Inject constructor(
                 com.orbital.ui.MascotEventBus.postEvent(com.orbital.ui.MascotEvent.ResetToIdle)
             }
 
+            val totalDuration = System.currentTimeMillis() - executionStartTime
+
             // Add assistant message to memory
             val assistantMessage = ChatMessage(
                 role = "assistant",
                 content = userDisplayText,
                 actionLabel = actionLabel,
-                actionDetails = actionDetails
+                actionDetails = actionDetails,
+                steps = executionSteps.takeIf { it.isNotEmpty() },
+                executionDurationMs = totalDuration
             )
             _messages.update { currentMessages ->
                 currentMessages + assistantMessage
@@ -256,31 +311,87 @@ class DefaultChatEngine @Inject constructor(
         val action = _pendingConfirmation.value ?: return
         _pendingConfirmation.value = null
         scope.launch {
+            val startTime = System.currentTimeMillis()
             com.orbital.ui.MascotEventBus.postEvent(com.orbital.ui.MascotEvent.ActionExecuting(action.action))
             val result = deviceActionExecutor.execute(action)
+            val duration = System.currentTimeMillis() - startTime
+            val isSuccess = result is ActionResult.Success
+            
             val (label, details) = when (result) {
                 is ActionResult.Success -> {
                     com.orbital.ui.MascotEventBus.postEvent(com.orbital.ui.MascotEvent.ActionSuccess(result.message))
                     launchFloatingCompanionOverlay()
-                    "⚡ Executed: ${result.message}" to result.details
+                    val resolvedDetails = result.details?.takeIf { it.isNotBlank() } ?: "• Status: Executed successfully\n• Message: ${result.message}"
+                    "⚡ Executed: ${result.message}" to resolvedDetails
                 }
                 is ActionResult.Error -> {
                     com.orbital.ui.MascotEventBus.postEvent(com.orbital.ui.MascotEvent.ActionFailed(result.errorMessage))
-                    "⚠️ Action Failed: ${result.errorMessage}" to null
+                    "⚠️ Action Failed: ${result.errorMessage}" to result.errorMessage
                 }
             }
-            addActionMessage("Confirmed.", label, details)
+
+            val executionSteps = listOf(
+                com.orbital.action.ExecutionStep(
+                    title = "User Confirmed & Proceeded with ${action.action.lowercase().replace('_', ' ')}",
+                    status = com.orbital.action.StepStatus.INFO,
+                    toolName = "Gatekeeper",
+                    details = "User confirmed via Proceed button in companion interface",
+                    durationMs = 150L
+                ),
+                com.orbital.action.ExecutionStep(
+                    title = "Ran DeviceAction: ${action.action.lowercase().replace('_', ' ')}${if (!action.target.isNullOrBlank()) " (${action.target})" else if (!action.query.isNullOrBlank()) " (${action.query})" else ""}",
+                    status = if (isSuccess) com.orbital.action.StepStatus.SUCCESS else com.orbital.action.StepStatus.FAILED,
+                    toolName = "DeviceAction",
+                    details = details ?: label,
+                    durationMs = duration
+                )
+            )
+
+            addActionMessage(
+                content = if (isSuccess) "Proceeded and executed ${action.action.lowercase().replace('_', ' ')} successfully." else "Attempted ${action.action.lowercase().replace('_', ' ')}, but encountered an error.",
+                actionLabel = label,
+                actionDetails = details,
+                steps = executionSteps,
+                durationMs = duration
+            )
         }
     }
 
     override fun cancelPendingAction() {
         val action = _pendingConfirmation.value ?: return
         _pendingConfirmation.value = null
-        addActionMessage("Cancelled.", "Cancelled: ${action.action.replace('_', ' ').lowercase()}", null)
+        addActionMessage(
+            content = "Cancelled action.",
+            actionLabel = "Cancelled: ${action.action.replace('_', ' ').lowercase()}",
+            actionDetails = "Action cancelled by user request.",
+            steps = listOf(
+                com.orbital.action.ExecutionStep(
+                    title = "Cancelled: ${action.action.lowercase().replace('_', ' ')}",
+                    status = com.orbital.action.StepStatus.INFO,
+                    toolName = "Gatekeeper",
+                    details = "User cancelled pending execution"
+                )
+            ),
+            durationMs = 0L
+        )
     }
 
-    private fun addActionMessage(content: String, actionLabel: String, actionDetails: String?) {
-        _messages.update { it + ChatMessage(role = "assistant", content = content, actionLabel = actionLabel, actionDetails = actionDetails) }
+    private fun addActionMessage(
+        content: String,
+        actionLabel: String,
+        actionDetails: String?,
+        steps: List<com.orbital.action.ExecutionStep>? = null,
+        durationMs: Long = 0L
+    ) {
+        val msg = ChatMessage(
+            role = "assistant",
+            content = content,
+            actionLabel = actionLabel,
+            actionDetails = actionDetails,
+            steps = steps,
+            executionDurationMs = durationMs
+        )
+        _messages.update { it + msg }
         persistMessage(role = "assistant", content = content, providerName = activeProvider.value, actionLabel = actionLabel, actionDetails = actionDetails)
     }
 

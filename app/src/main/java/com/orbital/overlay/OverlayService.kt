@@ -9,6 +9,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.graphics.Color
+import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.graphics.PixelFormat
 import android.os.Build
@@ -718,6 +719,16 @@ class OverlayService : Service() {
                 }
             }
         }
+
+        // Continuous pending confirmation observation (in-between proceed/decision prompts)
+        serviceScope.launch {
+            chatEngine.pendingConfirmation.collect { pendingAction ->
+                if (pendingAction != null) {
+                    toggleChatPanel(true)
+                    renderMessagesUI(chatEngine.messages.value, chatEngine.isStreaming.value, chatEngine.streamingContent.value)
+                }
+            }
+        }
     }
 
     private fun renderMessagesUI(
@@ -829,22 +840,163 @@ class OverlayService : Service() {
                     }
                 }
 
-                // Action Badge
-                msg.actionLabel?.let { actionBadgeText ->
-                    val badge = TextView(this).apply {
-                        text = actionBadgeText
-                        textSize = 11f
-                        setTextColor(Color.parseColor("#6EE7B7"))
-                        setBackgroundResource(R.drawable.bg_badge_success)
-                        setPadding((8 * density).toInt(), (4 * density).toInt(), (8 * density).toInt(), (4 * density).toInt())
+                // Antigravity-Style Live Execution Timeline
+                val hasSteps = !msg.steps.isNullOrEmpty()
+                val hasAction = !msg.actionLabel.isNullOrBlank()
+
+                if (hasSteps || hasAction) {
+                    val rawSteps = msg.steps ?: emptyList()
+                    val steps = if (rawSteps.isNotEmpty()) {
+                        rawSteps
+                    } else {
+                        val synthesized = mutableListOf<com.orbital.action.ExecutionStep>()
+                        synthesized += com.orbital.action.ExecutionStep(
+                            title = "Thought for 0.4s",
+                            status = com.orbital.action.StepStatus.INFO,
+                            toolName = "Reasoner",
+                            details = "Evaluated request intent and identified target device actions"
+                        )
+                        val lines = msg.actionLabel?.lines()?.filter { it.isNotBlank() } ?: emptyList()
+                        lines.forEach { line ->
+                            val isSuccess = line.startsWith("⚡") || line.contains("Executed")
+                            synthesized += com.orbital.action.ExecutionStep(
+                                title = line.replace("⚡ ", "").replace("⚠️ ", "").replace("⏳ ", ""),
+                                status = if (isSuccess) com.orbital.action.StepStatus.SUCCESS else com.orbital.action.StepStatus.FAILED,
+                                toolName = "DeviceAction",
+                                details = msg.actionDetails ?: line
+                            )
+                        }
+                        synthesized
+                    }
+
+                    val durationMs = msg.executionDurationMs.coerceAtLeast(400L)
+                    val durationText = if (durationMs < 1000) "${durationMs}ms" else "%.1fs".format(durationMs / 1000.0)
+                    val anyFailure = steps.any { it.status == com.orbital.action.StepStatus.FAILED }
+
+                    // Root Antigravity Container
+                    val traceContainer = LinearLayout(this).apply {
+                        orientation = LinearLayout.VERTICAL
+                        background = GradientDrawable().apply {
+                            setColor(Color.parseColor("#13141F"))
+                            cornerRadius = 8 * density
+                            setStroke((1 * density).toInt(), Color.parseColor(if (anyFailure) "#7F1D1D" else "#2B2E42"))
+                        }
+                        setPadding((10 * density).toInt(), (8 * density).toInt(), (10 * density).toInt(), (8 * density).toInt())
                         layoutParams = LinearLayout.LayoutParams(
-                            LinearLayout.LayoutParams.WRAP_CONTENT,
+                            LinearLayout.LayoutParams.MATCH_PARENT,
                             LinearLayout.LayoutParams.WRAP_CONTENT
                         ).apply {
                             topMargin = (8 * density).toInt()
                         }
                     }
-                    contentCard.addView(badge)
+
+                    // Expandable steps container
+                    val stepsListContainer = LinearLayout(this).apply {
+                        orientation = LinearLayout.VERTICAL
+                        visibility = View.GONE
+                        layoutParams = LinearLayout.LayoutParams(
+                            LinearLayout.LayoutParams.MATCH_PARENT,
+                            LinearLayout.LayoutParams.WRAP_CONTENT
+                        ).apply {
+                            topMargin = (6 * density).toInt()
+                        }
+                    }
+
+                    // Header Row: "⚡ Worked for 1.4s (3 steps) ▾"
+                    val chevronView = TextView(this).apply {
+                        text = "▸"
+                        textSize = 12f
+                        setTextColor(Color.parseColor("#94A3B8"))
+                        typeface = Typeface.DEFAULT_BOLD
+                    }
+
+                    val headerRow = LinearLayout(this).apply {
+                        orientation = LinearLayout.HORIZONTAL
+                        gravity = Gravity.CENTER_VERTICAL
+                        layoutParams = LinearLayout.LayoutParams(
+                            LinearLayout.LayoutParams.MATCH_PARENT,
+                            LinearLayout.LayoutParams.WRAP_CONTENT
+                        )
+                        setOnClickListener {
+                            val isCurrentlyVisible = stepsListContainer.visibility == View.VISIBLE
+                            stepsListContainer.visibility = if (isCurrentlyVisible) View.GONE else View.VISIBLE
+                            chevronView.text = if (isCurrentlyVisible) "▸" else "▾"
+                        }
+                    }
+
+                    val headerTitle = TextView(this).apply {
+                        text = "${if (anyFailure) "⚠️" else "⚡"} Worked for $durationText (${steps.size} step${if (steps.size > 1) "s" else ""})"
+                        textSize = 11f
+                        setTextColor(Color.parseColor(if (anyFailure) "#FCA5A5" else "#E2E8F0"))
+                        typeface = Typeface.DEFAULT_BOLD
+                        layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                    }
+
+                    headerRow.addView(headerTitle)
+                    headerRow.addView(chevronView)
+                    traceContainer.addView(headerRow)
+
+                    // Build each step item in the expandable list
+                    steps.forEach { step ->
+                        val stepRow = LinearLayout(this).apply {
+                            orientation = LinearLayout.VERTICAL
+                            setPadding(0, (4 * density).toInt(), 0, (4 * density).toInt())
+                        }
+
+                        val stepHeader = LinearLayout(this).apply {
+                            orientation = LinearLayout.HORIZONTAL
+                            gravity = Gravity.CENTER_VERTICAL
+                            layoutParams = LinearLayout.LayoutParams(
+                                LinearLayout.LayoutParams.MATCH_PARENT,
+                                LinearLayout.LayoutParams.WRAP_CONTENT
+                            )
+                        }
+
+                        val statusIcon = when (step.status) {
+                            com.orbital.action.StepStatus.RUNNING -> "⏳ "
+                            com.orbital.action.StepStatus.SUCCESS -> "› "
+                            com.orbital.action.StepStatus.FAILED -> "⚠️ "
+                            com.orbital.action.StepStatus.INFO -> "› "
+                        }
+
+                        val stepText = TextView(this).apply {
+                            text = "$statusIcon${step.title}"
+                            textSize = 10.5f
+                            setTextColor(Color.parseColor(if (step.status == com.orbital.action.StepStatus.FAILED) "#FCA5A5" else "#CBD5E1"))
+                            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                        }
+
+                        stepHeader.addView(stepText)
+                        stepRow.addView(stepHeader)
+
+                        // Add expandable details box if present
+                        if (!step.details.isNullOrBlank()) {
+                            val detailsBox = TextView(this).apply {
+                                text = step.details
+                                textSize = 9.5f
+                                typeface = Typeface.MONOSPACE
+                                setTextColor(Color.parseColor("#94A3B8"))
+                                setBackgroundColor(Color.parseColor("#0D0E15"))
+                                setPadding((6 * density).toInt(), (4 * density).toInt(), (6 * density).toInt(), (4 * density).toInt())
+                                visibility = View.GONE
+                                layoutParams = LinearLayout.LayoutParams(
+                                    LinearLayout.LayoutParams.MATCH_PARENT,
+                                    LinearLayout.LayoutParams.WRAP_CONTENT
+                                ).apply {
+                                    topMargin = (3 * density).toInt()
+                                }
+                            }
+                            stepHeader.setOnClickListener {
+                                detailsBox.visibility = if (detailsBox.visibility == View.VISIBLE) View.GONE else View.VISIBLE
+                            }
+                            stepRow.addView(detailsBox)
+                        }
+
+                        stepsListContainer.addView(stepRow)
+                    }
+
+                    traceContainer.addView(stepsListContainer)
+                    contentCard.addView(traceContainer)
                 }
 
                 // Next Step Suggestions
@@ -881,13 +1033,215 @@ class OverlayService : Service() {
                                 handleSuggestionClick(suggestion)
                             }
                         }
-                        contentCard.addView(chip)
                     }
+                }
+
+                // Quick Action Bar: Handles Success & Failure states gracefully
+                if (hasAction || hasSteps) {
+                    val isFailure = msg.actionLabel?.contains("⚠️") == true || msg.steps?.any { it.status == com.orbital.action.StepStatus.FAILED } == true
+                    val quickActionRow = LinearLayout(this).apply {
+                        orientation = LinearLayout.HORIZONTAL
+                        layoutParams = LinearLayout.LayoutParams(
+                            LinearLayout.LayoutParams.MATCH_PARENT,
+                            LinearLayout.LayoutParams.WRAP_CONTENT
+                        ).apply {
+                            topMargin = (8 * density).toInt()
+                        }
+                    }
+
+                    if (isFailure) {
+                        // Failure recovery buttons
+                        val settingsBtn = TextView(this).apply {
+                            text = "⚙️ Accessibility Settings"
+                            textSize = 10.5f
+                            setTextColor(Color.parseColor("#FCA5A5"))
+                            setBackgroundResource(R.drawable.bg_chip_suggestion)
+                            setPadding((8 * density).toInt(), (4 * density).toInt(), (8 * density).toInt(), (4 * density).toInt())
+                            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                                marginEnd = (4 * density).toInt()
+                            }
+                            setOnClickListener {
+                                com.orbital.automation.OrbitalAccessibilityService.openSettings(this@OverlayService)
+                            }
+                        }
+
+                        val webFallbackBtn = TextView(this).apply {
+                            text = "🌐 Web Search Fallback"
+                            textSize = 10.5f
+                            setTextColor(Color.parseColor("#93C5FD"))
+                            setBackgroundResource(R.drawable.bg_chip_suggestion)
+                            setPadding((8 * density).toInt(), (4 * density).toInt(), (8 * density).toInt(), (4 * density).toInt())
+                            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                                marginStart = (4 * density).toInt()
+                            }
+                            setOnClickListener {
+                                deviceActionExecutor.execute(com.orbital.action.DeviceAction(action = "SEARCH_WEB", query = msg.content))
+                            }
+                        }
+
+                        quickActionRow.addView(settingsBtn)
+                        quickActionRow.addView(webFallbackBtn)
+                    } else {
+                        // Success navigation & harvest buttons
+                        val switchAppBtn = TextView(this).apply {
+                            text = "🏠 Return to Orbital"
+                            textSize = 10.5f
+                            setTextColor(Color.parseColor("#93C5FD"))
+                            setBackgroundResource(R.drawable.bg_chip_suggestion)
+                            setPadding((8 * density).toInt(), (4 * density).toInt(), (8 * density).toInt(), (4 * density).toInt())
+                            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                                marginEnd = (4 * density).toInt()
+                            }
+                            setOnClickListener {
+                                try {
+                                    val launchIntent = packageManager.getLaunchIntentForPackage(packageName)?.apply {
+                                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+                                    }
+                                    if (launchIntent != null) {
+                                        startActivity(launchIntent)
+                                    }
+                                } catch (_: Exception) {}
+                            }
+                        }
+
+                        val harvestBtn = TextView(this).apply {
+                            text = "📋 Read Live Screen"
+                            textSize = 10.5f
+                            setTextColor(Color.parseColor("#A78BFA"))
+                            setBackgroundResource(R.drawable.bg_chip_suggestion)
+                            setPadding((8 * density).toInt(), (4 * density).toInt(), (8 * density).toInt(), (4 * density).toInt())
+                            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                                marginStart = (4 * density).toInt()
+                            }
+                            setOnClickListener {
+                                serviceScope.launch {
+                                    when (val result = deviceActionExecutor.execute(com.orbital.action.DeviceAction(action = "READ_SCREEN"))) {
+                                        is ActionResult.Success -> {
+                                            val detailsText = result.details?.takeIf { it.isNotBlank() } ?: result.message
+                                            chatEngine.sendMessage("Screen Harvest Report:\n$detailsText\nWhat should we do next?")
+                                        }
+                                        is ActionResult.Error -> {
+                                            chatEngine.sendMessage("Screen Harvest Alert: ${result.errorMessage}. You can tap '⚙️ Accessibility Settings' or search on the web.")
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        quickActionRow.addView(switchAppBtn)
+                        quickActionRow.addView(harvestBtn)
+                    }
+
+                    contentCard.addView(quickActionRow)
                 }
 
                 assistantRow.addView(contentCard)
                 chatMessagesContainer.addView(assistantRow)
             }
+        }
+
+        // Mid-execution Action Confirmation & Decision Banner
+        val pendingAction = chatEngine.pendingConfirmation.value
+        if (pendingAction != null) {
+            val confirmCard = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                background = GradientDrawable().apply {
+                    setColor(Color.parseColor("#1E1B4B")) // Deep Indigo/Purple
+                    cornerRadius = 12 * density
+                    setStroke((1.5f * density).toInt(), Color.parseColor("#8B5CF6"))
+                }
+                setPadding((12 * density).toInt(), (10 * density).toInt(), (12 * density).toInt(), (10 * density).toInt())
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    topMargin = (8 * density).toInt()
+                    bottomMargin = (6 * density).toInt()
+                }
+            }
+
+            val confirmHeader = TextView(this).apply {
+                text = "⚡ Action Confirmation Required"
+                textSize = 12f
+                typeface = Typeface.DEFAULT_BOLD
+                setTextColor(Color.parseColor("#C084FC"))
+            }
+
+            val actionDesc = StringBuilder().apply {
+                append("• Action: ${pendingAction.action.lowercase().replace('_', ' ')}\n")
+                if (!pendingAction.target.isNullOrBlank()) append("• Target: ${pendingAction.target}\n")
+                if (!pendingAction.recipient.isNullOrBlank() || !pendingAction.phoneNumber.isNullOrBlank()) {
+                    append("• Recipient: ${pendingAction.recipient ?: pendingAction.phoneNumber}\n")
+                }
+                if (!pendingAction.message.isNullOrBlank()) append("• Message: \"${pendingAction.message}\"\n")
+                if (!pendingAction.query.isNullOrBlank()) append("• Query: ${pendingAction.query}\n")
+            }.toString().trimEnd()
+
+            val confirmDetails = TextView(this).apply {
+                text = actionDesc
+                textSize = 10.5f
+                setTextColor(Color.parseColor("#E2E8F0"))
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    topMargin = (4 * density).toInt()
+                    bottomMargin = (8 * density).toInt()
+                }
+            }
+
+            val buttonsRow = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+            }
+
+            val cancelBtn = TextView(this).apply {
+                text = "✕ Cancel"
+                textSize = 11f
+                typeface = Typeface.DEFAULT_BOLD
+                setTextColor(Color.parseColor("#94A3B8"))
+                background = GradientDrawable().apply {
+                    setColor(Color.parseColor("#262D4A"))
+                    cornerRadius = 8 * density
+                }
+                gravity = Gravity.CENTER
+                setPadding((12 * density).toInt(), (7 * density).toInt(), (12 * density).toInt(), (7 * density).toInt())
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                    marginEnd = (6 * density).toInt()
+                }
+                setOnClickListener {
+                    chatEngine.cancelPendingAction()
+                }
+            }
+
+            val proceedBtn = TextView(this).apply {
+                text = "✓ Proceed"
+                textSize = 11f
+                typeface = Typeface.DEFAULT_BOLD
+                setTextColor(Color.WHITE)
+                background = GradientDrawable().apply {
+                    setColor(Color.parseColor("#7C3AED")) // Vivid Purple
+                    cornerRadius = 8 * density
+                }
+                gravity = Gravity.CENTER
+                setPadding((12 * density).toInt(), (7 * density).toInt(), (12 * density).toInt(), (7 * density).toInt())
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.2f)
+                setOnClickListener {
+                    chatEngine.confirmPendingAction()
+                }
+            }
+
+            buttonsRow.addView(cancelBtn)
+            buttonsRow.addView(proceedBtn)
+
+            confirmCard.addView(confirmHeader)
+            confirmCard.addView(confirmDetails)
+            confirmCard.addView(buttonsRow)
+
+            chatMessagesContainer.addView(confirmCard)
         }
 
         // Live streaming state

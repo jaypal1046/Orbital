@@ -1,6 +1,12 @@
 package com.orbital.ui
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -170,11 +176,50 @@ fun ChatBubbleItem(
                     val urlRegex = remember { Regex("https?://[a-zA-Z0-9.-]+(?:/[^\\s]*)?") }
                     val foundUrls = remember(message.content) { urlRegex.findAll(message.content).map { it.value }.toList() }
 
-                    // Rich Markdown Formatted Response
-                    FormattedMarkdownContent(
-                        content = message.content,
-                        textColor = Color.White
-                    )
+                    // Dynamic Live Streaming / Thinking Indicator or Markdown Content
+                    if (isStreaming && message.content.isBlank()) {
+                        val infiniteTransition = rememberInfiniteTransition()
+                        val pulseAlpha by infiniteTransition.animateFloat(
+                            initialValue = 0.35f,
+                            targetValue = 1f,
+                            animationSpec = infiniteRepeatable(
+                                animation = tween(650, easing = LinearEasing),
+                                repeatMode = RepeatMode.Reverse
+                            )
+                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.padding(vertical = 4.dp)
+                        ) {
+                            Surface(
+                                shape = CircleShape,
+                                color = Color(0xFF8B5CF6).copy(alpha = pulseAlpha),
+                                modifier = Modifier.size(8.dp)
+                            ) {}
+                            Text(
+                                text = "Thinking & planning actions...",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = Color(0xFFA78BFA).copy(alpha = pulseAlpha)
+                            )
+                        }
+                    } else {
+                        val infiniteTransition = rememberInfiniteTransition()
+                        val cursorAlpha by infiniteTransition.animateFloat(
+                            initialValue = 0f,
+                            targetValue = 1f,
+                            animationSpec = infiniteRepeatable(
+                                animation = tween(500, easing = LinearEasing),
+                                repeatMode = RepeatMode.Reverse
+                            )
+                        )
+                        // Rich Markdown Formatted Response
+                        FormattedMarkdownContent(
+                            content = if (isStreaming && cursorAlpha > 0.5f) "${message.content} ▌" else message.content,
+                            textColor = Color.White
+                        )
+                    }
 
                     // Clickable URL Badges if web links are present
                     if (foundUrls.isNotEmpty()) {
@@ -216,59 +261,10 @@ fun ChatBubbleItem(
                         }
                     }
 
-                    // Action Execution Badge
-                    message.actionLabel?.let { badge ->
-                        Spacer(modifier = Modifier.height(10.dp))
-                        val isSuccess = badge.startsWith("⚡")
-                        Surface(
-                            shape = RoundedCornerShape(10.dp),
-                            color = if (isSuccess) Color(0xFF064E3B).copy(alpha = 0.6f) else Color(0xFF450A0A).copy(alpha = 0.7f),
-                            border = BorderStroke(
-                                1.dp,
-                                if (isSuccess) Color(0xFF059669) else Color(0xFFDC2626).copy(alpha = 0.6f)
-                            ),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Column(modifier = Modifier.padding(10.dp)) {
-                                Text(
-                                    text = badge,
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = if (isSuccess) Color(0xFF6EE7B7) else Color(0xFFFCA5A5)
-                                )
-
-                                if (!isSuccess) {
-                                    Spacer(modifier = Modifier.height(6.dp))
-                                    Row(
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Surface(
-                                            shape = RoundedCornerShape(6.dp),
-                                            color = Color(0xFF7F1D1D),
-                                            modifier = Modifier.clickable {
-                                                try {
-                                                    val intent = android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                                                        data = android.net.Uri.parse("package:${context.packageName}")
-                                                        addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-                                                    }
-                                                    context.startActivity(intent)
-                                                } catch (_: Exception) {}
-                                            }
-                                        ) {
-                                            Text(
-                                                text = "⚙️ App Settings",
-                                                fontSize = 11.sp,
-                                                fontWeight = FontWeight.Medium,
-                                                color = Color.White,
-                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
+                    // Antigravity-Style Live Execution Timeline
+                    AntigravityExecutionTimeline(
+                        message = message
+                    )
 
                     // Contextual Interactive Next Step Options (Only when real action executed)
                     if (!isStreaming && message.nextStepSuggestions.isNotEmpty()) {
@@ -434,6 +430,253 @@ fun ChatBubbleItem(
                                         },
                                         onClick = { showMoreMenu = false },
                                         enabled = false
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun AntigravityExecutionTimeline(
+    message: UiMessage,
+    modifier: Modifier = Modifier
+) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val clipboardManager = androidx.compose.ui.platform.LocalClipboardManager.current
+
+    // Gather explicit steps or synthesize them from actionLabel/actionDetails
+    val steps = remember(message.steps, message.actionLabel, message.actionDetails) {
+        if (message.steps.isNotEmpty()) {
+            message.steps
+        } else if (!message.actionLabel.isNullOrBlank()) {
+            val synthesized = mutableListOf<com.orbital.action.ExecutionStep>()
+            synthesized += com.orbital.action.ExecutionStep(
+                title = "Thought for 0.4s",
+                status = com.orbital.action.StepStatus.INFO,
+                toolName = "Reasoner",
+                details = "Evaluated request intent and identified target device actions"
+            )
+            val lines = message.actionLabel.lines().filter { it.isNotBlank() }
+            lines.forEach { line ->
+                val isSuccess = line.startsWith("⚡") || line.contains("Executed")
+                synthesized += com.orbital.action.ExecutionStep(
+                    title = line.replace("⚡ ", "").replace("⚠️ ", "").replace("⏳ ", ""),
+                    status = if (isSuccess) com.orbital.action.StepStatus.SUCCESS else com.orbital.action.StepStatus.FAILED,
+                    toolName = "DeviceAction",
+                    details = message.actionDetails ?: line
+                )
+            }
+            synthesized
+        } else {
+            emptyList()
+        }
+    }
+
+    if (steps.isEmpty()) return
+
+    var isOverallExpanded by remember { mutableStateOf(false) }
+    var expandedStepIds by remember { mutableStateOf(setOf<String>()) }
+
+    val totalDurationFormatted = remember(message.durationMs) {
+        val ms = message.durationMs.coerceAtLeast(400L)
+        if (ms < 1000) "${ms}ms" else "%.1fs".format(ms / 1000.0)
+    }
+
+    val anyFailure = steps.any { it.status == com.orbital.action.StepStatus.FAILED }
+
+    Spacer(modifier = Modifier.height(10.dp))
+    Surface(
+        shape = RoundedCornerShape(10.dp),
+        color = Color(0xFF13141F),
+        border = BorderStroke(
+            1.dp,
+            if (anyFailure) Color(0xFFDC2626).copy(alpha = 0.5f) else Color(0xFF2B2E42)
+        ),
+        modifier = modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(8.dp)) {
+            // Header Row (like Antigravity "Worked for 2m ▾")
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(6.dp))
+                    .clickable { isOverallExpanded = !isOverallExpanded }
+                    .padding(horizontal = 6.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text(
+                        text = if (anyFailure) "⚠️" else "⚡",
+                        fontSize = 12.sp
+                    )
+                    Text(
+                        text = "Worked for $totalDurationFormatted",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color(0xFFE2E8F0)
+                    )
+                    Surface(
+                        shape = RoundedCornerShape(4.dp),
+                        color = Color(0xFF222436)
+                    ) {
+                        Text(
+                            text = "${steps.size} step${if (steps.size > 1) "s" else ""}",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = Color(0xFF94A3B8),
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
+                }
+
+                Text(
+                    text = if (isOverallExpanded) "▾" else "▸",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFF94A3B8)
+                )
+            }
+
+            // Expanded Steps Timeline List
+            AnimatedVisibility(visible = isOverallExpanded) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 6.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    HorizontalDivider(color = Color(0xFF222436), thickness = 1.dp)
+                    Spacer(modifier = Modifier.height(2.dp))
+
+                    steps.forEach { step ->
+                        val isStepExpanded = expandedStepIds.contains(step.id)
+
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(if (isStepExpanded) Color(0xFF1A1B28) else Color.Transparent)
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        expandedStepIds = if (isStepExpanded) {
+                                            expandedStepIds - step.id
+                                        } else {
+                                            expandedStepIds + step.id
+                                        }
+                                    }
+                                    .padding(horizontal = 6.dp, vertical = 5.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    modifier = Modifier.weight(1f, fill = false)
+                                ) {
+                                    val statusIcon = when (step.status) {
+                                        com.orbital.action.StepStatus.RUNNING -> "⏳"
+                                        com.orbital.action.StepStatus.SUCCESS -> "›"
+                                        com.orbital.action.StepStatus.FAILED -> "⚠️"
+                                        com.orbital.action.StepStatus.INFO -> "›"
+                                    }
+                                    val statusColor = when (step.status) {
+                                        com.orbital.action.StepStatus.RUNNING -> Color(0xFF38BDF8)
+                                        com.orbital.action.StepStatus.SUCCESS -> Color(0xFF34D399)
+                                        com.orbital.action.StepStatus.FAILED -> Color(0xFFF87171)
+                                        com.orbital.action.StepStatus.INFO -> Color(0xFFA78BFA)
+                                    }
+
+                                    Text(
+                                        text = statusIcon,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = statusColor
+                                    )
+                                    Text(
+                                        text = step.title,
+                                        fontSize = 11.sp,
+                                        color = if (step.status == com.orbital.action.StepStatus.FAILED) Color(0xFFFCA5A5) else Color(0xFFCBD5E1),
+                                        fontWeight = FontWeight.Medium,
+                                        maxLines = 1,
+                                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                    )
+                                }
+
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    if (step.durationMs > 0) {
+                                        Text(
+                                            text = "${step.durationMs}ms",
+                                            fontSize = 9.sp,
+                                            color = Color(0xFF64748B)
+                                        )
+                                    }
+                                    Text(
+                                        text = if (isStepExpanded) "▾" else "›",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFF64748B)
+                                    )
+                                }
+                            }
+
+                            // Step Details Dropdown
+                            AnimatedVisibility(visible = isStepExpanded) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(Color(0xFF0D0E15))
+                                        .border(1.dp, Color(0xFF222436), RoundedCornerShape(6.dp))
+                                        .padding(8.dp)
+                                ) {
+                                    if (!step.toolName.isNullOrBlank()) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                text = "Tool: ${step.toolName}",
+                                                fontSize = 10.sp,
+                                                fontWeight = FontWeight.SemiBold,
+                                                color = Color(0xFF818CF8)
+                                            )
+                                            Text(
+                                                text = "Copy",
+                                                fontSize = 9.sp,
+                                                color = Color(0xFF94A3B8),
+                                                modifier = Modifier.clickable {
+                                                    clipboardManager.setText(
+                                                        androidx.compose.ui.text.AnnotatedString(step.details ?: step.title)
+                                                    )
+                                                }
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                    }
+
+                                    Text(
+                                        text = step.details ?: "No additional execution payload.",
+                                        fontSize = 10.sp,
+                                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                                        color = Color(0xFF94A3B8),
+                                        lineHeight = 14.sp
                                     )
                                 }
                             }
