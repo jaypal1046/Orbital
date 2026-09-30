@@ -261,6 +261,11 @@ fun ChatBubbleItem(
                         }
                     }
 
+                    // Prominently Render Fetched Data / Action Outcome Card
+                    ActionOutcomeCard(
+                        actionDetails = message.actionDetails
+                    )
+
                     // Antigravity-Style Live Execution Timeline
                     AntigravityExecutionTimeline(
                         message = message
@@ -682,6 +687,135 @@ fun AntigravityExecutionTimeline(
                             }
                         }
                     }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun ActionOutcomeCard(
+    actionDetails: String?,
+    modifier: Modifier = Modifier
+) {
+    if (actionDetails.isNullOrBlank()) return
+
+    val lines = remember(actionDetails) {
+        actionDetails.lines().map { it.trim() }.filter { it.isNotBlank() }
+    }
+    if (lines.isEmpty()) return
+
+    val clipboardManager = androidx.compose.ui.platform.LocalClipboardManager.current
+    val context = androidx.compose.ui.platform.LocalContext.current
+
+    Spacer(modifier = Modifier.height(10.dp))
+    Surface(
+        shape = RoundedCornerShape(14.dp),
+        color = Color(0xFF13192B),
+        border = BorderStroke(1.dp, Brush.linearGradient(listOf(Color(0xFF38BDF8), Color(0xFF818CF8)))),
+        shadowElevation = 3.dp,
+        modifier = modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(22.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFF0369A1).copy(alpha = 0.4f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(text = "📊", fontSize = 11.sp)
+                    }
+                    Text(
+                        text = "Live Fetched Information",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF38BDF8)
+                    )
+                }
+
+                Surface(
+                    color = Color(0xFF1E293B),
+                    shape = RoundedCornerShape(6.dp),
+                    modifier = Modifier.clickable {
+                        clipboardManager.setText(androidx.compose.ui.text.AnnotatedString(actionDetails))
+                        android.widget.Toast.makeText(context, "Copied data to clipboard", android.widget.Toast.LENGTH_SHORT).show()
+                    }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Share,
+                            contentDescription = "Copy",
+                            tint = Color(0xFF94A3B8),
+                            modifier = Modifier.size(11.dp)
+                        )
+                        Text(
+                            text = "Copy",
+                            fontSize = 10.sp,
+                            color = Color(0xFF94A3B8),
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            lines.forEach { line ->
+                val cleanLine = line.removePrefix("•").trim()
+                if (cleanLine.contains(":") && !cleanLine.startsWith("http")) {
+                    val parts = cleanLine.split(":", limit = 2)
+                    val key = parts[0].trim()
+                    val value = parts.getOrNull(1)?.trim() ?: ""
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 3.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = key,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color(0xFF94A3B8)
+                        )
+                        Surface(
+                            color = Color(0xFF0B1120),
+                            shape = RoundedCornerShape(6.dp),
+                            border = BorderStroke(0.8.dp, Color(0xFF334155))
+                        ) {
+                            Text(
+                                text = value,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFFF1F5F9),
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                            )
+                        }
+                    }
+                } else {
+                    Text(
+                        text = "• $cleanLine",
+                        fontSize = 12.5.sp,
+                        color = Color(0xFFE2E8F0),
+                        lineHeight = 17.sp,
+                        modifier = Modifier.padding(vertical = 2.dp)
+                    )
                 }
             }
         }

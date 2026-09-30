@@ -45,6 +45,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.orbital.R
 import com.orbital.data.RoutingMode
+import com.orbital.media.AttachedMedia
+import androidx.compose.material.icons.filled.Close
 
 @Composable
 fun InputBar(
@@ -58,6 +60,8 @@ fun InputBar(
     currentRoutingMode: RoutingMode = RoutingMode.AUTO,
     selectedPinnedProvider: String? = null,
     onRoutingModeClick: () -> Unit = {},
+    attachedMedia: AttachedMedia? = null,
+    onRemoveAttachment: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     Box(
@@ -79,6 +83,59 @@ fun InputBar(
                     .fillMaxWidth()
                     .padding(horizontal = 14.dp, vertical = 10.dp)
             ) {
+                // Attached File / Media Preview Chip
+                if (attachedMedia != null) {
+                    Surface(
+                        color = Color(0xFF1E2640),
+                        shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(1.dp, Color(0xFF38BDF8).copy(alpha = 0.6f)),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 8.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 10.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(text = attachedMedia.type.icon, fontSize = 16.sp)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = attachedMedia.name,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = Color.White,
+                                    maxLines = 1
+                                )
+                                if (attachedMedia.formattedSize.isNotBlank()) {
+                                    Text(
+                                        text = "${attachedMedia.type.displayName} • ${attachedMedia.formattedSize}",
+                                        fontSize = 10.sp,
+                                        color = Color(0xFF94A3B8)
+                                    )
+                                }
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .size(24.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(0xFF334155))
+                                    .clickable { onRemoveAttachment() },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "Remove attachment",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+
                 // Top: Clean Multiline Text Input Field
                 BasicTextField(
                     value = inputText,

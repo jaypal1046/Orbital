@@ -34,6 +34,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import com.orbital.data.RoutingMode
 import kotlinx.coroutines.launch
 
@@ -55,6 +57,54 @@ fun InAppChatScreen(
     var showAboutDialog by remember { mutableStateOf(false) }
     var showFeedbackDialog by remember { mutableStateOf(false) }
     var feedbackInitialLog by remember { mutableStateOf<String?>(null) }
+    var showAttachmentSheet by remember { mutableStateOf(false) }
+
+    // Media & Document Pickers
+    val pdfLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        uri?.let {
+            coroutineScope.launch {
+                val media = com.orbital.media.DocumentReader.readUri(context, it)
+                chatViewModel.attachMedia(media)
+                Toast.makeText(context, "Attached: ${media.name}", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    val docLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        uri?.let {
+            coroutineScope.launch {
+                val media = com.orbital.media.DocumentReader.readUri(context, it)
+                chatViewModel.attachMedia(media)
+                Toast.makeText(context, "Attached: ${media.name}", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    val imageLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri ->
+        uri?.let {
+            coroutineScope.launch {
+                val media = com.orbital.media.ImageReader.readUri(context, it)
+                chatViewModel.attachMedia(media)
+                Toast.makeText(context, "Attached: ${media.name}", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    val cameraLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.TakePicturePreview()
+    ) { bitmap ->
+        bitmap?.let {
+            val media = com.orbital.media.ImageReader.fromBitmap(it, "camera_capture_${System.currentTimeMillis()}.jpg")
+            chatViewModel.attachMedia(media)
+            Toast.makeText(context, "Camera photo attached", Toast.LENGTH_SHORT).show()
+        }
+    }
 
     // Observe ViewModel state
     val messages by chatViewModel.messages.collectAsState()
@@ -68,6 +118,7 @@ fun InAppChatScreen(
     val selectedPinnedProvider by chatViewModel.selectedPinnedProvider.collectAsState()
     val isVoiceListening by chatViewModel.isVoiceListening.collectAsState()
     val currentCharacterId by chatViewModel.currentCharacter.collectAsState()
+    val attachedMedia by chatViewModel.attachedMedia.collectAsState()
     val pendingConfirmation by chatViewModel.pendingConfirmation.collectAsState()
     val characterName = chatViewModel.characterName
 
@@ -179,13 +230,56 @@ fun InAppChatScreen(
                     onVoiceClick = { chatViewModel.toggleVoiceListening() },
                     isStreaming = isStreaming,
                     onSendClick = { chatViewModel.onSendClick() },
-                    onQuickTemplateClick = { showActionTemplatesSheet = true },
+                    onQuickTemplateClick = { showAttachmentSheet = true },
                     currentRoutingMode = currentRoutingMode,
                     selectedPinnedProvider = selectedPinnedProvider?.name,
-                    onRoutingModeClick = { showRoutingSheet = true }
+                    onRoutingModeClick = { showRoutingSheet = true },
+                    attachedMedia = attachedMedia,
+                    onRemoveAttachment = { chatViewModel.clearAttachment() }
                 )
             }
         }
+    }
+
+    // Attachment & Multi-modal Media Picker Sheet (+ Button)
+    if (showAttachmentSheet) {
+        AttachmentPickerSheet(
+            onDismiss = { showAttachmentSheet = false },
+            onPickPdf = {
+                try {
+                    pdfLauncher.launch(arrayOf("application/pdf"))
+                } catch (_: Exception) {
+                    Toast.makeText(context, "Cannot open PDF picker", Toast.LENGTH_SHORT).show()
+                }
+            },
+            onPickDocument = {
+                try {
+                    docLauncher.launch(arrayOf("text/*", "application/json", "application/pdf", "*/*"))
+                } catch (_: Exception) {
+                    Toast.makeText(context, "Cannot open Document picker", Toast.LENGTH_SHORT).show()
+                }
+            },
+            onPickImage = {
+                try {
+                    imageLauncher.launch("image/*")
+                } catch (_: Exception) {
+                    Toast.makeText(context, "Cannot open Image gallery", Toast.LENGTH_SHORT).show()
+                }
+            },
+            onTakePhoto = {
+                try {
+                    cameraLauncher.launch(null)
+                } catch (_: Exception) {
+                    Toast.makeText(context, "Cannot launch Camera", Toast.LENGTH_SHORT).show()
+                }
+            },
+            onReadLiveScreen = {
+                chatViewModel.sendMessage("Please read and inspect whatever is currently on my active screen and summarize key information.")
+            },
+            onQuickAction = { prompt ->
+                chatViewModel.sendMessage(prompt)
+            }
+        )
     }
 
     pendingConfirmation?.let { action ->

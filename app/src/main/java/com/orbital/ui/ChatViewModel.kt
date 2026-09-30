@@ -186,22 +186,51 @@ class ChatViewModel @Inject constructor(
         })
     }
 
+    private val _attachedMedia = MutableStateFlow<com.orbital.media.AttachedMedia?>(null)
+    val attachedMedia: StateFlow<com.orbital.media.AttachedMedia?> = _attachedMedia.asStateFlow()
+
+    fun attachMedia(media: com.orbital.media.AttachedMedia) {
+        _attachedMedia.update { media }
+    }
+
+    fun clearAttachment() {
+        _attachedMedia.update { null }
+    }
+
     fun sendMessage(textToSend: String) {
         val cleanText = textToSend.trim()
-        if (cleanText.isBlank() || _isStreaming.value) return
+        val media = _attachedMedia.value
+        if (cleanText.isBlank() && media == null) return
+        if (_isStreaming.value) return
 
         _inputText.update { "" }
+        _attachedMedia.update { null }
         _isStreaming.update { true }
         _currentStreamContent.update { "" }
 
         val activeType = llmRepository.getCurrentProviderType() ?: ProviderType.GROQ
         _activeServingProvider.update { activeType.name }
 
-        MascotEventBus.postEvent(MascotEvent.PromptSent(cleanText))
+        val finalPrompt = if (media != null) {
+            val ragContent = com.orbital.media.DocumentRagEngine.buildRagPayload(
+                fileName = media.name,
+                rawText = media.textContent ?: "",
+                userQuery = cleanText
+            )
+            if (cleanText.isBlank()) {
+                "Please read, analyze, and summarize this attached ${media.type.displayName} (${media.name}):\n\n$ragContent"
+            } else {
+                "$cleanText\n\n$ragContent"
+            }
+        } else {
+            cleanText
+        }
+
+        MascotEventBus.postEvent(MascotEvent.PromptSent(cleanText.ifBlank { "Analyze ${media?.name}" }))
 
         viewModelScope.launch {
             chatEngine.setCharacter(_currentCharacter.value)
-            chatEngine.sendMessage(cleanText)
+            chatEngine.sendMessage(finalPrompt)
         }
     }
 
