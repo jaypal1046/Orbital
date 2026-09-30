@@ -168,8 +168,9 @@ fun LaptopBridgeScreen(
                         }
                         Text(
                             text = "Bitcoin-grade End-to-End Cryptographic Tunnel",
-                            fontSize = 11.sp,
-                            color = Color(0xFFA78BFA)
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = Color(0xFF38BDF8)
                         )
                     }
                 },
@@ -245,7 +246,7 @@ fun LaptopBridgeScreen(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Text("🛡️ HMAC-SHA256: Active", fontSize = 11.sp, color = Color(0xFF94A3B8))
+                            Text("🛡️ HMAC-SHA256: Active", fontSize = 11.sp, color = Color(0xFFCBD5E1))
                             Text("⚡ Delegated AI: Ready", fontSize = 11.sp, color = Color(0xFF10B981))
                         }
                     }
@@ -278,8 +279,8 @@ fun LaptopBridgeScreen(
                             Text(
                                 text = title,
                                 fontSize = 12.sp,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                color = if (isSelected) Color.White else Color(0xFF94A3B8)
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                color = if (isSelected) Color.White else Color(0xFFCBD5E1)
                             )
                         }
                     }
@@ -397,7 +398,7 @@ fun NearbyDevicesView(
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
                         "Make sure your laptop is running 'node tools/orbital-mcp/index.js' on the same Wi-Fi.",
-                        color = Color(0xFF94A3B8),
+                        color = Color(0xFFCBD5E1),
                         fontSize = 12.sp,
                         textAlign = TextAlign.Center
                     )
@@ -422,7 +423,7 @@ fun NearbyDevicesView(
                         ) {
                             Column {
                                 Text(laptop.name, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                                Text("${laptop.host}:${laptop.port}", color = Color(0xFF94A3B8), fontSize = 11.sp)
+                                Text("${laptop.host}:${laptop.port}", color = Color(0xFFCBD5E1), fontSize = 11.sp)
                                 laptop.pin?.let {
                                     Text("PIN: $it", color = Color(0xFF38BDF8), fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                                 }
@@ -449,6 +450,8 @@ fun ManualPinView(
     onInputChange: (String) -> Unit,
     onConnect: () -> Unit
 ) {
+    val clipboardManager = androidx.compose.ui.platform.LocalClipboardManager.current
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -462,40 +465,70 @@ fun ManualPinView(
             text = "Enter Laptop Pairing Code or IP",
             color = Color.White,
             fontWeight = FontWeight.Bold,
-            fontSize = 15.sp
+            fontSize = 16.sp
         )
         Spacer(modifier = Modifier.height(6.dp))
         Text(
             text = "E.g. 'ORB-4892' or '192.168.1.15'",
-            color = Color(0xFF94A3B8),
-            fontSize = 12.sp
+            color = Color(0xFFCBD5E1),
+            fontSize = 13.sp
         )
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(20.dp))
 
         OutlinedTextField(
             value = manualInput,
             onValueChange = onInputChange,
-            placeholder = { Text("ORB-XXXX or 192.168.x.x", color = Color(0xFF64748B)) },
+            placeholder = {
+                Text(
+                    text = "ORB-XXXX or 192.168.x.x",
+                    color = Color(0xFF94A3B8),
+                    fontSize = 15.sp,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            textStyle = androidx.compose.ui.text.TextStyle(
+                color = Color.White,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.SemiBold,
+                textAlign = TextAlign.Center
+            ),
             singleLine = true,
+            trailingIcon = {
+                TextButton(
+                    onClick = {
+                        val clip = clipboardManager.getText()?.text
+                        if (!clip.isNullOrBlank()) {
+                            onInputChange(clip.trim())
+                        }
+                    },
+                    contentPadding = PaddingValues(horizontal = 8.dp)
+                ) {
+                    Text("📋 Paste", color = Color(0xFF38BDF8), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                }
+            },
             colors = OutlinedTextFieldDefaults.colors(
                 focusedTextColor = Color.White,
                 unfocusedTextColor = Color.White,
-                focusedBorderColor = Color(0xFF7C3AED),
-                unfocusedBorderColor = Color(0xFF334155),
-                focusedContainerColor = Color(0xFF0F172A),
-                unfocusedContainerColor = Color(0xFF0F172A)
+                focusedBorderColor = Color(0xFF8B5CF6),
+                unfocusedBorderColor = Color(0xFF475569),
+                focusedContainerColor = Color(0xFF0B101E),
+                unfocusedContainerColor = Color(0xFF0B101E),
+                cursorColor = Color(0xFF38BDF8)
             ),
             shape = RoundedCornerShape(12.dp),
             modifier = Modifier.fillMaxWidth()
         )
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(18.dp))
 
         Button(
             onClick = onConnect,
             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF7C3AED)),
             shape = RoundedCornerShape(12.dp),
-            modifier = Modifier.fillMaxWidth().height(48.dp)
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(48.dp)
         ) {
             Text("Connect to Bridge", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
         }
