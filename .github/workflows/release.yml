@@ -1,0 +1,56 @@
+name: Build and Release Orbital Android
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build & Publish Release APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          cache: 'gradle'
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Run Unit Tests
+        run: ./gradlew testDebugUnitTest
+
+      - name: Build Release APK
+        run: ./gradlew assembleRelease
+
+      - name: Find and Rename Release APK
+        run: |
+          mkdir -p release_artifacts
+          find app/build/outputs/apk/release/ -name "*.apk" -exec cp {} release_artifacts/orbital-${{ github.ref_name }}.apk \;
+          cd release_artifacts
+          sha256sum orbital-${{ github.ref_name }}.apk > orbital-${{ github.ref_name }}.apk.sha256
+          ls -la
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: |
+            release_artifacts/*.apk
+            release_artifacts/*.sha256
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

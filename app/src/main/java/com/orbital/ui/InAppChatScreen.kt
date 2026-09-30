@@ -155,6 +155,10 @@ fun InAppChatScreen(
                     legalTab = tab
                 },
                 onOpenAbout = { showAboutDialog = true },
+                onCheckForUpdates = {
+                    Toast.makeText(context, "Checking for updates...", Toast.LENGTH_SHORT).show()
+                    chatViewModel.checkForUpdates(force = true)
+                },
                 onCloseDrawer = {
                     coroutineScope.launch { drawerState.close() }
                 }
@@ -640,6 +644,20 @@ fun InAppChatScreen(
             activeCharacterName = characterName,
             activeProviderName = activeServingProvider ?: "Auto-Router",
             onDismiss = { showFeedbackDialog = false }
+        )
+    }
+
+    // Auto-Update & Sideload Dialog
+    val updateResult by chatViewModel.updateResult.collectAsState()
+    updateResult?.let { res ->
+        com.orbital.updater.ui.UpdateDialog(
+            updateResult = res,
+            downloader = chatViewModel.downloader,
+            installer = chatViewModel.installer,
+            onDismiss = chatViewModel::dismissUpdateDialog,
+            onOtaPatchApplied = {
+                Toast.makeText(context, "OTA Hot-Patch applied successfully!", Toast.LENGTH_SHORT).show()
+            }
         )
     }
 }

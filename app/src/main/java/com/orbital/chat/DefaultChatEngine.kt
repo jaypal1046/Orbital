@@ -35,7 +35,8 @@ class DefaultChatEngine @Inject constructor(
     private val chatHistoryRepository: ChatHistoryRepository,
     private val hindsightMemoryEngine: com.orbital.memory.hindsight.HindsightMemoryEngine? = null,
     private val foremanSupervisor: com.orbital.foreman.ForemanSupervisor? = null,
-    private val documentPipeline: com.orbital.media.parser.HybridDocumentPipeline? = null
+    private val documentPipeline: com.orbital.media.parser.HybridDocumentPipeline? = null,
+    private val dynamicOtaConfigStore: com.orbital.updater.DynamicOtaConfigStore? = null
 ) : ChatEngine {
 
     private val _messages = MutableStateFlow<List<ChatMessage>>(emptyList())
@@ -135,11 +136,25 @@ class DefaultChatEngine @Inject constructor(
             hindsightMemoryEngine?.buildPromptContext(query = message).orEmpty()
         } catch (_: Exception) { "" }
 
+        val otaConfig = try {
+            dynamicOtaConfigStore?.getActiveConfig()
+        } catch (_: Exception) { null }
+
         val baseSystemPrompt = ActionParser.buildSystemPrompt(
             currentCharacter,
             deviceActionExecutor.getCapabilityManager().buildDeviceCapabilitiesPrompt()
         )
-        val finalSystemPrompt = if (memoryContext.isNotBlank()) "$baseSystemPrompt\n\n$memoryContext" else baseSystemPrompt
+
+        val promptWithOta = if (!otaConfig?.customSystemPrompt.isNullOrBlank()) {
+            "$baseSystemPrompt\n\n[OTA System Rules]:\n${otaConfig?.customSystemPrompt}"
+        } else if (!otaConfig?.dynamicRules.isNullOrEmpty()) {
+            val rulesText = otaConfig?.dynamicRules?.joinToString("\n") { "• $it" }.orEmpty()
+            "$baseSystemPrompt\n\n[Dynamic OTA Rules]:\n$rulesText"
+        } else {
+            baseSystemPrompt
+        }
+
+        val finalSystemPrompt = if (memoryContext.isNotBlank()) "$promptWithOta\n\n$memoryContext" else promptWithOta
 
         val chatHistory = mutableListOf<ChatMessage>()
         chatHistory.add(ChatMessage(role = "system", content = finalSystemPrompt))

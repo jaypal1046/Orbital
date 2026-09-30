@@ -48,6 +48,7 @@ fun SideNavDrawer(
     onOpenRoutingMode: () -> Unit,
     onOpenLegal: (LegalTab) -> Unit,
     onOpenAbout: () -> Unit,
+    onCheckForUpdates: () -> Unit = {},
     onOpenFeedback: () -> Unit = {},
     onCloseDrawer: () -> Unit,
     modifier: Modifier = Modifier
@@ -264,6 +265,17 @@ fun SideNavDrawer(
                     subtitle = "Version, license, open source",
                     onClick = {
                         onOpenAbout()
+                        onCloseDrawer()
+                    }
+                )
+
+                DrawerMenuItem(
+                    icon = Icons.Default.Refresh,
+                    iconTint = Color(0xFF8B5CF6),
+                    title = "Check for Updates",
+                    subtitle = "GitHub releases & instant hot-patches",
+                    onClick = {
+                        onCheckForUpdates()
                         onCloseDrawer()
                     }
                 )

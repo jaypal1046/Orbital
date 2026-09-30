@@ -72,6 +72,7 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         chatViewModel.refreshCharacter()
+        chatViewModel.checkForUpdates(force = false)
     }
 
     private fun renderMainChat() {

@@ -99,7 +99,8 @@ object AppModule {
         chatHistoryRepository: ChatHistoryRepository,
         hindsightMemoryEngine: com.orbital.memory.hindsight.HindsightMemoryEngine,
         foremanSupervisor: com.orbital.foreman.ForemanSupervisor,
-        documentPipeline: com.orbital.media.parser.HybridDocumentPipeline
+        documentPipeline: com.orbital.media.parser.HybridDocumentPipeline,
+        dynamicOtaConfigStore: com.orbital.updater.DynamicOtaConfigStore
     ): ChatEngine {
         return DefaultChatEngine(
             context = context,
@@ -109,7 +110,8 @@ object AppModule {
             chatHistoryRepository = chatHistoryRepository,
             hindsightMemoryEngine = hindsightMemoryEngine,
             foremanSupervisor = foremanSupervisor,
-            documentPipeline = documentPipeline
+            documentPipeline = documentPipeline,
+            dynamicOtaConfigStore = dynamicOtaConfigStore
         )
     }
 }

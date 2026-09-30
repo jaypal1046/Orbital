@@ -1,0 +1,16 @@
+{
+  "patchVersion": 1,
+  "description": "Instant hot-patch for system prompt rules and model routes",
+  "customSystemPrompt": "You are Orbital AI. Be helpful, precise, proactive, and concise. Always prefer performing requested actions with device automation tools.",
+  "defaultProvider": "Google Gemini",
+  "enabledTiers": [
+    "ULTRA_FAST",
+    "PRO_REASONING",
+    "LONG_CONTEXT"
+  ],
+  "dynamicRules": [
+    "Prefer opening apps directly when the user mentions their name.",
+    "Format tabular data as clean GitHub Markdown tables."
+  ],
+  "timestamp": 1759230000000
+}

@@ -51,13 +51,22 @@ class ChatViewModel @Inject constructor(
     private val llmRepository: LlmRepository,
     private val voiceManager: VoiceManager,
     private val deviceActionExecutor: DeviceActionExecutor,
-    private val secureStorage: SecureStorage
+    private val secureStorage: SecureStorage,
+    private val gitHubUpdateEngine: com.orbital.updater.GitHubUpdateEngine? = null,
+    private val apkDownloader: com.orbital.updater.ApkDownloader? = null,
+    private val apkInstaller: com.orbital.updater.ApkInstaller? = null
 ) : ViewModel() {
 
     private val _currentCharacter = MutableStateFlow(
         secureStorage.getSelectedCharacter() ?: secureStorage.getCharacter()?.lowercase() ?: "lumy"
     )
     val currentCharacter: StateFlow<String> = _currentCharacter.asStateFlow()
+
+    val downloader: com.orbital.updater.ApkDownloader = apkDownloader ?: com.orbital.updater.ApkDownloader(context)
+    val installer: com.orbital.updater.ApkInstaller = apkInstaller ?: com.orbital.updater.ApkInstaller(context)
+
+    private val _updateResult = MutableStateFlow<com.orbital.updater.UpdateCheckResult?>(null)
+    val updateResult: StateFlow<com.orbital.updater.UpdateCheckResult?> = _updateResult.asStateFlow()
 
     // UI States - Start with empty list so no synthetic greeting bubble is shown
     private val _messages = MutableStateFlow<List<UiMessage>>(emptyList())
@@ -387,6 +396,24 @@ class ChatViewModel @Inject constructor(
         val charId = secureStorage.getSelectedCharacter() ?: secureStorage.getCharacter()?.lowercase() ?: "lumy"
         _currentCharacter.update { charId }
         chatEngine.setCharacter(charId)
+    }
+
+    fun checkForUpdates(force: Boolean = false) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val engine = gitHubUpdateEngine ?: com.orbital.updater.GitHubUpdateEngine(context)
+            val result = engine.checkForUpdates(force = force)
+            if (result.updateType == com.orbital.updater.UpdateType.OTA_HOT_PATCH) {
+                // Apply Shorebird-style instant hot-patch silently in background without prompting
+                result.otaPatchManifest?.let { engine.applyOtaPatch(it) }
+            } else if (result.updateType == com.orbital.updater.UpdateType.PLAY_STORE_REDIRECT ||
+                       result.updateType == com.orbital.updater.UpdateType.GITHUB_APK_DOWNLOAD) {
+                _updateResult.value = result
+            }
+        }
+    }
+
+    fun dismissUpdateDialog() {
+        _updateResult.value = null
     }
 
     override fun onCleared() {

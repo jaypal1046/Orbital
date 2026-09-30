@@ -8,6 +8,8 @@
 # Files for the ART/Dalvik VM
 *.dex
 .*
+!.github/
+!.gitignore
 # Java class files
 *.class
 *.pro
