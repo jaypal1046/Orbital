@@ -49,6 +49,10 @@ class OrbitalBridgeClient @Inject constructor(
         Log.i(TAG, message)
     }
 
+    fun clearLogs() {
+        _eventLogs.value = emptyList()
+    }
+
     /**
      * Connects directly from a scanned QR Code URI payload:
      * e.g. orbital://pair?v=1&host=192.168.1.5&port=8765&pin=ORB-1234&key=0123...&name=MacBook

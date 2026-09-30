@@ -130,6 +130,7 @@ fun InAppChatScreen(
     val currentCharacterId by chatViewModel.currentCharacter.collectAsState()
     val attachedMedia by chatViewModel.attachedMedia.collectAsState()
     val pendingConfirmation by chatViewModel.pendingConfirmation.collectAsState()
+    val isOnline by chatViewModel.isOnline.collectAsState()
     val characterName = chatViewModel.characterName
 
     var showRoutingSheet by remember { mutableStateOf(false) }
@@ -199,6 +200,62 @@ fun InAppChatScreen(
                     .fillMaxSize()
                     .padding(innerPadding)
             ) {
+                // Offline Warning Banner
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = !isOnline,
+                    enter = androidx.compose.animation.expandVertically() + androidx.compose.animation.fadeIn(),
+                    exit = androidx.compose.animation.shrinkVertically() + androidx.compose.animation.fadeOut()
+                ) {
+                    Surface(
+                        color = Color(0xFFEF4444).copy(alpha = 0.15f),
+                        border = BorderStroke(1.dp, Color(0xFFEF4444).copy(alpha = 0.4f)),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 6.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                                Text("📡", fontSize = 16.sp)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Column {
+                                    Text(
+                                        text = "You are currently offline",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFFFCA5A5)
+                                    )
+                                    Text(
+                                        text = "Connect to Wi-Fi or cellular to chat with AI",
+                                        fontSize = 11.sp,
+                                        color = Color(0xFFE2E8F0)
+                                    )
+                                }
+                            }
+                            TextButton(
+                                onClick = {
+                                    try {
+                                        context.startActivity(Intent(Settings.ACTION_WIRELESS_SETTINGS))
+                                    } catch (_: Exception) {
+                                        try {
+                                            context.startActivity(Intent(Settings.ACTION_WIFI_SETTINGS))
+                                        } catch (_: Exception) {}
+                                    }
+                                },
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                            ) {
+                                Text("Settings", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF38BDF8))
+                            }
+                        }
+                    }
+                }
+
                 MessageList(
                     messages = messages,
                     characterName = characterName,

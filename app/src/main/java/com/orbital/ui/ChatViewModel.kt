@@ -56,13 +56,17 @@ class ChatViewModel @Inject constructor(
     private val apkDownloader: com.orbital.updater.ApkDownloader? = null,
     private val apkInstaller: com.orbital.updater.ApkInstaller? = null,
     private val orbitalBridgeClient: com.orbital.bridge.OrbitalBridgeClient? = null,
-    private val orbitalDiscoveryService: com.orbital.bridge.OrbitalDiscoveryService? = null
+    private val orbitalDiscoveryService: com.orbital.bridge.OrbitalDiscoveryService? = null,
+    private val networkMonitorInstance: com.orbital.util.NetworkMonitor? = null
 ) : ViewModel() {
 
     private val _currentCharacter = MutableStateFlow(
         secureStorage.getSelectedCharacter() ?: secureStorage.getCharacter()?.lowercase() ?: "lumy"
     )
     val currentCharacter: StateFlow<String> = _currentCharacter.asStateFlow()
+
+    val networkMonitor: com.orbital.util.NetworkMonitor = networkMonitorInstance ?: com.orbital.util.NetworkMonitor(context)
+    val isOnline: StateFlow<Boolean> = networkMonitor.isOnline
 
     val downloader: com.orbital.updater.ApkDownloader = apkDownloader ?: com.orbital.updater.ApkDownloader(context)
     val installer: com.orbital.updater.ApkInstaller = apkInstaller ?: com.orbital.updater.ApkInstaller(context)
