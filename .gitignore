@@ -13,7 +13,10 @@
 # Java class files
 *.class
 *.pro
-*.py
+__pycache__/
+*.pyc
+!tools/*.py
+!tools/**/*.py
 # Generated files
 bin/
 gen/

@@ -49,6 +49,7 @@ fun SideNavDrawer(
     onOpenLegal: (LegalTab) -> Unit,
     onOpenAbout: () -> Unit,
     onCheckForUpdates: () -> Unit = {},
+    onOpenBridge: () -> Unit = {},
     onOpenFeedback: () -> Unit = {},
     onCloseDrawer: () -> Unit,
     modifier: Modifier = Modifier
@@ -276,6 +277,17 @@ fun SideNavDrawer(
                     subtitle = "GitHub releases & instant hot-patches",
                     onClick = {
                         onCheckForUpdates()
+                        onCloseDrawer()
+                    }
+                )
+
+                DrawerMenuItem(
+                    icon = Icons.Default.Share,
+                    iconTint = Color(0xFF06B6D4),
+                    title = "Laptop AI Bridge",
+                    subtitle = "Remote MCP Controller & Inspection",
+                    onClick = {
+                        onOpenBridge()
                         onCloseDrawer()
                     }
                 )

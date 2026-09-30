@@ -55,6 +55,7 @@ fun InAppChatScreen(
     var showLegalScreen by remember { mutableStateOf(false) }
     var legalTab by remember { mutableStateOf(LegalTab.PRIVACY) }
     var showAboutDialog by remember { mutableStateOf(false) }
+    var showBridgeDialog by remember { mutableStateOf(false) }
     var showFeedbackDialog by remember { mutableStateOf(false) }
     var feedbackInitialLog by remember { mutableStateOf<String?>(null) }
     var showAttachmentSheet by remember { mutableStateOf(false) }
@@ -159,6 +160,7 @@ fun InAppChatScreen(
                     Toast.makeText(context, "Checking for updates...", Toast.LENGTH_SHORT).show()
                     chatViewModel.checkForUpdates(force = true)
                 },
+                onOpenBridge = { showBridgeDialog = true },
                 onCloseDrawer = {
                     coroutineScope.launch { drawerState.close() }
                 }
@@ -658,6 +660,14 @@ fun InAppChatScreen(
             onOtaPatchApplied = {
                 Toast.makeText(context, "OTA Hot-Patch applied successfully!", Toast.LENGTH_SHORT).show()
             }
+        )
+    }
+
+    // Laptop AI Bridge Dialog
+    if (showBridgeDialog) {
+        com.orbital.bridge.ui.BridgeConnectDialog(
+            bridgeClient = chatViewModel.bridgeClient,
+            onDismiss = { showBridgeDialog = false }
         )
     }
 }

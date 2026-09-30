@@ -54,7 +54,8 @@ class ChatViewModel @Inject constructor(
     private val secureStorage: SecureStorage,
     private val gitHubUpdateEngine: com.orbital.updater.GitHubUpdateEngine? = null,
     private val apkDownloader: com.orbital.updater.ApkDownloader? = null,
-    private val apkInstaller: com.orbital.updater.ApkInstaller? = null
+    private val apkInstaller: com.orbital.updater.ApkInstaller? = null,
+    private val orbitalBridgeClient: com.orbital.bridge.OrbitalBridgeClient? = null
 ) : ViewModel() {
 
     private val _currentCharacter = MutableStateFlow(
@@ -64,6 +65,10 @@ class ChatViewModel @Inject constructor(
 
     val downloader: com.orbital.updater.ApkDownloader = apkDownloader ?: com.orbital.updater.ApkDownloader(context)
     val installer: com.orbital.updater.ApkInstaller = apkInstaller ?: com.orbital.updater.ApkInstaller(context)
+    val bridgeClient: com.orbital.bridge.OrbitalBridgeClient = orbitalBridgeClient ?: com.orbital.bridge.OrbitalBridgeClient(
+        context,
+        com.orbital.bridge.BridgeActionDispatcher(context, deviceActionExecutor)
+    )
 
     private val _updateResult = MutableStateFlow<com.orbital.updater.UpdateCheckResult?>(null)
     val updateResult: StateFlow<com.orbital.updater.UpdateCheckResult?> = _updateResult.asStateFlow()
