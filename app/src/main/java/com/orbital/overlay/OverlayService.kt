@@ -3,6 +3,7 @@ package com.orbital.overlay
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.app.Service
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -1475,10 +1476,17 @@ class OverlayService : Service() {
     }
 
     private fun createNotification(): Notification {
+        val stopIntent = PendingIntent.getService(
+            this,
+            0,
+            Intent(this, OverlayService::class.java).setAction(ACTION_STOP),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
         return Notification.Builder(this, CHANNEL_ID)
             .setContentTitle("Orbital Companion")
             .setContentText("Floating AI assistant is active")
             .setSmallIcon(R.drawable.ic_launcher)
+            .addAction(0, "Stop", stopIntent)
             .build()
     }
 
