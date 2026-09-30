@@ -16,6 +16,7 @@ import javax.inject.Singleton
 class OrbitalBridgeClient @Inject constructor(
     private val context: Context,
     private val actionDispatcher: BridgeActionDispatcher,
+    val cryptoAuth: OrbitalCryptoAuth,
     private val httpClient: OkHttpClient = OrbitalTlsHelper.createSecureBridgeHttpClient(),
     private val json: Json = Json { ignoreUnknownKeys = true }
 ) {
@@ -35,6 +36,9 @@ class OrbitalBridgeClient @Inject constructor(
     private val _activeChannelCode = MutableStateFlow<String?>(null)
     val activeChannelCode: StateFlow<String?> = _activeChannelCode.asStateFlow()
 
+    private val _connectedHostName = MutableStateFlow<String?>("Authorized Laptop")
+    val connectedHostName: StateFlow<String?> = _connectedHostName.asStateFlow()
+
     private val _eventLogs = MutableStateFlow<List<String>>(emptyList())
     val eventLogs: StateFlow<List<String>> = _eventLogs.asStateFlow()
 
@@ -46,16 +50,50 @@ class OrbitalBridgeClient @Inject constructor(
     }
 
     /**
+     * Connects directly from a scanned QR Code URI payload:
+     * e.g. orbital://pair?v=1&host=192.168.1.5&port=8765&pin=ORB-1234&key=0123...&name=MacBook
+     */
+    fun connectFromQr(qrContent: String): Boolean {
+        try {
+            val uri = android.net.Uri.parse(qrContent.trim())
+            if (uri.scheme != "orbital" || uri.host != "pair") {
+                // If it's a raw WSS or IP string
+                connect(qrContent.trim())
+                return true
+            }
+
+            val host = uri.getQueryParameter("host") ?: return false
+            val port = uri.getQueryParameter("port")?.toIntOrNull() ?: DEFAULT_LOCAL_PORT
+            val pin = uri.getQueryParameter("pin")
+            val authKey = uri.getQueryParameter("key")
+            val hostName = uri.getQueryParameter("name") ?: "Laptop Bridge"
+
+            if (!authKey.isNullOrBlank()) {
+                cryptoAuth.establishSession(authKey, pin, hostName)
+                _connectedHostName.value = hostName
+                log("🔐 Bitcoin-grade crypto key registered (Fingerprint: ${cryptoAuth.getFingerprint()})")
+            }
+
+            val target = "wss://$host:$port"
+            connect(target)
+            return true
+        } catch (e: Exception) {
+            log("❌ Invalid QR code payload: ${e.message}")
+            return false
+        }
+    }
+
+    /**
      * Connects directly to a discovered laptop via QuickShare NSD.
      */
     fun connect(laptop: DiscoveredLaptop) {
         val target = "wss://${laptop.host}:${laptop.port}"
+        _connectedHostName.value = laptop.name
         connect(target)
     }
 
     /**
      * Connects to a laptop via 6-digit PIN or direct IP/Host.
-     * @param target Either a 6-digit channel code (e.g. "ORB-8421" or "8421") or a direct host (e.g. "192.168.1.5" or "wss://192.168.1.5:8765")
      */
     fun connect(target: String) {
         val cleanTarget = target.trim()
@@ -76,10 +114,11 @@ class OrbitalBridgeClient @Inject constructor(
                 _connectionState.value = BridgeConnectionState.CONNECTED
                 log("🟢 Connected to Laptop AI Bridge successfully!")
 
-                // Send initial pairing message
                 val pairingMsg = BridgeMessage(
                     type = "PAIRING",
                     channelCode = cleanTarget,
+                    token = cryptoAuth.getSessionToken(),
+                    authFingerprint = cryptoAuth.getFingerprint(),
                     rawText = "Orbital Android connected (${android.os.Build.MODEL})"
                 )
                 sendMessage(pairingMsg)
@@ -119,7 +158,15 @@ class OrbitalBridgeClient @Inject constructor(
     }
 
     fun sendMessage(msg: BridgeMessage) {
-        val text = json.encodeToString(BridgeMessage.serializer(), msg)
+        val timestamp = System.currentTimeMillis()
+        val signature = cryptoAuth.signMessage(msg.action?.actionId ?: msg.type, timestamp)
+        val securedMsg = msg.copy(
+            token = cryptoAuth.getSessionToken() ?: msg.token,
+            signature = signature ?: msg.signature,
+            authFingerprint = cryptoAuth.getFingerprint(),
+            timestamp = timestamp
+        )
+        val text = json.encodeToString(BridgeMessage.serializer(), securedMsg)
         webSocket?.send(text)
     }
 
@@ -127,6 +174,18 @@ class OrbitalBridgeClient @Inject constructor(
         val msg = runCatching {
             json.decodeFromString(BridgeMessage.serializer(), rawJson)
         }.getOrNull() ?: return
+
+        // 🔒 Cryptographic Message Verification (Bitcoin-grade HMAC-SHA256)
+        if (!cryptoAuth.verifyIncomingMessage(msg)) {
+            log("🚨 UNAUTHORIZED COMMAND BLOCKED: Message failed cryptographic signature verification!")
+            val alert = BridgeMessage(
+                type = "SECURITY_ALERT",
+                rawText = "Rejected: Cryptographic signature mismatch or unauthorized sender"
+            )
+            val signedAlert = json.encodeToString(BridgeMessage.serializer(), alert)
+            webSocket?.send(signedAlert)
+            return
+        }
 
         when (msg.type) {
             "HEARTBEAT" -> {
@@ -147,7 +206,7 @@ class OrbitalBridgeClient @Inject constructor(
             "EXECUTE_ACTION" -> {
                 val action = msg.action
                 if (action != null) {
-                    log("⚡ Executing remote AI action: ${action.actionType} ${action.targetText.orEmpty()}")
+                    log("⚡ Executing authenticated AI action: ${action.actionType} ${action.targetText.orEmpty()}")
                     val result = actionDispatcher.dispatchAction(action)
                     val reply = BridgeMessage(
                         type = "ACTION_RESULT",
@@ -164,11 +223,9 @@ class OrbitalBridgeClient @Inject constructor(
         return if (target.startsWith("ws://") || target.startsWith("wss://")) {
             target
         } else if (target.contains(".")) {
-            // Direct IP or hostname without scheme -> Default to secure WSS
             val portSuffix = if (!target.contains(":")) ":$DEFAULT_LOCAL_PORT" else ""
             "wss://$target$portSuffix"
         } else {
-            // Channel code (e.g. "8421" or "ORB-8421") -> Connect to public relay channel
             val cleanCode = target.uppercase().removePrefix("ORB-")
             "$PUBLIC_RELAY_BASE?channel=$cleanCode"
         }

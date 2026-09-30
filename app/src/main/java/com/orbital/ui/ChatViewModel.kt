@@ -68,7 +68,8 @@ class ChatViewModel @Inject constructor(
     val installer: com.orbital.updater.ApkInstaller = apkInstaller ?: com.orbital.updater.ApkInstaller(context)
     val bridgeClient: com.orbital.bridge.OrbitalBridgeClient = orbitalBridgeClient ?: com.orbital.bridge.OrbitalBridgeClient(
         context,
-        com.orbital.bridge.BridgeActionDispatcher(context, deviceActionExecutor)
+        com.orbital.bridge.BridgeActionDispatcher(context, deviceActionExecutor),
+        com.orbital.bridge.OrbitalCryptoAuth()
     )
     val discoveryService: com.orbital.bridge.OrbitalDiscoveryService = orbitalDiscoveryService ?: com.orbital.bridge.OrbitalDiscoveryService(context)
 

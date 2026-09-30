@@ -26,8 +26,9 @@ object BridgeModule {
     @Singleton
     fun provideOrbitalBridgeClient(
         @ApplicationContext context: Context,
-        actionDispatcher: BridgeActionDispatcher
+        actionDispatcher: BridgeActionDispatcher,
+        cryptoAuth: OrbitalCryptoAuth
     ): OrbitalBridgeClient {
-        return OrbitalBridgeClient(context, actionDispatcher)
+        return OrbitalBridgeClient(context, actionDispatcher, cryptoAuth)
     }
 }

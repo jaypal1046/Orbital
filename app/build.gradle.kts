@@ -127,6 +127,12 @@ dependencies {
     implementation(libs.androidx.room.ktx)
     kapt(libs.androidx.room.compiler)
 
+    // CameraX & Barcode Scanning for QR Code Pairing
+    implementation(libs.camerax.camera2)
+    implementation(libs.camerax.lifecycle)
+    implementation(libs.camerax.view)
+    implementation(libs.mlkit.barcode.scanning)
+
     // Hilt
     implementation(libs.hilt.android)
     kapt(libs.hilt.compiler)

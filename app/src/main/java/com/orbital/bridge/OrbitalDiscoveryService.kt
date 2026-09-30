@@ -37,6 +37,7 @@ class OrbitalDiscoveryService @Inject constructor(
 
     private val _isSearching = MutableStateFlow(false)
     val isSearching: StateFlow<Boolean> = _isSearching.asStateFlow()
+    val isScanning: StateFlow<Boolean> get() = isSearching
 
     private var discoveryListener: NsdManager.DiscoveryListener? = null
 

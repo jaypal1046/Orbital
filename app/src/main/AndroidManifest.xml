@@ -60,6 +60,9 @@
         <activity
             android:name=".ui.AutomationSettingsActivity"
             android:exported="false" />
+        <activity
+            android:name=".bridge.ui.LaptopBridgeActivity"
+            android:exported="false" />
 
         <provider
             android:name="androidx.core.content.FileProvider"

@@ -70,8 +70,11 @@ data class ActionResultPayload(
 
 @Serializable
 data class BridgeMessage(
-    val type: String, // "PAIRING", "HEARTBEAT", "INSPECT_SCREEN", "SCREEN_STATE", "EXECUTE_ACTION", "ACTION_RESULT"
+    val type: String, // "PAIRING", "HEARTBEAT", "INSPECT_SCREEN", "SCREEN_STATE", "EXECUTE_ACTION", "ACTION_RESULT", "SECURITY_ALERT"
     val channelCode: String? = null,
+    val token: String? = null,
+    val signature: String? = null,
+    val authFingerprint: String? = null,
     val screenState: ScreenStatePayload? = null,
     val action: ActionPayload? = null,
     val result: ActionResultPayload? = null,

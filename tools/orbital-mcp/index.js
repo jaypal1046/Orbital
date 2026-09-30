@@ -7,13 +7,17 @@ import { WebSocketServer } from "ws";
 import https from "https";
 import http from "http";
 import os from "os";
+import crypto from "crypto";
 import { Bonjour } from "bonjour-service";
 import selfsigned from "selfsigned";
+import qrcode from "qrcode-terminal";
 
-// 1. Generate 4-digit pairing PIN
+// 1. Generate 4-digit pairing PIN and 256-bit Bitcoin-grade cryptographic session secret
 const PIN = "ORB-" + Math.floor(1000 + Math.random() * 9000);
 const PORT = process.env.PORT ? parseInt(process.env.PORT) : 8765;
 const HOSTNAME = os.hostname() || "Laptop";
+const AUTH_KEY = crypto.randomBytes(32).toString("hex");
+const KEY_FINGERPRINT = crypto.createHash("sha256").update(AUTH_KEY).digest("hex").slice(0, 16).match(/.{1,4}/g).join(":");
 
 // Find local IP address, prioritizing physical Wi-Fi / Ethernet
 function getAllLocalIps() {
@@ -35,13 +39,17 @@ function getAllLocalIps() {
 const ALL_IPS = getAllLocalIps();
 const LOCAL_IP = ALL_IPS[0]?.address || "127.0.0.1";
 
+// QR Payload with cryptographic key and connection details
+const QR_PAYLOAD = `orbital://pair?v=1&host=${LOCAL_IP}&port=${PORT}&pin=${PIN}&key=${AUTH_KEY}&name=${encodeURIComponent(HOSTNAME)}`;
+
 // Generate ephemeral SSL certificate for local TLS/WSS (Quick Share DTLS style)
 const pems = selfsigned.generate([{ name: "commonName", value: LOCAL_IP }], { keySize: 2048, days: 365 });
 
-console.error(`================================================`);
-console.error(` 🛰️  Orbital Laptop-to-Mobile AI Bridge Host`);
-console.error(`================================================`);
-console.error(`🔑 Pairing Code  : \x1b[32m${PIN}\x1b[0m`);
+console.error(`\n================================================================`);
+console.error(` 🛰️  ORBITAL LAPTOP-TO-MOBILE AI BRIDGE (SECURE CRYPTO HOST)`);
+console.error(`================================================================`);
+console.error(`🔑 Pairing PIN   : \x1b[32m\x1b[1m${PIN}\x1b[0m`);
+console.error(`🔐 Crypto Key ID : \x1b[33m${KEY_FINGERPRINT}\x1b[0m (256-bit Bitcoin-grade Auth)`);
 console.error(`🌐 Primary WSS   : \x1b[36mwss://${LOCAL_IP}:${PORT}\x1b[0m`);
 if (ALL_IPS.length > 1) {
   ALL_IPS.slice(1).forEach(ip => {
@@ -49,8 +57,20 @@ if (ALL_IPS.length > 1) {
   });
 }
 console.error(`📡 QuickShare NSD: \x1b[35m_orbital-bridge._tcp (${HOSTNAME})\x1b[0m`);
-console.error(`📱 In Orbital App: Open Side Menu -> "Laptop AI Bridge" -> Auto-Discovered!`);
-console.error(`================================================\n`);
+console.error(`📱 Scan the QR Code below with Orbital Mobile App:`);
+console.error(`================================================================\n`);
+
+qrcode.generate(QR_PAYLOAD, { small: true }, (qr) => {
+  console.error(qr);
+  console.error(`\n================================================================\n`);
+});
+
+// Helper to sign messages with HMAC-SHA256
+function signPayload(content, timestamp) {
+  const hmac = crypto.createHmac("sha256", AUTH_KEY);
+  hmac.update(`${timestamp}:${content}`);
+  return hmac.digest("hex");
+}
 
 let activePhoneSocket = null;
 const pendingRequests = new Map();
@@ -134,6 +154,21 @@ function setupWebSocket(ws, protocol) {
 wss.on("connection", (ws) => setupWebSocket(ws, "WSS (Encrypted TLS)"));
 wssHttp.on("connection", (ws) => setupWebSocket(ws, "WS"));
 
+serverHttps.on("error", (err) => {
+  if (err.code === "EADDRINUSE") {
+    console.error(`\n⚠️  Port ${PORT} is already in use by another Orbital Bridge process.`);
+    console.error(`   To resolve, kill the old process or run with: PORT=${PORT + 2} node tools/orbital-mcp/index.js\n`);
+  } else {
+    console.error("HTTPS Server error:", err);
+  }
+});
+
+serverHttp.on("error", (err) => {
+  if (err.code !== "EADDRINUSE") {
+    console.error("HTTP Server error:", err);
+  }
+});
+
 serverHttps.listen(PORT, "0.0.0.0", () => {
   // 3. Publish mDNS Service for Quick Share auto-discovery
   try {
@@ -146,7 +181,8 @@ serverHttps.listen(PORT, "0.0.0.0", () => {
         pin: PIN,
         host: HOSTNAME,
         ip: LOCAL_IP,
-        ver: "1.0.0"
+        ver: "1.0.0",
+        fingerprint: KEY_FINGERPRINT
       }
     });
     console.error(`📡 Broadcasting mDNS service: _orbital-bridge._tcp on local network.`);
@@ -157,11 +193,11 @@ serverHttps.listen(PORT, "0.0.0.0", () => {
 
 serverHttp.listen(PORT + 1, "0.0.0.0");
 
-// Helper to send command to phone with timeout
+// Helper to send command to phone with HMAC-SHA256 signature and timeout
 function sendToPhone(message, reqKey, timeoutMs = 8000) {
   return new Promise((resolve, reject) => {
     if (!activePhoneSocket || activePhoneSocket.readyState !== 1) {
-      return reject(new Error("No phone currently connected. Please open Orbital on your phone and connect to " + LOCAL_IP));
+      return reject(new Error("No phone currently connected. Please open Orbital on your phone and scan the QR code to connect to " + LOCAL_IP));
     }
 
     const timer = setTimeout(() => {
@@ -174,7 +210,19 @@ function sendToPhone(message, reqKey, timeoutMs = 8000) {
       resolve(result);
     });
 
-    activePhoneSocket.send(JSON.stringify(message));
+    const timestamp = Date.now();
+    const actionKey = message.action ? message.action.actionId : message.type;
+    const signature = signPayload(actionKey, timestamp);
+
+    const signedMessage = {
+      ...message,
+      timestamp,
+      token: AUTH_KEY,
+      signature,
+      authFingerprint: KEY_FINGERPRINT
+    };
+
+    activePhoneSocket.send(JSON.stringify(signedMessage));
   });
 }
 
