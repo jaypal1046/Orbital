@@ -56,21 +56,47 @@ let activePhoneSocket = null;
 const pendingRequests = new Map();
 
 // 2. Start Secure WSS / HTTP Dual Server
+async function handleHttpRequest(req, res) {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+
+  if (req.method === "OPTIONS") {
+    res.writeHead(204);
+    res.end();
+    return;
+  }
+
+  if (req.url === "/inspect") {
+    try {
+      const screenState = await sendToPhone({ type: "INSPECT_SCREEN" }, "INSPECT_SCREEN");
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(screenState, null, 2));
+    } catch (err) {
+      res.writeHead(500, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: err.message }));
+    }
+  } else {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({
+      status: "ok",
+      name: "Orbital AI Bridge",
+      pin: PIN,
+      host: HOSTNAME,
+      phoneConnected: activePhoneSocket !== null,
+      endpoints: ["/inspect", "/action"]
+    }, null, 2));
+  }
+}
+
 const serverHttps = https.createServer({
   key: pems.private,
   cert: pems.cert
-}, (req, res) => {
-  res.writeHead(200, { "Content-Type": "application/json" });
-  res.end(JSON.stringify({ status: "ok", name: "Orbital AI Bridge", pin: PIN, host: HOSTNAME }));
-});
+}, handleHttpRequest);
 
 const wss = new WebSocketServer({ server: serverHttps });
 
-// Also accept standard WS on same port via fallback HTTP server if needed
-const serverHttp = http.createServer((req, res) => {
-  res.writeHead(200, { "Content-Type": "application/json" });
-  res.end(JSON.stringify({ status: "ok", name: "Orbital AI Bridge", pin: PIN, host: HOSTNAME }));
-});
+const serverHttp = http.createServer(handleHttpRequest);
 const wssHttp = new WebSocketServer({ server: serverHttp });
 
 function setupWebSocket(ws, protocol) {
