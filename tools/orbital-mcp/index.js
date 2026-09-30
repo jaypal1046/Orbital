@@ -15,20 +15,25 @@ const PIN = "ORB-" + Math.floor(1000 + Math.random() * 9000);
 const PORT = process.env.PORT ? parseInt(process.env.PORT) : 8765;
 const HOSTNAME = os.hostname() || "Laptop";
 
-// Find local IP address
-function getLocalIp() {
+// Find local IP address, prioritizing physical Wi-Fi / Ethernet
+function getAllLocalIps() {
+  const ips = [];
   const nets = os.networkInterfaces();
   for (const name of Object.keys(nets)) {
+    const isVirtual = /vmnet|virtual|vbox|vEthernet|loopback/i.test(name);
     for (const net of nets[name]) {
       if (net.family === "IPv4" && !net.internal) {
-        return net.address;
+        ips.push({ name, address: net.address, isVirtual });
       }
     }
   }
-  return "127.0.0.1";
+  // Sort physical first
+  ips.sort((a, b) => (a.isVirtual === b.isVirtual ? 0 : a.isVirtual ? 1 : -1));
+  return ips;
 }
 
-const LOCAL_IP = getLocalIp();
+const ALL_IPS = getAllLocalIps();
+const LOCAL_IP = ALL_IPS[0]?.address || "127.0.0.1";
 
 // Generate ephemeral SSL certificate for local TLS/WSS (Quick Share DTLS style)
 const pems = selfsigned.generate([{ name: "commonName", value: LOCAL_IP }], { keySize: 2048, days: 365 });
@@ -37,7 +42,12 @@ console.error(`================================================`);
 console.error(` 🛰️  Orbital Laptop-to-Mobile AI Bridge Host`);
 console.error(`================================================`);
 console.error(`🔑 Pairing Code  : \x1b[32m${PIN}\x1b[0m`);
-console.error(`🌐 Secure WSS    : \x1b[36mwss://${LOCAL_IP}:${PORT}\x1b[0m`);
+console.error(`🌐 Primary WSS   : \x1b[36mwss://${LOCAL_IP}:${PORT}\x1b[0m`);
+if (ALL_IPS.length > 1) {
+  ALL_IPS.slice(1).forEach(ip => {
+    console.error(`   Alternate IP  : wss://${ip.address}:${PORT} (${ip.name})`);
+  });
+}
 console.error(`📡 QuickShare NSD: \x1b[35m_orbital-bridge._tcp (${HOSTNAME})\x1b[0m`);
 console.error(`📱 In Orbital App: Open Side Menu -> "Laptop AI Bridge" -> Auto-Discovered!`);
 console.error(`================================================\n`);
