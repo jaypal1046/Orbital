@@ -102,6 +102,7 @@ With `orbital-mcp`, developers and AI agents can execute automated End-to-End te
 | `open_phone_app` | Launches any target app under test by package name | `packageName` (string) |
 | `assert_screen_contains` | Asserts that expected text exists on screen (for QA tests) | `expectedText` (string) |
 | `press_phone_key` | Presses standard Android navigation keys | `key` (`"BACK"`, `"HOME"`, `"RECENTS"`) |
+| `ask_phone_ai` | Delegates high-level task to Phone AI companion for autonomous execution | `prompt` (string) |
 
 ---
 

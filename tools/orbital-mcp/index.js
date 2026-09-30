@@ -401,6 +401,42 @@ server.tool(
   }
 );
 
+// Tool 8: Ask Phone AI (AI-to-AI Autonomous Task Delegation)
+server.tool(
+  "ask_phone_ai",
+  "Delegate a high-level task or query to the on-device Orbital Phone AI. The Phone AI autonomously routes through local/cloud LLMs and executes device actions (apps, settings, workflows) and returns its full result.",
+  {
+    prompt: z.string().describe("The high-level natural language instruction for the Phone AI (e.g. 'Turn on flashlight and check battery', 'Book a ride to Central Station', 'Summarize my recent messages')")
+  },
+  async ({ prompt }) => {
+    try {
+      const actionId = "act-" + Date.now();
+      const payload = {
+        type: "EXECUTE_ACTION",
+        action: {
+          actionId,
+          actionType: "CUSTOM_PROMPT",
+          customPrompt: prompt
+        }
+      };
+      const result = await sendToPhone(payload, actionId, 25000); // 25s timeout for AI reasoning & action execution
+      return {
+        content: [
+          {
+            type: "text",
+            text: `📱 Phone AI Response: ${result.aiResponse || result.message}\n⏱️ Execution Time: ${result.executionDurationMs}ms`
+          }
+        ]
+      };
+    } catch (err) {
+      return {
+        content: [{ type: "text", text: `Error delegating to Phone AI: ${err.message}` }],
+        isError: true
+      };
+    }
+  }
+);
+
 // Connect MCP over Stdio for Claude / Cursor / Antigravity
 const transport = new StdioServerTransport();
 await server.connect(transport);

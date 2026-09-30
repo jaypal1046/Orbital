@@ -53,7 +53,8 @@ data class ActionPayload(
     val swipeDirection: String? = null, // "UP", "DOWN", "LEFT", "RIGHT"
     val textToType: String? = null,
     val packageName: String? = null,
-    val keyCode: String? = null // "BACK", "HOME", "RECENTS"
+    val keyCode: String? = null, // "BACK", "HOME", "RECENTS"
+    val customPrompt: String? = null
 )
 
 @Serializable
@@ -61,6 +62,7 @@ data class ActionResultPayload(
     val actionId: String,
     val success: Boolean,
     val message: String,
+    val aiResponse: String? = null,
     val executionDurationMs: Long = 0L,
     val updatedScreenState: ScreenStatePayload? = null,
     val timestamp: Long = System.currentTimeMillis()

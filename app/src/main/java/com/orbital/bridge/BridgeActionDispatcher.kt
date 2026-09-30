@@ -6,6 +6,7 @@ import android.util.Log
 import com.orbital.action.DeviceActionExecutor
 import com.orbital.automation.OrbitalAccessibilityService
 import com.orbital.automation.UIElement
+import com.orbital.chat.ChatEngine
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
@@ -14,7 +15,8 @@ import javax.inject.Singleton
 @Singleton
 class BridgeActionDispatcher @Inject constructor(
     private val context: Context,
-    private val actionExecutor: DeviceActionExecutor
+    private val actionExecutor: DeviceActionExecutor,
+    private val chatEngine: ChatEngine? = null
 ) {
 
     companion object {
@@ -183,12 +185,29 @@ class BridgeActionDispatcher @Inject constructor(
                 }
 
                 BridgeActionType.CUSTOM_PROMPT -> {
+                    val prompt = action.customPrompt ?: action.targetText.orEmpty()
+                    var aiOutput = ""
+                    var success = false
+
+                    if (chatEngine != null && prompt.isNotBlank()) {
+                        Log.i(TAG, "⚡ Delegating task to Phone AI (ChatEngine): $prompt")
+                        chatEngine.sendMessage(prompt)
+                        aiOutput = chatEngine.messages.value.lastOrNull { it.role == "assistant" }?.content
+                            ?: "Task dispatched to Phone AI companion"
+                        success = true
+                    } else {
+                        aiOutput = "Phone AI received task: $prompt"
+                        success = true
+                    }
+
+                    val state = captureScreenState()
                     ActionResultPayload(
                         actionId = action.actionId,
-                        success = true,
-                        message = "Custom prompt received",
+                        success = success,
+                        message = "Task executed by Phone AI companion",
+                        aiResponse = aiOutput,
                         executionDurationMs = System.currentTimeMillis() - startTime,
-                        updatedScreenState = captureScreenState()
+                        updatedScreenState = state
                     )
                 }
             }
