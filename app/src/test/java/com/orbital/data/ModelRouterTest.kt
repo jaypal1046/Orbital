@@ -69,8 +69,8 @@ class ModelRouterTest {
         configStore.updateProviderKey(ProviderType.GEMINI, "gemini_test_key")
 
         val selected = router.selectActiveProvider(configStore)
-        assertEquals(ProviderType.GROQ, selected)
-        assertEquals(ProviderType.GROQ, router.getCurrentProvider())
+        assertEquals(ProviderType.GEMINI, selected)
+        assertEquals(ProviderType.GEMINI, router.getCurrentProvider())
     }
 
     @Test

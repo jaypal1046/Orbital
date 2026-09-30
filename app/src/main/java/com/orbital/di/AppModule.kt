@@ -96,9 +96,21 @@ object AppModule {
         llmRepository: LlmRepository,
         actionExecutor: DeviceActionExecutor,
         voiceManager: VoiceManager,
-        chatHistoryRepository: ChatHistoryRepository
+        chatHistoryRepository: ChatHistoryRepository,
+        hindsightMemoryEngine: com.orbital.memory.hindsight.HindsightMemoryEngine,
+        foremanSupervisor: com.orbital.foreman.ForemanSupervisor,
+        documentPipeline: com.orbital.media.parser.HybridDocumentPipeline
     ): ChatEngine {
-        return DefaultChatEngine(context, llmRepository, voiceManager, actionExecutor, chatHistoryRepository)
+        return DefaultChatEngine(
+            context = context,
+            llmRepository = llmRepository,
+            voiceManager = voiceManager,
+            deviceActionExecutor = actionExecutor,
+            chatHistoryRepository = chatHistoryRepository,
+            hindsightMemoryEngine = hindsightMemoryEngine,
+            foremanSupervisor = foremanSupervisor,
+            documentPipeline = documentPipeline
+        )
     }
 }
 

@@ -20,7 +20,9 @@ class CronManager(private val context: Context) {
         private const val UNIQUE_WORK_PREFIX = "orbital_cron_"
     }
 
-    private val workManager = WorkManager.getInstance(context)
+    private val workManager: WorkManager? by lazy {
+        runCatching { WorkManager.getInstance(context) }.getOrNull()
+    }
     private val ledger = CronTaskLedger(context)
 
     fun getLedger(): CronTaskLedger = ledger
@@ -28,6 +30,8 @@ class CronManager(private val context: Context) {
     fun scheduleCronTask(task: CronTask): Boolean {
         return try {
             ledger.saveTask(task)
+
+            val wm = workManager ?: return true
 
             val constraints = Constraints.Builder()
                 .setRequiredNetworkType(NetworkType.CONNECTED)
@@ -53,7 +57,7 @@ class CronManager(private val context: Context) {
                     .setInputData(data)
                     .build()
 
-                workManager.enqueueUniquePeriodicWork(
+                wm.enqueueUniquePeriodicWork(
                     uniqueWorkName,
                     ExistingPeriodicWorkPolicy.UPDATE,
                     dailyWorkRequest
@@ -66,7 +70,7 @@ class CronManager(private val context: Context) {
                     .setInputData(data)
                     .build()
 
-                workManager.enqueueUniquePeriodicWork(
+                wm.enqueueUniquePeriodicWork(
                     uniqueWorkName,
                     ExistingPeriodicWorkPolicy.UPDATE,
                     periodicRequest
@@ -84,7 +88,7 @@ class CronManager(private val context: Context) {
     fun cancelCronTask(taskId: String): Boolean {
         return try {
             ledger.removeTask(taskId)
-            workManager.cancelUniqueWork("$UNIQUE_WORK_PREFIX$taskId")
+            workManager?.cancelUniqueWork("$UNIQUE_WORK_PREFIX$taskId")
             Log.i(TAG, "Cancelled cron task: $taskId")
             true
         } catch (e: Exception) {

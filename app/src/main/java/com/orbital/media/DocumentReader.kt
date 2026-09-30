@@ -63,7 +63,7 @@ object DocumentReader {
             try { pfd?.close() } catch (_: Exception) {}
         }
 
-        // Extract complete text content from PDF streams
+        // Extract complete text content from PDF streams and format with HybridDocumentPipeline
         var extractedPdfText = ""
         try {
             context.contentResolver.openInputStream(uri)?.use { stream ->
@@ -72,7 +72,7 @@ object DocumentReader {
         } catch (_: Exception) {}
 
         val finalContent = if (extractedPdfText.isNotBlank()) {
-            extractedPdfText
+            com.orbital.media.parser.HybridDocumentPipeline().processRawText(name, extractedPdfText).fullMarkdown
         } else {
             "📄 PDF Document: $name\n• Pages: $pageCount\n• Size: ${formatSize(sizeBytes)}\n• Text could not be extracted directly from binary stream."
         }
@@ -100,9 +100,13 @@ object DocumentReader {
             try { inputStream?.close() } catch (_: Exception) {}
         }
 
-        val truncatedText = if (text.length > 25000) {
-            text.take(25000) + "\n\n... [Truncated: Document contains ${text.length} characters]"
-        } else text
+        val parsedMarkdown = if (text.isNotBlank()) {
+            com.orbital.media.parser.HybridDocumentPipeline().processRawText(name, text).fullMarkdown
+        } else ""
+
+        val truncatedText = if (parsedMarkdown.length > 25000) {
+            parsedMarkdown.take(25000) + "\n\n... [Truncated: Document contains ${parsedMarkdown.length} characters]"
+        } else parsedMarkdown
 
         return AttachedMedia(
             name = name,

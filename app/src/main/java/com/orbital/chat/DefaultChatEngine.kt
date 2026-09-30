@@ -32,7 +32,10 @@ class DefaultChatEngine @Inject constructor(
     private val llmRepository: LlmRepository,
     private val voiceManager: VoiceManager,
     private val deviceActionExecutor: DeviceActionExecutor,
-    private val chatHistoryRepository: ChatHistoryRepository
+    private val chatHistoryRepository: ChatHistoryRepository,
+    private val hindsightMemoryEngine: com.orbital.memory.hindsight.HindsightMemoryEngine? = null,
+    private val foremanSupervisor: com.orbital.foreman.ForemanSupervisor? = null,
+    private val documentPipeline: com.orbital.media.parser.HybridDocumentPipeline? = null
 ) : ChatEngine {
 
     private val _messages = MutableStateFlow<List<ChatMessage>>(emptyList())
@@ -127,17 +130,19 @@ class DefaultChatEngine @Inject constructor(
         val activeType = llmRepository.getCurrentProviderType() ?: ProviderType.GROQ
         activeProvider.value = activeType.name
 
-        // Build history with executive system prompt
-        val chatHistory = mutableListOf<ChatMessage>()
-        chatHistory.add(
-            ChatMessage(
-                role = "system",
-                content = ActionParser.buildSystemPrompt(
-                    currentCharacter,
-                    deviceActionExecutor.getCapabilityManager().buildDeviceCapabilitiesPrompt()
-                )
-            )
+        // Build history with executive system prompt and recalled long-term memories
+        val memoryContext = try {
+            hindsightMemoryEngine?.buildPromptContext(query = message).orEmpty()
+        } catch (_: Exception) { "" }
+
+        val baseSystemPrompt = ActionParser.buildSystemPrompt(
+            currentCharacter,
+            deviceActionExecutor.getCapabilityManager().buildDeviceCapabilitiesPrompt()
         )
+        val finalSystemPrompt = if (memoryContext.isNotBlank()) "$baseSystemPrompt\n\n$memoryContext" else baseSystemPrompt
+
+        val chatHistory = mutableListOf<ChatMessage>()
+        chatHistory.add(ChatMessage(role = "system", content = finalSystemPrompt))
 
         // Add last 10 messages from history for LLM context window
         messages.value.takeLast(10).forEach { msg ->
@@ -186,6 +191,16 @@ class DefaultChatEngine @Inject constructor(
             val executionSteps = mutableListOf<com.orbital.action.ExecutionStep>()
 
             if (parsed.actions.isNotEmpty()) {
+                val foremanSteps = parsed.actions.mapIndexed { idx, act ->
+                    com.orbital.foreman.ExecutionStep(
+                        id = "step_$idx",
+                        description = "${act.action}: ${act.target ?: act.query ?: ""}",
+                        targetPackage = act.target,
+                        expectedOutcome = "Execute ${act.action} successfully"
+                    )
+                }
+                foremanSupervisor?.startPlan(foremanSteps)
+
                 val thinkDuration = 350L
                 executionSteps += com.orbital.action.ExecutionStep(
                     title = "Thought for ${(thinkDuration / 1000.0).let { "%.1fs".format(it) }}",
@@ -244,6 +259,18 @@ class DefaultChatEngine @Inject constructor(
                             com.orbital.ui.MascotEventBus.postEvent(com.orbital.ui.MascotEvent.ActionSuccess(result.message))
                             launchFloatingCompanionOverlay()
 
+                            foremanSupervisor?.tracker?.markCurrentStepSuccess()
+                            scope.launch(Dispatchers.IO) {
+                                try {
+                                    val summary = "Successfully executed ${action.action}${if (!action.target.isNullOrBlank()) " on ${action.target}" else if (!action.query.isNullOrBlank()) " for '${action.query}'" else ""}"
+                                    hindsightMemoryEngine?.retain(
+                                        category = com.orbital.memory.hindsight.MemoryType.HABIT,
+                                        contextKey = action.action.lowercase(),
+                                        summary = summary
+                                    )
+                                } catch (_: Exception) {}
+                            }
+
                             executionSteps += com.orbital.action.ExecutionStep(
                                 title = "Ran DeviceAction: ${action.action.lowercase().replace('_', ' ')}${if (!action.target.isNullOrBlank()) " (${action.target})" else if (!action.query.isNullOrBlank()) " (${action.query})" else ""}",
                                 status = com.orbital.action.StepStatus.SUCCESS,
@@ -266,6 +293,18 @@ class DefaultChatEngine @Inject constructor(
                             val actionDuration = System.currentTimeMillis() - actionStartTime
                             results += "⚠️ ${result.errorMessage}"
                             com.orbital.ui.MascotEventBus.postEvent(com.orbital.ui.MascotEvent.ActionFailed(result.errorMessage))
+
+                            foremanSupervisor?.tracker?.incrementRetryOnCurrent(result.errorMessage)
+                            scope.launch(Dispatchers.IO) {
+                                try {
+                                    hindsightMemoryEngine?.retain(
+                                        category = com.orbital.memory.hindsight.MemoryType.APP_QUIRK,
+                                        contextKey = action.action.lowercase(),
+                                        summary = "Action ${action.action} encountered error: ${result.errorMessage}"
+                                    )
+                                } catch (_: Exception) {}
+                            }
+
                             executionSteps += com.orbital.action.ExecutionStep(
                                 title = "Failed: ${action.action.lowercase().replace('_', ' ')}",
                                 status = com.orbital.action.StepStatus.FAILED,

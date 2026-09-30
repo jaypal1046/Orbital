@@ -205,6 +205,24 @@ class OrbitalAccessibilityService : AccessibilityService() {
         return false
     }
 
+    suspend fun clickElementSmart(
+        goalDescription: String,
+        ranker: com.orbital.decision.jev.AccessibilityNodeRanker = com.orbital.decision.jev.AccessibilityNodeRanker(com.orbital.decision.jev.JevLocalFallbackEngine())
+    ): Boolean {
+        val snapshot = captureScreenHierarchy() ?: return false
+        if (snapshot.elements.isEmpty()) return false
+
+        val ranked = ranker.rankElementsForGoal(
+            goalDescription = goalDescription,
+            screenContext = snapshot.toPromptSummary(),
+            elements = snapshot.elements
+        )
+
+        val topMatch = ranked.firstOrNull() ?: return false
+        val bounds = topMatch.element.bounds
+        return tapCoordinates(bounds.centerX().toFloat(), bounds.centerY().toFloat())
+    }
+
     fun inputText(text: String, targetHintOrLabel: String? = null): Boolean {
         val root = rootInActiveWindow ?: return false
 
