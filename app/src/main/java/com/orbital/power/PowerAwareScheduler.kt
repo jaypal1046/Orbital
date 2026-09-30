@@ -177,18 +177,23 @@ class PowerAwareScheduler(private val context: Context) {
     }
 
     fun registerWifiAutomation() {
-        context.registerReceiver(object : BroadcastReceiver() {
-            override fun onReceive(receiverContext: Context, intent: Intent) {
-                if (intent.action != WifiManager.NETWORK_STATE_CHANGED_ACTION) return
-                val wifi = receiverContext.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
-                val ssid = try { wifi.connectionInfo.ssid.trim('"') } catch (_: SecurityException) { return }
-                val prefs = receiverContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-                when (ssid) {
-                    prefs.getString(WORK_WIFI, "") -> if (ssid.isNotBlank()) (receiverContext.getSystemService(Context.AUDIO_SERVICE) as AudioManager).ringerMode = AudioManager.RINGER_MODE_VIBRATE
-                    prefs.getString(HOME_WIFI, "") -> if (ssid.isNotBlank()) notify(receiverContext, 220, "Welcome home", "Wrap up focus work when you are ready.")
+        ContextCompat.registerReceiver(
+            context,
+            object : BroadcastReceiver() {
+                override fun onReceive(receiverContext: Context, intent: Intent) {
+                    if (intent.action != WifiManager.NETWORK_STATE_CHANGED_ACTION) return
+                    val wifi = receiverContext.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+                    val ssid = try { wifi.connectionInfo.ssid.trim('"') } catch (_: SecurityException) { return }
+                    val prefs = receiverContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                    when (ssid) {
+                        prefs.getString(WORK_WIFI, "") -> if (ssid.isNotBlank()) (receiverContext.getSystemService(Context.AUDIO_SERVICE) as AudioManager).ringerMode = AudioManager.RINGER_MODE_VIBRATE
+                        prefs.getString(HOME_WIFI, "") -> if (ssid.isNotBlank()) notify(receiverContext, 220, "Welcome home", "Wrap up focus work when you are ready.")
+                    }
                 }
-            }
-        }, IntentFilter(WifiManager.NETWORK_STATE_CHANGED_ACTION))
+            },
+            IntentFilter(WifiManager.NETWORK_STATE_CHANGED_ACTION),
+            ContextCompat.RECEIVER_NOT_EXPORTED
+        )
     }
 
     /**

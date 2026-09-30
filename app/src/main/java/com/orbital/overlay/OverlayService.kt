@@ -175,14 +175,29 @@ class OverlayService : Service() {
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, createNotification())
-        registerReceiver(statusReceiver, IntentFilter().apply {
-            addAction(ACTION_UPDATE_CONNECTION_STATUS)
-            addAction(ACTION_UPDATE_VOICE_STATUS)
-            addAction(ACTION_UPDATE_CHARACTER)
-            addAction(ACTION_PERMISSION_REVOKED)
-        })
-        registerReceiver(configChangeReceiver, IntentFilter(Intent.ACTION_CONFIGURATION_CHANGED))
-        registerReceiver(batteryReceiver, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+        ContextCompat.registerReceiver(
+            this,
+            statusReceiver,
+            IntentFilter().apply {
+                addAction(ACTION_UPDATE_CONNECTION_STATUS)
+                addAction(ACTION_UPDATE_VOICE_STATUS)
+                addAction(ACTION_UPDATE_CHARACTER)
+                addAction(ACTION_PERMISSION_REVOKED)
+            },
+            ContextCompat.RECEIVER_NOT_EXPORTED
+        )
+        ContextCompat.registerReceiver(
+            this,
+            configChangeReceiver,
+            IntentFilter(Intent.ACTION_CONFIGURATION_CHANGED),
+            ContextCompat.RECEIVER_NOT_EXPORTED
+        )
+        ContextCompat.registerReceiver(
+            this,
+            batteryReceiver,
+            IntentFilter(Intent.ACTION_BATTERY_CHANGED),
+            ContextCompat.RECEIVER_NOT_EXPORTED
+        )
 
         // Load the selected character from storage
         val secureStorage = SecureStorage(this)
