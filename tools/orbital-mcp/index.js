@@ -4,11 +4,16 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { WebSocketServer } from "ws";
+import https from "https";
+import http from "http";
 import os from "os";
+import { Bonjour } from "bonjour-service";
+import selfsigned from "selfsigned";
 
 // 1. Generate 4-digit pairing PIN
 const PIN = "ORB-" + Math.floor(1000 + Math.random() * 9000);
 const PORT = process.env.PORT ? parseInt(process.env.PORT) : 8765;
+const HOSTNAME = os.hostname() || "Laptop";
 
 // Find local IP address
 function getLocalIp() {
@@ -25,23 +30,42 @@ function getLocalIp() {
 
 const LOCAL_IP = getLocalIp();
 
+// Generate ephemeral SSL certificate for local TLS/WSS (Quick Share DTLS style)
+const pems = selfsigned.generate([{ name: "commonName", value: LOCAL_IP }], { keySize: 2048, days: 365 });
+
 console.error(`================================================`);
 console.error(` 🛰️  Orbital Laptop-to-Mobile AI Bridge Host`);
 console.error(`================================================`);
-console.error(`🔑 Pairing Code : \x1b[32m${PIN}\x1b[0m`);
-console.error(`🌐 Local WS     : \x1b[36mws://${LOCAL_IP}:${PORT}\x1b[0m`);
-console.error(`📱 In Orbital App: Open Side Menu -> "Laptop AI Bridge" -> Connect`);
+console.error(`🔑 Pairing Code  : \x1b[32m${PIN}\x1b[0m`);
+console.error(`🌐 Secure WSS    : \x1b[36mwss://${LOCAL_IP}:${PORT}\x1b[0m`);
+console.error(`📡 QuickShare NSD: \x1b[35m_orbital-bridge._tcp (${HOSTNAME})\x1b[0m`);
+console.error(`📱 In Orbital App: Open Side Menu -> "Laptop AI Bridge" -> Auto-Discovered!`);
 console.error(`================================================\n`);
 
 let activePhoneSocket = null;
 const pendingRequests = new Map();
 
-// 2. Start WebSocket Server for Phone Connection
-const wss = new WebSocketServer({ port: PORT });
+// 2. Start Secure WSS / HTTP Dual Server
+const serverHttps = https.createServer({
+  key: pems.private,
+  cert: pems.cert
+}, (req, res) => {
+  res.writeHead(200, { "Content-Type": "application/json" });
+  res.end(JSON.stringify({ status: "ok", name: "Orbital AI Bridge", pin: PIN, host: HOSTNAME }));
+});
 
-wss.on("connection", (ws) => {
+const wss = new WebSocketServer({ server: serverHttps });
+
+// Also accept standard WS on same port via fallback HTTP server if needed
+const serverHttp = http.createServer((req, res) => {
+  res.writeHead(200, { "Content-Type": "application/json" });
+  res.end(JSON.stringify({ status: "ok", name: "Orbital AI Bridge", pin: PIN, host: HOSTNAME }));
+});
+const wssHttp = new WebSocketServer({ server: serverHttp });
+
+function setupWebSocket(ws, protocol) {
   activePhoneSocket = ws;
-  console.error("🟢 Mobile Phone Connected via WebSocket!");
+  console.error(`🟢 Mobile Phone Connected via ${protocol}!`);
 
   ws.on("message", (raw) => {
     try {
@@ -64,10 +88,38 @@ wss.on("connection", (ws) => {
   });
 
   ws.on("close", () => {
-    activePhoneSocket = null;
-    console.error("🔴 Mobile Phone Disconnected");
+    if (activePhoneSocket === ws) {
+      activePhoneSocket = null;
+    }
+    console.error(`🔴 Mobile Phone Disconnected (${protocol})`);
   });
+}
+
+wss.on("connection", (ws) => setupWebSocket(ws, "WSS (Encrypted TLS)"));
+wssHttp.on("connection", (ws) => setupWebSocket(ws, "WS"));
+
+serverHttps.listen(PORT, "0.0.0.0", () => {
+  // 3. Publish mDNS Service for Quick Share auto-discovery
+  try {
+    const bonjour = new Bonjour();
+    bonjour.publish({
+      name: `${HOSTNAME} (Orbital Bridge)`,
+      type: "orbital-bridge",
+      port: PORT,
+      txt: {
+        pin: PIN,
+        host: HOSTNAME,
+        ip: LOCAL_IP,
+        ver: "1.0.0"
+      }
+    });
+    console.error(`📡 Broadcasting mDNS service: _orbital-bridge._tcp on local network.`);
+  } catch (err) {
+    console.error(`mDNS broadcast warning: ${err.message}`);
+  }
 });
+
+serverHttp.listen(PORT + 1, "0.0.0.0");
 
 // Helper to send command to phone with timeout
 function sendToPhone(message, reqKey, timeoutMs = 8000) {

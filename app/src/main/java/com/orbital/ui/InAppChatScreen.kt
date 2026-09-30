@@ -663,10 +663,11 @@ fun InAppChatScreen(
         )
     }
 
-    // Laptop AI Bridge Dialog
+    // Laptop AI Bridge Dialog (Quick Share & Auto-Discovery)
     if (showBridgeDialog) {
         com.orbital.bridge.ui.BridgeConnectDialog(
             bridgeClient = chatViewModel.bridgeClient,
+            discoveryService = chatViewModel.discoveryService,
             onDismiss = { showBridgeDialog = false }
         )
     }

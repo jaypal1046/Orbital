@@ -27,13 +27,24 @@ import com.orbital.bridge.OrbitalBridgeClient
 @Composable
 fun BridgeConnectDialog(
     bridgeClient: OrbitalBridgeClient,
+    discoveryService: com.orbital.bridge.OrbitalDiscoveryService? = null,
     onDismiss: () -> Unit
 ) {
     val connectionState by bridgeClient.connectionState.collectAsState()
     val activeChannel by bridgeClient.activeChannelCode.collectAsState()
     val eventLogs by bridgeClient.eventLogs.collectAsState()
 
+    val discoveredLaptops by discoveryService?.discoveredLaptops?.collectAsState() ?: remember { mutableStateOf(emptyList()) }
+    val isSearching by discoveryService?.isSearching?.collectAsState() ?: remember { mutableStateOf(false) }
+
     var inputTarget by remember { mutableStateOf(activeChannel ?: "") }
+
+    DisposableEffect(Unit) {
+        discoveryService?.startDiscovery()
+        onDispose {
+            discoveryService?.stopDiscovery()
+        }
+    }
 
     Dialog(onDismissRequest = onDismiss) {
         Card(
@@ -60,7 +71,7 @@ fun BridgeConnectDialog(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(text = "💻", fontSize = 28.sp)
+                        Text(text = "🛰️", fontSize = 28.sp)
                         Spacer(modifier = Modifier.width(10.dp))
                         Column {
                             Text(
@@ -70,7 +81,7 @@ fun BridgeConnectDialog(
                                 color = Color.White
                             )
                             Text(
-                                text = "P2P Remote AI-to-Phone Controller",
+                                text = "Quick Share & P2P Remote AI Controller",
                                 fontSize = 11.5.sp,
                                 color = Color(0xFFA5B4FC)
                             )
@@ -81,7 +92,7 @@ fun BridgeConnectDialog(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(14.dp))
 
                 // Connection Status Pill
                 val (statusColor, statusText) = when (connectionState) {
@@ -116,21 +127,90 @@ fun BridgeConnectDialog(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(14.dp))
 
-                // Input Field (6-digit PIN or IP)
                 if (connectionState != BridgeConnectionState.CONNECTED) {
+                    // Quick Share Discovered Devices
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "📡 Nearby Laptops (Quick Share):",
+                            fontSize = 12.sp,
+                            color = Color(0xFFCBD5E1),
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        if (isSearching) {
+                            Text(
+                                text = "Searching...",
+                                fontSize = 11.sp,
+                                color = Color(0xFF818CF8)
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    if (discoveredLaptops.isNotEmpty()) {
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            discoveredLaptops.forEach { laptop ->
+                                Surface(
+                                    color = Color(0xFF1F2942),
+                                    shape = RoundedCornerShape(12.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Text("💻", fontSize = 20.sp)
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Column {
+                                                Text(
+                                                    text = laptop.name,
+                                                    fontSize = 13.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = Color.White
+                                                )
+                                                Text(
+                                                    text = "${laptop.host}:${laptop.port}",
+                                                    fontSize = 11.sp,
+                                                    color = Color(0xFF94A3B8)
+                                                )
+                                            }
+                                        }
+                                        Button(
+                                            onClick = { bridgeClient.connect(laptop) },
+                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)),
+                                            shape = RoundedCornerShape(8.dp),
+                                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+                                        ) {
+                                            Text("Connect", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(10.dp))
+                    }
+
+                    // Manual Input Fallback
                     Text(
-                        text = "Enter Laptop Pairing PIN or IP:",
-                        fontSize = 12.sp,
-                        color = Color(0xFFCBD5E1),
+                        text = "Or enter PIN / IP manually:",
+                        fontSize = 11.5.sp,
+                        color = Color(0xFF94A3B8),
                         fontWeight = FontWeight.Medium
                     )
-                    Spacer(modifier = Modifier.height(6.dp))
+                    Spacer(modifier = Modifier.height(4.dp))
                     OutlinedTextField(
                         value = inputTarget,
                         onValueChange = { inputTarget = it },
-                        placeholder = { Text("e.g. ORB-8421 or 192.168.1.5", fontSize = 13.sp, color = Color(0xFF64748B)) },
+                        placeholder = { Text("e.g. ORB-5543 or 10.247.57.111", fontSize = 12.5.sp, color = Color(0xFF64748B)) },
                         singleLine = true,
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedBorderColor = Color(0xFF7C3AED),
@@ -144,7 +224,7 @@ fun BridgeConnectDialog(
                         modifier = Modifier.fillMaxWidth()
                     )
 
-                    Spacer(modifier = Modifier.height(14.dp))
+                    Spacer(modifier = Modifier.height(10.dp))
 
                     Button(
                         onClick = { bridgeClient.connect(inputTarget) },
@@ -153,7 +233,7 @@ fun BridgeConnectDialog(
                         shape = RoundedCornerShape(12.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text(if (connectionState == BridgeConnectionState.CONNECTING) "Connecting..." else "Connect to Laptop", fontWeight = FontWeight.Bold)
+                        Text(if (connectionState == BridgeConnectionState.CONNECTING) "Connecting..." else "Connect via PIN / IP", fontWeight = FontWeight.Bold)
                     }
                 } else {
                     Button(

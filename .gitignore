@@ -23,6 +23,7 @@ gen/
 out/
 build/
 */build/
+*/*/node_modules/*
 
 # Gradle files
 .gradle/

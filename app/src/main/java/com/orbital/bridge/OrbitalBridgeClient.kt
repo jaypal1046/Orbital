@@ -16,11 +16,7 @@ import javax.inject.Singleton
 class OrbitalBridgeClient @Inject constructor(
     private val context: Context,
     private val actionDispatcher: BridgeActionDispatcher,
-    private val httpClient: OkHttpClient = OkHttpClient.Builder()
-        .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(0, TimeUnit.MILLISECONDS) // infinite for websocket
-        .pingInterval(15, TimeUnit.SECONDS)
-        .build(),
+    private val httpClient: OkHttpClient = OrbitalTlsHelper.createSecureBridgeHttpClient(),
     private val json: Json = Json { ignoreUnknownKeys = true }
 ) {
 
@@ -50,8 +46,16 @@ class OrbitalBridgeClient @Inject constructor(
     }
 
     /**
+     * Connects directly to a discovered laptop via QuickShare NSD.
+     */
+    fun connect(laptop: DiscoveredLaptop) {
+        val target = "wss://${laptop.host}:${laptop.port}"
+        connect(target)
+    }
+
+    /**
      * Connects to a laptop via 6-digit PIN or direct IP/Host.
-     * @param target Either a 6-digit channel code (e.g. "ORB-8421" or "8421") or a direct host (e.g. "192.168.1.5" or "ws://192.168.1.5:8765")
+     * @param target Either a 6-digit channel code (e.g. "ORB-8421" or "8421") or a direct host (e.g. "192.168.1.5" or "wss://192.168.1.5:8765")
      */
     fun connect(target: String) {
         val cleanTarget = target.trim()
@@ -160,9 +164,9 @@ class OrbitalBridgeClient @Inject constructor(
         return if (target.startsWith("ws://") || target.startsWith("wss://")) {
             target
         } else if (target.contains(".")) {
-            // Direct IP or hostname without scheme
+            // Direct IP or hostname without scheme -> Default to secure WSS
             val portSuffix = if (!target.contains(":")) ":$DEFAULT_LOCAL_PORT" else ""
-            "ws://$target$portSuffix"
+            "wss://$target$portSuffix"
         } else {
             // Channel code (e.g. "8421" or "ORB-8421") -> Connect to public relay channel
             val cleanCode = target.uppercase().removePrefix("ORB-")
