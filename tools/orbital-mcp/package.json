@@ -1,15 +1,41 @@
 {
-  "name": "orbital-mcp-bridge",
+  "name": "orbital-mcp",
   "version": "1.0.0",
-  "description": "Laptop-to-Mobile Model Context Protocol (MCP) Bridge for Orbital Android",
+  "description": "Model Context Protocol (MCP) server for remote Android mobile control via Orbital Bridge",
   "main": "index.js",
   "type": "module",
+  "bin": {
+    "orbital-mcp": "./index.js"
+  },
+  "files": [
+    "index.js",
+    "README.md"
+  ],
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "android",
+    "automation",
+    "orbital",
+    "ai-bridge",
+    "agentic-ui"
+  ],
+  "author": "Orbital Contributors",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jaypal1046/Orbital.git"
+  },
+  "bugs": {
+    "url": "https://github.com/jaypal1046/Orbital/issues"
+  },
+  "homepage": "https://github.com/jaypal1046/Orbital#readme",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.6.0",
     "ws": "^8.18.0",
-    "qrcode-terminal": "^0.12.0"
+    "zod": "^3.24.2"
   }
 }
