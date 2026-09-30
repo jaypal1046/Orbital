@@ -216,7 +216,73 @@ server.tool(
   }
 );
 
-// Tool 5: Press Global Key
+// Tool 5: Swipe Screen
+server.tool(
+  "swipe_phone_screen",
+  "Scroll or swipe the phone screen in a specified direction (UP, DOWN)",
+  {
+    direction: z.enum(["UP", "DOWN"]).describe("Direction to scroll/swipe the screen")
+  },
+  async ({ direction }) => {
+    try {
+      const actionId = "act-" + Date.now();
+      const payload = {
+        type: "EXECUTE_ACTION",
+        action: {
+          actionId,
+          actionType: "SWIPE",
+          swipeDirection: direction
+        }
+      };
+      const result = await sendToPhone(payload, actionId);
+      return {
+        content: [{ type: "text", text: `Swipe Result: ${result.message}` }]
+      };
+    } catch (err) {
+      return {
+        content: [{ type: "text", text: `Error swiping screen: ${err.message}` }],
+        isError: true
+      };
+    }
+  }
+);
+
+// Tool 6: Assert Screen Contains (App Testing / QA Verification)
+server.tool(
+  "assert_screen_contains",
+  "Verify and assert that specific text or element exists on the phone screen (useful for automated app testing & QA)",
+  {
+    expectedText: z.string().describe("The text that MUST be present on screen for test to pass")
+  },
+  async ({ expectedText }) => {
+    try {
+      const screenState = await sendToPhone({ type: "INSPECT_SCREEN" }, "INSPECT_SCREEN");
+      const found = screenState.nodes?.some(node =>
+        node.text?.toLowerCase().includes(expectedText.toLowerCase()) ||
+        node.contentDescription?.toLowerCase().includes(expectedText.toLowerCase())
+      );
+
+      if (found) {
+        return {
+          content: [{ type: "text", text: ` Assertion PASSED: Found '${expectedText}' in ${screenState.currentPackage}` }]
+        };
+      } else {
+        const visibleTexts = screenState.nodes?.map(n => n.text).filter(Boolean).slice(0, 10).join(", ");
+        return {
+          content: [{ type: "text", text: `❌ Assertion FAILED: Expected '${expectedText}', but visible texts are: [${visibleTexts}]` }],
+          isError: true
+        };
+      }
+    } catch (err) {
+      return {
+        content: [{ type: "text", text: `Error asserting screen content: ${err.message}` }],
+        isError: true
+      };
+    }
+  }
+);
+
+// Tool 7: Press Global Key
 server.tool(
   "press_phone_key",
   "Press global Android navigation keys (BACK, HOME, RECENTS)",
@@ -250,3 +316,4 @@ server.tool(
 // Connect MCP over Stdio for Claude / Cursor / Antigravity
 const transport = new StdioServerTransport();
 await server.connect(transport);
+

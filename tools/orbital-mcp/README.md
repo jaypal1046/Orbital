@@ -73,14 +73,34 @@ In Cursor Settings $\rightarrow$ Features $\rightarrow$ MCP Servers $\rightarrow
 
 ---
 
+## 🎯 Automated App Testing & QA Use Cases
+
+With `orbital-mcp`, developers and AI agents can execute automated End-to-End tests on ANY Android application:
+
+```text
+"Open WhatsApp, search for 'Dev Group', send 'Build #42 deployed', and assert that 'Build #42 deployed' is visible."
+```
+
+```text
+"Launch Amazon app, search for 'Mechanical Keyboard', scroll down twice, click the first product, and verify the Buy Now button exists."
+```
+
+```text
+"Run a full regression test on Settings -> Display -> Dark Mode toggle and report any UI hierarchy anomalies."
+```
+
+---
+
 ## 🧰 Available MCP Tools
 
 | Tool | Description | Arguments |
 |---|---|---|
-| `inspect_phone_screen` | Captures live UI hierarchy and view tree | None |
-| `tap_phone_element` | Taps element by visible text, ID, or (x, y) coords | `targetText`, `targetId`, `x`, `y` |
+| `inspect_phone_screen` | Captures live UI hierarchy and view tree of any open app | None |
+| `tap_phone_element` | Taps element by visible text, ID, or (x, y) coords | `targetText`, `targetId` |
 | `type_phone_text` | Enters text into the focused input field | `text` (string) |
-| `open_phone_app` | Launches an app on the phone by package name | `packageName` (string) |
+| `swipe_phone_screen` | Scrolls/swipes screen in a direction | `direction` (`"UP"`, `"DOWN"`) |
+| `open_phone_app` | Launches any target app under test by package name | `packageName` (string) |
+| `assert_screen_contains` | Asserts that expected text exists on screen (for QA tests) | `expectedText` (string) |
 | `press_phone_key` | Presses standard Android navigation keys | `key` (`"BACK"`, `"HOME"`, `"RECENTS"`) |
 
 ---
