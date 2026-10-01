@@ -128,6 +128,7 @@ class ChatViewModel @Inject constructor(
     init {
         chatEngine.setCharacter(_currentCharacter.value)
         bridgeClient.actionDispatcher.activeChatEngine = chatEngine
+        bridgeClient.autoConnectLastTarget()
         observeChatEngine()
         setupVoiceCallback()
     }

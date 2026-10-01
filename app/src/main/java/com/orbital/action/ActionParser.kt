@@ -64,6 +64,15 @@ Whenever the user asks you to perform an action, you MUST ALWAYS generate the ``
             }
         }
 
+        // Natural Language Intent Heuristic Fallback (Offline / Zero-LLM resilience)
+        val naturalAction = parseNaturalIntent(rawResponse)
+        if (naturalAction != null) {
+            return ParsedResponse(
+                userDisplayText = "Executing ${naturalAction.action.replace('_', ' ').lowercase()}...",
+                actions = listOf(naturalAction)
+            )
+        }
+
         // Clean any leftover action fence if present
         val cleanedRaw = rawResponse.replace(Regex("(?s)```(?:action|json)?[\\s\\S]*"), "").trim()
 
@@ -71,6 +80,49 @@ Whenever the user asks you to perform an action, you MUST ALWAYS generate the ``
             userDisplayText = cleanedRaw.ifBlank { rawResponse.trim() },
             actions = emptyList()
         )
+    }
+
+    fun parseNaturalIntent(text: String): DeviceAction? {
+        val clean = text.lowercase().trim()
+        
+        // Battery & Device Status Intents
+        if (clean.matches(Regex(".*\\b(batt(e|er)?y|battery\\s*status|device\\s*status|storage\\s*status|battery\\s*level|battery\\s*health|storage\\s*health|system\\s*health|phone\\s*status)\\b.*"))) {
+            return DeviceAction(action = "DEVICE_STATUS")
+        }
+
+        // Connectivity Status Intents
+        if (clean.matches(Regex(".*\\b(wifi\\s*status|bluetooth\\s*status|connectivity\\s*status|internet\\s*status|network\\s*status)\\b.*"))) {
+            return DeviceAction(action = "CONNECTIVITY_STATUS")
+        }
+
+        // Flashlight Intents
+        if (clean.contains("flashlight") || clean.contains("torch")) {
+            val turnOff = clean.contains("off") || clean.contains("disable") || clean.contains("stop")
+            return DeviceAction(action = "FLASHLIGHT", enabled = !turnOff)
+        }
+
+        // Sound mode intents
+        if (clean.contains("silent mode") || clean.contains("mute")) {
+            return DeviceAction(action = "SET_SOUND_MODE", target = "silent")
+        }
+        if (clean.contains("vibrate mode") || clean.contains("vibration")) {
+            return DeviceAction(action = "SET_SOUND_MODE", target = "vibrate")
+        }
+
+        // Timer intents (e.g. "set a timer for 10 minutes", "timer 5 mins")
+        val timerMatch = Regex("(?:set|start)?\\s*(?:a\\s*)?timer\\s*(?:for)?\\s*(\\d+)\\s*(min(?:ute)?s?|sec(?:ond)?s?|hours?)", RegexOption.IGNORE_CASE).find(clean)
+        if (timerMatch != null) {
+            val amount = timerMatch.groupValues[1].toIntOrNull() ?: 1
+            val unit = timerMatch.groupValues[2].lowercase()
+            val seconds = when {
+                unit.startsWith("sec") -> amount
+                unit.startsWith("hour") -> amount * 3600
+                else -> amount * 60
+            }
+            return DeviceAction(action = "SET_TIMER", seconds = seconds, label = "Focus Timer")
+        }
+
+        return null
     }
 
     private fun parseActionsJson(jsonStr: String): List<DeviceAction> {

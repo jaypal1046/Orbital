@@ -99,6 +99,18 @@ class OrbitalBridgeClient @Inject constructor(
     /**
      * Connects to a laptop via 6-digit PIN or direct IP/Host.
      */
+    private val prefs by lazy {
+        context.getSharedPreferences("orbital_bridge_prefs", Context.MODE_PRIVATE)
+    }
+
+    fun autoConnectLastTarget() {
+        val lastTarget = prefs.getString("last_bridge_target", null)
+        if (!lastTarget.isNullOrBlank() && _connectionState.value == BridgeConnectionState.DISCONNECTED) {
+            log("🔄 Auto-reconnecting to previous bridge target: $lastTarget")
+            connect(lastTarget)
+        }
+    }
+
     fun connect(target: String) {
         val cleanTarget = target.trim()
         if (cleanTarget.isBlank()) return
@@ -116,6 +128,7 @@ class OrbitalBridgeClient @Inject constructor(
         webSocket = httpClient.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 _connectionState.value = BridgeConnectionState.CONNECTED
+                prefs.edit().putString("last_bridge_target", cleanTarget).apply()
                 log("🟢 Connected to Laptop AI Bridge successfully!")
 
                 val pairingMsg = BridgeMessage(

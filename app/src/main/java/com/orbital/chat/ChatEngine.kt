@@ -26,4 +26,11 @@ interface ChatEngine {
     suspend fun executeTTSAndActions()
     fun confirmPendingAction()
     fun cancelPendingAction()
+    fun addActionMessage(
+        content: String,
+        actionLabel: String,
+        actionDetails: String? = null,
+        steps: List<com.orbital.action.ExecutionStep>? = null,
+        durationMs: Long = 0L
+    )
 }

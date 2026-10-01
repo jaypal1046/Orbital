@@ -192,13 +192,19 @@ class DefaultChatEngine @Inject constructor(
                         val execResults = parsed.actions.map { deviceActionExecutor.execute(it) }
                         val isSuccess = execResults.all { it is com.orbital.action.ActionResult.Success }
                         val label = parsed.actions.firstOrNull()?.action?.lowercase()?.replace('_', ' ') ?: "action"
-                        val details = execResults.joinToString("; ") { res ->
+                        val details = execResults.mapNotNull { res ->
                             when (res) {
-                                is com.orbital.action.ActionResult.Success -> res.message
+                                is com.orbital.action.ActionResult.Success -> listOfNotNull(res.message, res.details).joinToString("\n")
                                 is com.orbital.action.ActionResult.Error -> res.errorMessage
                             }
-                        }
-                        val fallbackContent = if (isSuccess) "Executed ${label.replaceFirstChar { it.uppercase() }} on your phone." else "Attempted $label: $details"
+                        }.joinToString("\n\n")
+                        val fallbackContent = if (isSuccess) {
+                            if (parsed.actions.any { it.action == "DEVICE_STATUS" || it.action == "BATTERY" }) {
+                                details
+                            } else {
+                                "Executed ${label.replaceFirstChar { it.uppercase() }} on your phone."
+                            }
+                        } else "Attempted $label: $details"
                         addActionMessage(
                             content = fallbackContent,
                             actionLabel = "⚡ ${label.replaceFirstChar { it.uppercase() }}",
@@ -457,12 +463,12 @@ class DefaultChatEngine @Inject constructor(
         )
     }
 
-    private fun addActionMessage(
+    override fun addActionMessage(
         content: String,
         actionLabel: String,
         actionDetails: String?,
-        steps: List<com.orbital.action.ExecutionStep>? = null,
-        durationMs: Long = 0L
+        steps: List<com.orbital.action.ExecutionStep>?,
+        durationMs: Long
     ) {
         val msg = ChatMessage(
             role = "assistant",

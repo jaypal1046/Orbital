@@ -232,7 +232,7 @@ class BridgeActionDispatcher @Inject constructor(
                     )
                     val execResult = actionExecutor.execute(deviceAction)
                     val (success, message) = when (execResult) {
-                        is ActionResult.Success -> true to "${execResult.message}${if (execResult.details != null) " (${execResult.details})" else ""}"
+                        is ActionResult.Success -> true to "${execResult.message}${if (execResult.details != null) "\n${execResult.details}" else ""}"
                         is ActionResult.Error -> false to execResult.errorMessage
                     }
                     val state = captureScreenState()
@@ -240,6 +240,7 @@ class BridgeActionDispatcher @Inject constructor(
                         actionId = action.actionId,
                         success = success,
                         message = message,
+                        aiResponse = message,
                         executionDurationMs = System.currentTimeMillis() - startTime,
                         updatedScreenState = state
                     )
@@ -250,42 +251,58 @@ class BridgeActionDispatcher @Inject constructor(
                     var aiOutput = ""
                     var success = false
 
-                    val engine = activeChatEngine ?: chatEngine
-                    if (engine != null && prompt.isNotBlank()) {
-                        Log.i(TAG, "⚡ Delegating task to Phone AI (ChatEngine): $prompt")
-                        engine.sendMessage(prompt)
-
-                        // Wait for streaming to initiate and complete
-                        var waited = 0L
-                        val maxWait = 25000L
-                        kotlinx.coroutines.delay(250)
-                        while (engine.isStreaming.value && waited < maxWait) {
-                            kotlinx.coroutines.delay(150)
-                            waited += 150
+                    // 1. Check for immediate natural device action intents (zero-latency edge execution)
+                    val naturalAction = com.orbital.action.ActionParser.parseNaturalIntent(prompt)
+                    if (naturalAction != null) {
+                        val result = actionExecutor.execute(naturalAction)
+                        success = result is ActionResult.Success
+                        val details = when (result) {
+                            is ActionResult.Success -> listOfNotNull(result.message, result.details).joinToString("\n")
+                            is ActionResult.Error -> result.errorMessage
                         }
+                        aiOutput = details
+                        val engine = activeChatEngine ?: chatEngine
+                        engine?.addActionMessage(
+                            content = details,
+                            actionLabel = "⚡ ${naturalAction.action.replace('_', ' ').lowercase().replaceFirstChar { it.uppercase() }}",
+                            actionDetails = details
+                        )
+                    } else {
+                        val engine = activeChatEngine ?: chatEngine
+                        if (engine != null && prompt.isNotBlank()) {
+                            Log.i(TAG, "⚡ Delegating task to Phone AI (ChatEngine): $prompt")
+                            val prevCount = engine.messages.value.size
+                            engine.sendMessage(prompt)
 
-                        val lastMsg = engine.messages.value.lastOrNull { it.role == "assistant" }
-                        aiOutput = lastMsg?.content?.takeIf { it.isNotBlank() }
-                            ?: lastMsg?.actionLabel
-                            ?: "Executed task: $prompt"
-                        success = true
-                    } else if (prompt.isNotBlank()) {
-                        // Direct action resolution & execution fallback
-                        val parsed = com.orbital.action.ActionParser.parse(prompt)
-                        if (parsed.actions.isNotEmpty()) {
-                            val results = parsed.actions.map { act ->
-                                actionExecutor.execute(act)
+                            // Wait for streaming / completion (up to 12s)
+                            var waited = 0L
+                            val maxWait = 12000L
+                            kotlinx.coroutines.delay(200)
+                            while ((engine.isStreaming.value || engine.messages.value.size <= prevCount) && waited < maxWait) {
+                                kotlinx.coroutines.delay(100)
+                                waited += 100
                             }
-                            success = results.all { it is ActionResult.Success }
-                            aiOutput = results.joinToString("; ") { res ->
-                                when (res) {
-                                    is ActionResult.Success -> res.message + (res.details?.let { " ($it)" } ?: "")
-                                    is ActionResult.Error -> res.errorMessage
-                                }
-                            }
-                        } else {
-                            aiOutput = "Processed task: $prompt"
+
+                            val lastMsg = engine.messages.value.lastOrNull { it.role == "assistant" }
+                            aiOutput = listOfNotNull(lastMsg?.content, lastMsg?.actionDetails).joinToString("\n\n").takeIf { it.isNotBlank() }
+                                ?: lastMsg?.actionLabel
+                                ?: "Executed task: $prompt"
                             success = true
+                        } else if (prompt.isNotBlank()) {
+                            val parsed = com.orbital.action.ActionParser.parse(prompt)
+                            if (parsed.actions.isNotEmpty()) {
+                                val results = parsed.actions.map { act -> actionExecutor.execute(act) }
+                                success = results.all { it is ActionResult.Success }
+                                aiOutput = results.joinToString("\n") { res ->
+                                    when (res) {
+                                        is ActionResult.Success -> listOfNotNull(res.message, res.details).joinToString("\n")
+                                        is ActionResult.Error -> res.errorMessage
+                                    }
+                                }
+                            } else {
+                                aiOutput = "Processed task: $prompt"
+                                success = true
+                            }
                         }
                     }
 

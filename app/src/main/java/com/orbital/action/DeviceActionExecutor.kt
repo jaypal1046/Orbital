@@ -693,18 +693,56 @@ open class DeviceActionExecutor(private val context: Context) {
     }
 
     fun getDeviceStatus(): ActionResult {
-        val batteryIntent = context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
-        val level = batteryIntent?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
-        val scale = batteryIntent?.getIntExtra(BatteryManager.EXTRA_SCALE, -1) ?: -1
-        val batteryPct = if (level >= 0 && scale > 0) (level * 100 / scale) else -1
-        val isCharging = batteryIntent?.getIntExtra(BatteryManager.EXTRA_STATUS, -1) == BatteryManager.BATTERY_STATUS_CHARGING
+        val batteryManager = context.getSystemService(Context.BATTERY_SERVICE) as? BatteryManager
+        var batteryPct = batteryManager?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: -1
+        
+        val batteryIntent = try {
+            context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+        } catch (_: Exception) { null }
 
-        val statusInfo = "Battery: $batteryPct% ${if (isCharging) "(Charging ⚡)" else ""}\nDevice: ${Build.MANUFACTURER} ${Build.MODEL}\nAndroid: ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})"
-        return ActionResult.Success("Device status checked", statusInfo)
+        if (batteryPct !in 0..100 && batteryIntent != null) {
+            val level = batteryIntent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
+            val scale = batteryIntent.getIntExtra(BatteryManager.EXTRA_SCALE, -1)
+            if (level >= 0 && scale > 0) {
+                batteryPct = level * 100 / scale
+            }
+        }
+
+        val isCharging = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && batteryManager != null) {
+            batteryManager.isCharging
+        } else {
+            val status = batteryIntent?.getIntExtra(BatteryManager.EXTRA_STATUS, -1) ?: -1
+            status == BatteryManager.BATTERY_STATUS_CHARGING || status == BatteryManager.BATTERY_STATUS_FULL
+        }
+
+        val tempTenths = batteryIntent?.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, 0) ?: 0
+        val tempC = if (tempTenths > 0) tempTenths / 10.0 else 0.0
+
+        val storageInfo = try {
+            val statFs = android.os.StatFs(android.os.Environment.getDataDirectory().path)
+            val bytesAvailable = statFs.availableBlocksLong * statFs.blockSizeLong
+            val bytesTotal = statFs.blockCountLong * statFs.blockSizeLong
+            val gbAvailable = bytesAvailable / (1024 * 1024 * 1024.0)
+            val gbTotal = bytesTotal / (1024 * 1024 * 1024.0)
+            "Storage: %.1f GB free of %.1f GB".format(gbAvailable, gbTotal)
+        } catch (_: Exception) { "Storage: Available" }
+
+        val batteryDisplay = if (batteryPct in 0..100) "$batteryPct%" else "Available"
+        val chargingStr = if (isCharging) " (Charging ⚡)" else ""
+        val tempStr = if (tempC > 0) "🌡️ Temperature: %.1f°C\n".format(tempC) else ""
+
+        val statusInfo = "🔋 Battery: $batteryDisplay$chargingStr\n${tempStr}💾 $storageInfo\n📱 Device: ${Build.MANUFACTURER} ${Build.MODEL} (Android ${Build.VERSION.RELEASE})"
+        return ActionResult.Success("Device status checked: Battery $batteryDisplay", statusInfo)
     }
 
     private fun batteryPercent(): Int {
-        val batteryIntent = context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+        val batteryManager = context.getSystemService(Context.BATTERY_SERVICE) as? BatteryManager
+        val batteryPct = batteryManager?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: -1
+        if (batteryPct in 0..100) return batteryPct
+
+        val batteryIntent = try {
+            context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+        } catch (_: Exception) { null }
         val level = batteryIntent?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
         val scale = batteryIntent?.getIntExtra(BatteryManager.EXTRA_SCALE, -1) ?: -1
         return if (level >= 0 && scale > 0) level * 100 / scale else -1
