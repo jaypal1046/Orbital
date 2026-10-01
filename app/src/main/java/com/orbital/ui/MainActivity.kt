@@ -33,6 +33,8 @@ class MainActivity : ComponentActivity() {
     private val setupWizardLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { _ ->
+        val savedChar = SecureStorage(this).getSelectedCharacter() ?: "aether"
+        chatViewModel.switchCharacter(savedChar)
         checkPermissions()
     }
 
@@ -41,37 +43,45 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        val secureStorage = SecureStorage(this)
+        val targetChar = intent?.getStringExtra("character_id") ?: secureStorage.getSelectedCharacter()
+        if (!targetChar.isNullOrBlank()) {
+            chatViewModel.switchCharacter(targetChar)
+        } else {
+            chatViewModel.refreshCharacter()
+        }
+
         renderMainChat()
 
-        val secureStorage = SecureStorage(this)
         if (!secureStorage.isSetupComplete()) {
             val intent = Intent(this, SetupWizardActivity::class.java)
             setupWizardLauncher.launch(intent)
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        val targetChar = intent.getStringExtra("character_id") ?: SecureStorage(this).getSelectedCharacter()
+        if (!targetChar.isNullOrBlank()) {
+            chatViewModel.switchCharacter(targetChar)
         } else {
-            checkPermissions()
+            chatViewModel.refreshCharacter()
         }
     }
 
     private fun checkPermissions() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            if (!Settings.canDrawOverlays(this)) {
-                val intent = Intent(
-                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                    Uri.parse("package:$packageName")
-                )
-                overlayPermissionLauncher.launch(intent)
-            }
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
-                audioPermissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
-            }
-        }
+        // Permissions are configured in Setup Wizard or on-demand when features are tapped
     }
 
     override fun onResume() {
         super.onResume()
-        chatViewModel.refreshCharacter()
+        val savedChar = SecureStorage(this).getSelectedCharacter()
+        if (!savedChar.isNullOrBlank() && savedChar != chatViewModel.currentCharacter.value) {
+            chatViewModel.switchCharacter(savedChar)
+        } else {
+            chatViewModel.refreshCharacter()
+        }
         chatViewModel.checkForUpdates(force = false)
     }
 

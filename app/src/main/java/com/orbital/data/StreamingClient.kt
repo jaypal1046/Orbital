@@ -111,11 +111,15 @@ class StreamingClient(
                     connectionStatusCallback?.invoke(ConnectionStatus.CONNECTED)
 
                     response.body?.let { body ->
+                        val lines = mutableListOf<String>()
+                        var hadDataPrefix = false
                         val reader = body.charStream().buffered()
                         while (true) {
                             val line = reader.readLine() ?: break
+                            lines.add(line)
                             val trimmed = line.trim()
                             if (trimmed.startsWith("data:")) {
+                                hadDataPrefix = true
                                 val data = trimmed.removePrefix("data:").trim()
                                 if (data == "[DONE]") {
                                     onComplete()
@@ -124,6 +128,12 @@ class StreamingClient(
                                 if (data.isNotBlank()) {
                                     parseChunk(data, onChunk)
                                 }
+                            }
+                        }
+                        if (!hadDataPrefix && lines.isNotEmpty()) {
+                            val fullBody = lines.joinToString("\n").trim()
+                            if (fullBody.isNotBlank()) {
+                                parseFullResponse(fullBody, onChunk)
                             }
                         }
                         onComplete()
@@ -137,6 +147,34 @@ class StreamingClient(
                 }
             }
         })
+    }
+
+    private fun parseFullResponse(body: String, onChunk: (String) -> Unit) {
+        try {
+            val json = JSONObject(body)
+            val content = when {
+                json.has("candidates") -> {
+                    json.optJSONArray("candidates")?.optJSONObject(0)
+                        ?.optJSONObject("content")?.optJSONArray("parts")?.optJSONObject(0)?.optString("text")
+                }
+                json.has("choices") -> {
+                    val choice = json.optJSONArray("choices")?.optJSONObject(0)
+                    choice?.optJSONObject("message")?.optString("content")
+                        ?: choice?.optJSONObject("delta")?.optString("content")
+                        ?: choice?.optString("text")
+                }
+                json.has("response") -> json.optString("response")
+                json.has("text") -> json.optString("text")
+                else -> body
+            }
+            if (!content.isNullOrBlank()) {
+                onChunk(content)
+            } else {
+                onChunk(body)
+            }
+        } catch (_: Exception) {
+            onChunk(body)
+        }
     }
 
     private fun parseChunk(data: String, onChunk: (String) -> Unit) {

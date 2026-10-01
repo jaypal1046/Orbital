@@ -17,6 +17,8 @@ import com.orbital.data.SecureStorage
 import com.orbital.voice.VoiceManager
 import android.content.Context
 import android.content.Intent
+import android.os.Build
+import android.provider.Settings
 import androidx.core.content.FileProvider
 import com.orbital.overlay.OverlayService
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -57,8 +59,11 @@ class ChatViewModel @Inject constructor(
     private val apkInstaller: com.orbital.updater.ApkInstaller? = null,
     private val orbitalBridgeClient: com.orbital.bridge.OrbitalBridgeClient? = null,
     private val orbitalDiscoveryService: com.orbital.bridge.OrbitalDiscoveryService? = null,
-    private val networkMonitorInstance: com.orbital.util.NetworkMonitor? = null
+    private val networkMonitorInstance: com.orbital.util.NetworkMonitor? = null,
+    private val mobileSkillRegistry: com.orbital.skills.MobileSkillRegistry? = null
 ) : ViewModel() {
+
+    val skillRegistry: com.orbital.skills.MobileSkillRegistry = mobileSkillRegistry ?: com.orbital.skills.MobileSkillRegistry()
 
     private val _currentCharacter = MutableStateFlow(
         secureStorage.getSelectedCharacter() ?: secureStorage.getCharacter()?.lowercase() ?: "lumy"
@@ -122,6 +127,7 @@ class ChatViewModel @Inject constructor(
 
     init {
         chatEngine.setCharacter(_currentCharacter.value)
+        bridgeClient.actionDispatcher.activeChatEngine = chatEngine
         observeChatEngine()
         setupVoiceCallback()
     }
@@ -405,9 +411,20 @@ class ChatViewModel @Inject constructor(
     }
 
     fun refreshCharacter() {
-        val charId = secureStorage.getSelectedCharacter() ?: secureStorage.getCharacter()?.lowercase() ?: "lumy"
-        _currentCharacter.update { charId }
-        chatEngine.setCharacter(charId)
+        val charId = secureStorage.getSelectedCharacter() ?: secureStorage.getCharacter()?.lowercase() ?: "aether"
+        val char = Character.find(charId)
+        _currentCharacter.update { char.id }
+        chatEngine.setCharacter(char.id)
+        try {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(context)) {
+                val intent = Intent(context, OverlayService::class.java).apply {
+                    action = OverlayService.ACTION_UPDATE_CHARACTER
+                    putExtra("character", char.id)
+                    putExtra("character_id", char.id)
+                }
+                context.startService(intent)
+            }
+        } catch (_: Exception) {}
     }
 
     fun checkForUpdates(force: Boolean = false) {

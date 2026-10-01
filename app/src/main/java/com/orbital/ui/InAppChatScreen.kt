@@ -140,11 +140,13 @@ fun InAppChatScreen(
     val attachedMedia by chatViewModel.attachedMedia.collectAsState()
     val pendingConfirmation by chatViewModel.pendingConfirmation.collectAsState()
     val isOnline by chatViewModel.isOnline.collectAsState()
-    val characterName = chatViewModel.characterName
+    val currentCharacter = remember(currentCharacterId) { Character.find(currentCharacterId) }
+    val characterName = "${currentCharacter.name} (AI Companion)"
 
     var showRoutingSheet by remember { mutableStateOf(false) }
     var showActionTemplatesSheet by remember { mutableStateOf(false) }
     var showCharacterPickerSheet by remember { mutableStateOf(false) }
+    var showSkillsSheet by remember { mutableStateOf(false) }
 
     ModalNavigationDrawer(
         drawerState = drawerState,
@@ -165,6 +167,7 @@ fun InAppChatScreen(
                 onOpenKeys = onOpenKeys,
                 onOpenCharacters = onOpenCharacters,
                 onOpenAutomations = onOpenAutomations,
+                onOpenSkills = { showSkillsSheet = true },
                 onOpenRoutingMode = { showRoutingSheet = true },
                 onOpenFeedback = {
                     feedbackInitialLog = null
@@ -743,6 +746,17 @@ fun InAppChatScreen(
             onDismiss = chatViewModel::dismissUpdateDialog,
             onOtaPatchApplied = {
                 Toast.makeText(context, "OTA Hot-Patch applied successfully!", Toast.LENGTH_SHORT).show()
+            }
+        )
+    }
+
+    // Mobile Skills Sheet (Antigravity Architecture)
+    if (showSkillsSheet) {
+        com.orbital.skills.ui.MobileSkillsSheet(
+            skillRegistry = chatViewModel.skillRegistry,
+            onDismiss = { showSkillsSheet = false },
+            onRunSkillPrompt = { prompt ->
+                chatViewModel.sendMessage(prompt)
             }
         )
     }

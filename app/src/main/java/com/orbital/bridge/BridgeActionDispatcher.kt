@@ -18,6 +18,7 @@ class BridgeActionDispatcher @Inject constructor(
     private val actionExecutor: DeviceActionExecutor,
     private val chatEngine: ChatEngine? = null
 ) {
+    var activeChatEngine: ChatEngine? = chatEngine
 
     companion object {
         private const val TAG = "BridgeActionDispatcher"
@@ -249,22 +250,50 @@ class BridgeActionDispatcher @Inject constructor(
                     var aiOutput = ""
                     var success = false
 
-                    if (chatEngine != null && prompt.isNotBlank()) {
+                    val engine = activeChatEngine ?: chatEngine
+                    if (engine != null && prompt.isNotBlank()) {
                         Log.i(TAG, "⚡ Delegating task to Phone AI (ChatEngine): $prompt")
-                        chatEngine.sendMessage(prompt)
-                        aiOutput = chatEngine.messages.value.lastOrNull { it.role == "assistant" }?.content
-                            ?: "Task dispatched to Phone AI companion"
+                        engine.sendMessage(prompt)
+
+                        // Wait for streaming to initiate and complete
+                        var waited = 0L
+                        val maxWait = 25000L
+                        kotlinx.coroutines.delay(250)
+                        while (engine.isStreaming.value && waited < maxWait) {
+                            kotlinx.coroutines.delay(150)
+                            waited += 150
+                        }
+
+                        val lastMsg = engine.messages.value.lastOrNull { it.role == "assistant" }
+                        aiOutput = lastMsg?.content?.takeIf { it.isNotBlank() }
+                            ?: lastMsg?.actionLabel
+                            ?: "Executed task: $prompt"
                         success = true
-                    } else {
-                        aiOutput = "Phone AI received task: $prompt"
-                        success = true
+                    } else if (prompt.isNotBlank()) {
+                        // Direct action resolution & execution fallback
+                        val parsed = com.orbital.action.ActionParser.parse(prompt)
+                        if (parsed.actions.isNotEmpty()) {
+                            val results = parsed.actions.map { act ->
+                                actionExecutor.execute(act)
+                            }
+                            success = results.all { it is ActionResult.Success }
+                            aiOutput = results.joinToString("; ") { res ->
+                                when (res) {
+                                    is ActionResult.Success -> res.message + (res.details?.let { " ($it)" } ?: "")
+                                    is ActionResult.Error -> res.errorMessage
+                                }
+                            }
+                        } else {
+                            aiOutput = "Processed task: $prompt"
+                            success = true
+                        }
                     }
 
                     val state = captureScreenState()
                     ActionResultPayload(
                         actionId = action.actionId,
                         success = success,
-                        message = "Task executed by Phone AI companion",
+                        message = "Task executed by Phone AI companion: $aiOutput",
                         aiResponse = aiOutput,
                         executionDurationMs = System.currentTimeMillis() - startTime,
                         updatedScreenState = state

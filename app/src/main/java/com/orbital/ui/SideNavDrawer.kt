@@ -49,6 +49,7 @@ fun SideNavDrawer(
     onOpenLegal: (LegalTab) -> Unit,
     onOpenAbout: () -> Unit,
     onCheckForUpdates: () -> Unit = {},
+    onOpenSkills: () -> Unit = {},
     onOpenBridge: () -> Unit = {},
     onOpenFeedback: () -> Unit = {},
     onOpenAccessibilityDisclosure: () -> Unit = {},
@@ -191,6 +192,17 @@ fun SideNavDrawer(
                     subtitle = "Smart Auto-Router & Speed tiers",
                     onClick = {
                         onOpenRoutingMode()
+                        onCloseDrawer()
+                    }
+                )
+
+                DrawerMenuItem(
+                    icon = Icons.Default.Star,
+                    iconTint = Color(0xFFF43F5E),
+                    title = "Mobile Skills (Antigravity)",
+                    subtitle = "Modular AI capabilities & system prompt skills",
+                    onClick = {
+                        onOpenSkills()
                         onCloseDrawer()
                     }
                 )

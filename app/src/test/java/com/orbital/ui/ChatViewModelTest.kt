@@ -196,7 +196,13 @@ class ChatViewModelTest {
             llmRepository = fakeLlmRepository,
             voiceManager = fakeVoiceManager,
             deviceActionExecutor = fakeDeviceActionExecutor,
-            secureStorage = fakeSecureStorage
+            secureStorage = fakeSecureStorage,
+            gitHubUpdateEngine = null,
+            apkDownloader = null,
+            apkInstaller = null,
+            orbitalBridgeClient = null,
+            orbitalDiscoveryService = null,
+            networkMonitorInstance = null
         )
     }
 

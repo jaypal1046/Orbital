@@ -15,8 +15,8 @@ import javax.inject.Singleton
 @Singleton
 class OrbitalBridgeClient @Inject constructor(
     private val context: Context,
-    private val actionDispatcher: BridgeActionDispatcher,
-    val cryptoAuth: OrbitalCryptoAuth,
+    val actionDispatcher: BridgeActionDispatcher,
+    val cryptoAuth: OrbitalCryptoAuth = OrbitalCryptoAuth(),
     private val httpClient: OkHttpClient = OrbitalTlsHelper.createSecureBridgeHttpClient(),
     private val json: Json = Json { ignoreUnknownKeys = true }
 ) {

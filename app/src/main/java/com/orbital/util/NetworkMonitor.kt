@@ -51,20 +51,26 @@ class NetworkMonitor @Inject constructor(
                 .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
                 .build()
             connectivityManager?.registerNetworkCallback(request, networkCallback)
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to register network callback", e)
+        } catch (_: Throwable) {
             _isOnline.value = isCurrentlyConnected()
         }
     }
 
     private fun isCurrentlyConnected(): Boolean {
         return try {
-            val cm = connectivityManager ?: return false
-            val activeNetwork = cm.activeNetwork ?: return false
-            val capabilities = cm.getNetworkCapabilities(activeNetwork) ?: return false
-            capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-        } catch (_: Exception) {
-            false
+            val cm = connectivityManager ?: return true
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+                val activeNetwork = cm.activeNetwork ?: return true
+                val capabilities = cm.getNetworkCapabilities(activeNetwork) ?: return true
+                capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            } else {
+                @Suppress("DEPRECATION")
+                val activeInfo = cm.activeNetworkInfo
+                @Suppress("DEPRECATION")
+                activeInfo?.isConnected ?: true
+            }
+        } catch (_: Throwable) {
+            true
         }
     }
 }

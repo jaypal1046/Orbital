@@ -1,31 +1,31 @@
 {
-  "timestamp": "2026-10-01T09:03:50.149Z",
-  "totalDurationMs": 891,
-  "passed": 2,
+  "timestamp": "2026-10-01T11:39:38.458Z",
+  "totalDurationMs": 867,
+  "passed": 1,
   "total": 7,
   "results": [
     {
       "test": "Bridge Health & Phone Link",
-      "success": true,
-      "latencyMs": 7,
-      "summary": "Connected=true, PIN=ORB-5531, Host=LAPTOP-SCEOSNK0"
+      "success": false,
+      "latencyMs": 30,
+      "summary": "Connected=false, PIN=ORB-5531, Host=LAPTOP-SCEOSNK0"
     },
     {
       "test": "Live Screen Node Extraction",
       "success": true,
-      "latencyMs": 62,
+      "latencyMs": 10,
       "summary": "Package: unknown, Interactive Nodes: 0"
     },
     {
       "test": "Dynamic App Launching (OPEN_APP)",
       "success": false,
-      "latencyMs": 2,
+      "latencyMs": 5,
       "summary": "Launched Settings"
     },
     {
       "test": "Phone AI Autonomous Delegation",
       "success": false,
-      "latencyMs": 2,
+      "latencyMs": 3,
       "summary": "Delegated"
     },
     {
@@ -37,13 +37,13 @@
     {
       "test": "Native Hardware & System Controls",
       "success": false,
-      "latencyMs": 1,
+      "latencyMs": 3,
       "summary": "Status retrieved"
     },
     {
       "test": "Gesture & Scroll Simulation (SWIPE)",
       "success": false,
-      "latencyMs": 1,
+      "latencyMs": 2,
       "summary": "Dispatched SWIPE"
     }
   ]

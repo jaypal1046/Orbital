@@ -36,7 +36,8 @@ class DefaultChatEngine @Inject constructor(
     private val hindsightMemoryEngine: com.orbital.memory.hindsight.HindsightMemoryEngine? = null,
     private val foremanSupervisor: com.orbital.foreman.ForemanSupervisor? = null,
     private val documentPipeline: com.orbital.media.parser.HybridDocumentPipeline? = null,
-    private val dynamicOtaConfigStore: com.orbital.updater.DynamicOtaConfigStore? = null
+    private val dynamicOtaConfigStore: com.orbital.updater.DynamicOtaConfigStore? = null,
+    private val skillRegistry: com.orbital.skills.MobileSkillRegistry? = null
 ) : ChatEngine {
 
     private val _messages = MutableStateFlow<List<ChatMessage>>(emptyList())
@@ -154,7 +155,12 @@ class DefaultChatEngine @Inject constructor(
             baseSystemPrompt
         }
 
-        val finalSystemPrompt = if (memoryContext.isNotBlank()) "$promptWithOta\n\n$memoryContext" else promptWithOta
+        val skillsContext = try {
+            skillRegistry?.getActiveSkillsPrompt().orEmpty()
+        } catch (_: Exception) { "" }
+
+        val promptWithSkills = if (skillsContext.isNotBlank()) "$promptWithOta$skillsContext" else promptWithOta
+        val finalSystemPrompt = if (memoryContext.isNotBlank()) "$promptWithSkills\n\n$memoryContext" else promptWithSkills
 
         val chatHistory = mutableListOf<ChatMessage>()
         chatHistory.add(ChatMessage(role = "system", content = finalSystemPrompt))
@@ -179,14 +185,35 @@ class DefaultChatEngine @Inject constructor(
                 onError = { error ->
                     isStreaming.value = false
                     val errText = error.message ?: "Request failed"
-                    val errorContent = if (streamingContent.value.isNotBlank()) streamingContent.value else "⚠️ $errText"
-                    _messages.update { currentMessages ->
-                        currentMessages + ChatMessage(
-                            role = "assistant",
-                            content = errorContent
+
+                    // Offline / Local Edge Action Execution Fallback
+                    val parsed = com.orbital.action.ActionParser.parse(message)
+                    if (parsed.actions.isNotEmpty()) {
+                        val execResults = parsed.actions.map { deviceActionExecutor.execute(it) }
+                        val isSuccess = execResults.all { it is com.orbital.action.ActionResult.Success }
+                        val label = parsed.actions.firstOrNull()?.action?.lowercase()?.replace('_', ' ') ?: "action"
+                        val details = execResults.joinToString("; ") { res ->
+                            when (res) {
+                                is com.orbital.action.ActionResult.Success -> res.message
+                                is com.orbital.action.ActionResult.Error -> res.errorMessage
+                            }
+                        }
+                        val fallbackContent = if (isSuccess) "Executed ${label.replaceFirstChar { it.uppercase() }} on your phone." else "Attempted $label: $details"
+                        addActionMessage(
+                            content = fallbackContent,
+                            actionLabel = "⚡ ${label.replaceFirstChar { it.uppercase() }}",
+                            actionDetails = details
                         )
+                    } else {
+                        val errorContent = if (streamingContent.value.isNotBlank()) streamingContent.value else "⚠️ $errText"
+                        _messages.update { currentMessages ->
+                            currentMessages + ChatMessage(
+                                role = "assistant",
+                                content = errorContent
+                            )
+                        }
+                        persistMessage(role = "assistant", content = errorContent, providerName = activeProvider.value)
                     }
-                    persistMessage(role = "assistant", content = errorContent, providerName = activeProvider.value)
                     streamingContent.value = ""
                 }
             )

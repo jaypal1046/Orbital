@@ -1,24 +1,55 @@
 package com.orbital.ui
 
+import android.content.Context
 import android.content.Intent
+import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.animation.*
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.orbital.R
+import com.orbital.automation.OrbitalAccessibilityService
 import com.orbital.data.LlmRepository
 import com.orbital.data.SecureStorage
-import com.orbital.overlay.ConnectionStatus
 import com.orbital.overlay.OverlayService
+
+enum class OnboardingStep {
+    WELCOME,
+    MODELS_AND_KEYS,
+    PERMISSIONS_AND_ACCESSIBILITY,
+    CHARACTER_SELECTION
+}
 
 class SetupWizardActivity : ComponentActivity() {
 
@@ -34,300 +65,677 @@ class SetupWizardActivity : ComponentActivity() {
             MaterialTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
-                    color = Color(0xFF0F172A)
+                    color = Color(0xFF090B13)
                 ) {
-                    KeyManagementScreen(
+                    OnboardingWizard(
                         secureStorage = secureStorage,
                         llmRepository = llmRepository,
-                        onBack = { finish() },
-                        onContinue = {
+                        onComplete = { chosenChar ->
                             secureStorage.markSetupComplete()
-                            finishSetup()
+                            secureStorage.saveSelectedCharacter(chosenChar)
+                            val mainIntent = Intent(this, MainActivity::class.java).apply {
+                                flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NEW_TASK
+                                putExtra("character_id", chosenChar)
+                            }
+                            startActivity(mainIntent)
+                            finish()
                         }
                     )
                 }
             }
         }
     }
+}
 
-    private fun saveApiKey(apiKey: String) {
-        secureStorage.saveApiKey(apiKey)
-    }
+@Composable
+fun OnboardingWizard(
+    secureStorage: SecureStorage,
+    llmRepository: LlmRepository,
+    onComplete: (String) -> Unit
+) {
+    var currentStep by remember { mutableStateOf(OnboardingStep.WELCOME) }
+    var selectedCharacter by remember { mutableStateOf(secureStorage.getSelectedCharacter() ?: "aether") }
+    val context = LocalContext.current
 
-    private fun saveProvider(provider: String) {
-        secureStorage.saveProvider(provider)
-    }
-
-    private fun testConnection(modelProvider: String) {
-        val apiKey = secureStorage.getApiKey() ?: return
-        val apiEndpoint = when (modelProvider) {
-            "OpenAI" -> "https://api.openai.com/v1/chat/completions"
-            "Mistral" -> "https://api.mistral.ai/v1/chat/completions"
-            "Groq" -> "https://api.groq.com/openai/v1/chat/completions"
-            "OpenRouter" -> "https://openrouter.ai/api/v1/chat/completions"
-            "Together" -> "https://api.together.xyz/v1/chat/completions"
-            "Fireworks" -> "https://api.fireworks.ai/inference/v1/chat/completions"
-            "Gemini Free" -> "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:streamGenerateContent?alt=sse"
-            else -> "https://api.openai.com/v1/chat/completions"
-        }
-
-        llmRepository.setConnectionStatusCallback { status ->
-            when (status) {
-                ConnectionStatus.CONNECTED -> {
-                    runOnUiThread {
-                        Toast.makeText(this, "Connection successful!", Toast.LENGTH_SHORT).show()
-                        updateOverlayStatus("connected")
-                        secureStorage.markSetupComplete()
-                        finishSetup()
+    AnimatedContent(
+        targetState = currentStep,
+        transitionSpec = {
+            if (targetState.ordinal > initialState.ordinal) {
+                slideInHorizontally { width -> width } + fadeIn() togetherWith
+                        slideOutHorizontally { width -> -width } + fadeOut()
+            } else {
+                slideInHorizontally { width -> -width } + fadeIn() togetherWith
+                        slideOutHorizontally { width -> width } + fadeOut()
+            }
+        },
+        label = "OnboardingTransition"
+    ) { step ->
+        when (step) {
+            OnboardingStep.WELCOME -> {
+                WelcomeStepScreen(
+                    onNext = { currentStep = OnboardingStep.MODELS_AND_KEYS }
+                )
+            }
+            OnboardingStep.MODELS_AND_KEYS -> {
+                KeyManagementScreen(
+                    secureStorage = secureStorage,
+                    llmRepository = llmRepository,
+                    onBack = { currentStep = OnboardingStep.WELCOME },
+                    onContinue = { currentStep = OnboardingStep.PERMISSIONS_AND_ACCESSIBILITY }
+                )
+            }
+            OnboardingStep.PERMISSIONS_AND_ACCESSIBILITY -> {
+                PermissionsAndAccessibilityStepScreen(
+                    onBack = { currentStep = OnboardingStep.MODELS_AND_KEYS },
+                    onNext = { currentStep = OnboardingStep.CHARACTER_SELECTION }
+                )
+            }
+            OnboardingStep.CHARACTER_SELECTION -> {
+                CharacterSelectionStepScreen(
+                    selectedCharacter = selectedCharacter,
+                    onSelect = { charId ->
+                        selectedCharacter = charId
+                        secureStorage.saveSelectedCharacter(charId)
+                    },
+                    onBack = { currentStep = OnboardingStep.PERMISSIONS_AND_ACCESSIBILITY },
+                    onFinish = {
+                        secureStorage.saveSelectedCharacter(selectedCharacter)
+                        onComplete(selectedCharacter)
                     }
-                }
-                ConnectionStatus.ERROR -> {
-                    runOnUiThread {
-                        Toast.makeText(this, "Connection failed", Toast.LENGTH_SHORT).show()
-                        updateOverlayStatus("error")
-                    }
-                }
-                else -> {
-                    runOnUiThread {
-                        updateOverlayStatus("connecting")
-                    }
-                }
+                )
             }
         }
-
-        val onErrorCallback: (Throwable) -> Unit = { error ->
-            runOnUiThread {
-                Toast.makeText(this, error.message ?: "Connection failed", Toast.LENGTH_LONG).show()
-            }
-        }
-
-        // Test with a simple message
-        if (modelProvider == "Gemini Free") {
-            llmRepository.streamCompletion(
-                apiEndpoint,
-                apiKey,
-                listOf(mapOf(
-                    "role" to "user",
-                    "parts" to listOf(mapOf("text" to "Hello"))
-                )),
-                onChunk = { _ -> }, // Ignore chunks for test
-                onError = onErrorCallback
-            )
-        } else {
-            llmRepository.streamCompletion(
-                apiEndpoint,
-                apiKey,
-                listOf(mapOf("role" to "user", "content" to "Hello")),
-                onChunk = { _ -> }, // Ignore chunks for test
-                onError = onErrorCallback
-            )
-        }
-    }
-
-    private fun updateOverlayStatus(status: String) {
-        val intent = Intent(this, OverlayService::class.java).apply {
-            action = OverlayService.ACTION_UPDATE_CONNECTION_STATUS
-            putExtra("status", status)
-        }
-        startService(intent)
-    }
-
-    private fun startOverlayService() {
-        val intent = Intent(this, OverlayService::class.java).apply {
-            action = OverlayService.ACTION_START
-        }
-        startService(intent)
-    }
-
-    private fun finishSetup() {
-        startOverlayService()
-        val intent = Intent(this, CharacterSelectionActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_CLEAR_TOP
-        }
-        startActivity(intent)
-        finish()
     }
 }
 
 @Composable
-fun SetupWizardScreen(onComplete: (String, String) -> Unit) {
-    var apiKey by remember { mutableStateOf("") }
-    var modelProvider by remember { mutableStateOf("Orbital Auto-Router") }
-    var customServerUrl by remember { mutableStateOf("http://127.0.0.1:3001") }
-    val context = LocalContext.current
-
+fun WelcomeStepScreen(onNext: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(16.dp),
+            .padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
+        verticalArrangement = Arrangement.SpaceBetween
     ) {
-        Text(
-            text = "Setup Wizard",
-            style = MaterialTheme.typography.headlineMedium,
-            modifier = Modifier.padding(bottom = 16.dp)
-        )
-
-        // Provider selection
-        Text(
-            text = "Select LLM Provider",
-            style = MaterialTheme.typography.titleMedium,
-            modifier = Modifier.padding(bottom = 8.dp)
-        )
-
-        // Default provider options
+        // Top Brand Header
         Column(
-            modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.padding(top = 32.dp)
         ) {
-            ProviderOption(
-                title = "Orbital Auto-Router (Free Multi-Provider)",
-                description = "Automatic failover between Groq, Gemini, Mistral, and OpenRouter",
-                isSelected = modelProvider == "Orbital Auto-Router",
-                onClick = { modelProvider = "Orbital Auto-Router" }
-            )
-
-            ProviderOption(
-                title = "Google Gemini Free",
-                description = "Use Google's free Gemini models",
-                isSelected = modelProvider == "Gemini Free",
-                onClick = { modelProvider = "Gemini Free" }
-            )
-
-            ProviderOption(
-                title = "Groq Free",
-                description = "Use Groq's free Llama 3.3 models",
-                isSelected = modelProvider == "Groq",
-                onClick = { modelProvider = "Groq" }
-            )
-
-            ProviderOption(
-                title = "Mistral Free",
-                description = "Use Mistral's free models",
-                isSelected = modelProvider == "Mistral",
-                onClick = { modelProvider = "Mistral" }
-            )
-
-            // Custom server option
-            Column(
-                modifier = Modifier.fillMaxWidth()
+            Box(
+                modifier = Modifier
+                    .size(92.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFF13172A))
+                    .border(2.dp, Color(0xFF38BDF8).copy(alpha = 0.6f), CircleShape)
+                    .padding(8.dp),
+                contentAlignment = Alignment.Center
             ) {
-                ProviderOption(
-                    title = "Custom / FreeLLMAPI Server",
-                    description = "Connect to a custom OpenAI-compatible server",
-                    isSelected = modelProvider == "Custom",
-                    onClick = { modelProvider = "Custom" }
+                Image(
+                    painter = painterResource(id = R.drawable.orbital_launcher_v2),
+                    contentDescription = "Orbital App Logo",
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clip(CircleShape)
                 )
-
-                if (modelProvider == "Custom") {
-                    OutlinedTextField(
-                        value = customServerUrl,
-                        onValueChange = { customServerUrl = it },
-                        label = { Text("Server URL") },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
             }
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // API Key field (only shown for non-auto-router options)
-        if (modelProvider != "Orbital Auto-Router") {
-            OutlinedTextField(
-                value = apiKey,
-                onValueChange = { apiKey = it },
-                label = { Text("API Key") },
-                modifier = Modifier.fillMaxWidth()
+            Spacer(modifier = Modifier.height(20.dp))
+            Text(
+                text = "Welcome to Orbital",
+                color = Color.White,
+                fontWeight = FontWeight.ExtraBold,
+                fontSize = 28.sp
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+                text = "Autonomous AI Companion & Mobile Automation Engine",
+                color = Color(0xFF94A3B8),
+                fontSize = 14.sp,
+                textAlign = TextAlign.Center
             )
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
-
-        Text(
-            text = "Selected: $modelProvider",
-            style = MaterialTheme.typography.bodyMedium,
-            modifier = Modifier.padding(bottom = 16.dp)
-        )
-
-        Button(
-            onClick = {
-                when {
-                    modelProvider == "Orbital Auto-Router" -> {
-                        onComplete("", modelProvider)
-                    }
-                    modelProvider == "Custom" -> {
-                        if (customServerUrl.isNotBlank()) {
-                            onComplete(customServerUrl, modelProvider)
-                        } else {
-                            Toast.makeText(context, "Please enter a server URL", Toast.LENGTH_SHORT).show()
-                        }
-                    }
-                    else -> {
-                        if (apiKey.isNotBlank()) {
-                            onComplete(apiKey, modelProvider)
-                        } else {
-                            Toast.makeText(context, "Please enter an API key", Toast.LENGTH_SHORT).show()
-                        }
-                    }
-                }
-            },
+        // Value Cards
+        Column(
+            verticalArrangement = Arrangement.spacedBy(14.dp),
             modifier = Modifier.fillMaxWidth()
         ) {
-            Text("Complete Setup")
+            OnboardingFeatureCard(
+                icon = "🔒",
+                title = "Local-First & Private",
+                desc = "No tracking servers. Your API keys are encrypted with hardware-backed Keystores."
+            )
+            OnboardingFeatureCard(
+                icon = "🤖",
+                title = "Autonomous Device Automation",
+                desc = "Navigates apps, clicks controls, and performs tasks hands-free via on-device AI."
+            )
+            OnboardingFeatureCard(
+                icon = "🛰️",
+                title = "Laptop AI Bridge (MCP)",
+                desc = "Connect wirelessly to Antigravity, Claude Code, or Cursor for development testing."
+            )
+        }
+
+        // Action Button
+        Button(
+            onClick = onNext,
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF7C3AED)),
+            shape = RoundedCornerShape(16.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(56.dp)
+        ) {
+            Text("Get Started", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.White)
+            Spacer(modifier = Modifier.width(8.dp))
+            Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, tint = Color.White)
         }
     }
 }
 
 @Composable
-fun ProviderOption(
+fun PermissionsAndAccessibilityStepScreen(
+    onBack: () -> Unit,
+    onNext: () -> Unit
+) {
+    val context = LocalContext.current
+    val scrollState = rememberScrollState()
+
+    var isAccessibilityActive by remember { mutableStateOf(OrbitalAccessibilityService.isEnabled(context)) }
+    var isOverlayActive by remember {
+        mutableStateOf(if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) Settings.canDrawOverlays(context) else true)
+    }
+
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                isAccessibilityActive = OrbitalAccessibilityService.isEnabled(context)
+                isOverlayActive = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) Settings.canDrawOverlays(context) else true
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    Scaffold(
+        topBar = {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = onBack) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
+                }
+                Spacer(modifier = Modifier.width(8.dp))
+                Column {
+                    Text("Step 3 of 4", fontSize = 11.sp, color = Color(0xFF7C3AED), fontWeight = FontWeight.Bold)
+                    Text("Automation & Permissions", fontSize = 16.sp, color = Color.White, fontWeight = FontWeight.Bold)
+                }
+            }
+        },
+        containerColor = Color(0xFF090B13),
+        bottomBar = {
+            Surface(
+                color = Color(0xFF0F1322),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = onNext,
+                        modifier = Modifier.weight(1f).height(50.dp),
+                        shape = RoundedCornerShape(14.dp),
+                        border = BorderStroke(1.dp, Color(0xFF2E3856))
+                    ) {
+                        Text("Skip for Now", color = Color(0xFFCBD5E1), fontSize = 13.sp)
+                    }
+                    Button(
+                        onClick = onNext,
+                        modifier = Modifier.weight(1.5f).height(50.dp),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF7C3AED))
+                    ) {
+                        Text("Continue", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    }
+                }
+            }
+        }
+    ) { innerPadding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .padding(horizontal = 20.dp)
+                .verticalScroll(scrollState),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Text(
+                text = "Permissions are optional. Orbital works for chat and AI answers out of the box, while automation and overlay enable full hands-free actions.",
+                color = Color(0xFF94A3B8),
+                fontSize = 12.5.sp,
+                lineHeight = 17.sp
+            )
+
+            // Accessibility Card (Prominent Disclosure & Step-by-Step Guide)
+            Surface(
+                color = Color(0xFF12162A),
+                shape = RoundedCornerShape(18.dp),
+                border = BorderStroke(
+                    1.dp,
+                    if (isAccessibilityActive) Color(0xFF10B981).copy(alpha = 0.6f) else Color(0xFF263056)
+                ),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(18.dp)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                            Text("🤖", fontSize = 24.sp)
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Text(
+                                    "Screen Automation",
+                                    color = Color.White,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 15.sp
+                                )
+                                Text(
+                                    "Accessibility Service (Optional)",
+                                    color = Color(0xFF38BDF8),
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                        }
+
+                        // Live Status Badge
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(
+                                    if (isAccessibilityActive) Color(0xFF10B981).copy(alpha = 0.2f)
+                                    else Color(0xFF64748B).copy(alpha = 0.2f)
+                                )
+                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                        ) {
+                            Text(
+                                text = if (isAccessibilityActive) "🟢 Active" else "⚪ Not Enabled",
+                                color = if (isAccessibilityActive) Color(0xFF34D399) else Color(0xFF94A3B8),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Text(
+                        "Allows Orbital to read visible UI elements and execute taps, text entry, and app navigation on your behalf.",
+                        color = Color(0xFFCBD5E1),
+                        fontSize = 12.sp,
+                        lineHeight = 16.sp
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // Step-by-Step Instructions
+                    Surface(
+                        color = Color(0xFF171D36),
+                        shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(1.dp, Color(0xFF28335C)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text(
+                                text = "📋 How to Enable:",
+                                color = Color(0xFFA78BFA),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text("1. Tap 'Enable Accessibility in Settings' below.", color = Color(0xFFCBD5E1), fontSize = 11.5.sp)
+                            Text("2. Look under 'Vision', 'Interaction', or 'Downloaded apps' tab.", color = Color(0xFFCBD5E1), fontSize = 11.5.sp)
+                            Text("3. Tap 'Orbital' (or Screen Automation) and switch it ON.", color = Color(0xFFCBD5E1), fontSize = 11.5.sp)
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    // Strict Privacy Guarantee
+                    Surface(
+                        color = Color(0xFF0A1F18),
+                        shape = RoundedCornerShape(10.dp),
+                        border = BorderStroke(1.dp, Color(0xFF059669).copy(alpha = 0.3f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = "🛡️ Strict Privacy: Zero keystroke logging. No passwords, payments, or banking data collected.",
+                            color = Color(0xFFA7F3D0),
+                            fontSize = 11.sp,
+                            modifier = Modifier.padding(10.dp)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Button(
+                        onClick = { OrbitalAccessibilityService.openSettings(context) },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (isAccessibilityActive) Color(0xFF10B981) else Color(0xFF7C3AED)
+                        ),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = if (isAccessibilityActive) "✅ Accessibility Is Active (Open Settings)" else "⚙️ Enable Accessibility in Settings",
+                            fontSize = 12.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                    }
+
+                    // Android 13+ Restricted Setting Helper
+                    if (!isAccessibilityActive && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Surface(
+                            color = Color(0xFF22172B),
+                            shape = RoundedCornerShape(10.dp),
+                            border = BorderStroke(1.dp, Color(0xFF7C3AED).copy(alpha = 0.4f)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(10.dp)) {
+                                Text(
+                                    text = "🔒 Is the toggle grayed out? (Restricted Setting)",
+                                    color = Color(0xFFF59E0B),
+                                    fontSize = 11.5.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "Sideloaded apps in Android 13+ require unlocking: Open App Info → tap (⋮) top-right → tap 'Allow restricted settings'.",
+                                    color = Color(0xFFCBD5E1),
+                                    fontSize = 11.sp,
+                                    lineHeight = 15.sp
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                                OutlinedButton(
+                                    onClick = {
+                                        val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                            data = Uri.parse("package:${context.packageName}")
+                                        }
+                                        context.startActivity(intent)
+                                    },
+                                    shape = RoundedCornerShape(8.dp),
+                                    border = BorderStroke(1.dp, Color(0xFF8B5CF6)),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text("🔓 Open App Info to Allow Restricted Settings", fontSize = 11.sp, color = Color(0xFFA78BFA), fontWeight = FontWeight.SemiBold)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Floating Overlay Permission Card
+            Surface(
+                color = Color(0xFF12162A),
+                shape = RoundedCornerShape(18.dp),
+                border = BorderStroke(
+                    1.dp,
+                    if (isOverlayActive) Color(0xFF10B981).copy(alpha = 0.6f) else Color(0xFF263056)
+                ),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(18.dp)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                            Text("🎭", fontSize = 24.sp)
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Text("Floating Mascot Overlay", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                                Text("Draw Over Other Apps (Optional)", color = Color(0xFFF59E0B), fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                            }
+                        }
+
+                        // Live Status Badge
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(
+                                    if (isOverlayActive) Color(0xFF10B981).copy(alpha = 0.2f)
+                                    else Color(0xFF64748B).copy(alpha = 0.2f)
+                                )
+                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                        ) {
+                            Text(
+                                text = if (isOverlayActive) "🟢 Active" else "⚪ Not Enabled",
+                                color = if (isOverlayActive) Color(0xFF34D399) else Color(0xFF94A3B8),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        "Allows your chosen companion mascot to float on top of other apps for quick actions and status feedback.",
+                        color = Color(0xFFCBD5E1),
+                        fontSize = 12.sp,
+                        lineHeight = 16.sp
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Button(
+                        onClick = {
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                                val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}"))
+                                context.startActivity(intent)
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (isOverlayActive) Color(0xFF1E293B) else Color(0xFF1E2644)
+                        ),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = if (isOverlayActive) "✅ Overlay Permission Granted" else "🎭 Enable Overlay Permission",
+                            fontSize = 12.sp,
+                            color = if (isOverlayActive) Color(0xFF34D399) else Color(0xFFCBD5E1),
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+        }
+    }
+}
+
+@Composable
+fun CharacterSelectionStepScreen(
+    selectedCharacter: String,
+    onSelect: (String) -> Unit,
+    onBack: () -> Unit,
+    onFinish: () -> Unit
+) {
+    Scaffold(
+        topBar = {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = onBack) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
+                }
+                Spacer(modifier = Modifier.width(8.dp))
+                Column {
+                    Text("Step 4 of 4", fontSize = 11.sp, color = Color(0xFF7C3AED), fontWeight = FontWeight.Bold)
+                    Text("Choose Companion", fontSize = 16.sp, color = Color.White, fontWeight = FontWeight.Bold)
+                }
+            }
+        },
+        containerColor = Color(0xFF090B13),
+        bottomBar = {
+            Surface(
+                color = Color(0xFF0F1322),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Button(
+                    onClick = onFinish,
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF7C3AED)),
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp)
+                        .height(52.dp)
+                ) {
+                    Text("🚀 Launch Orbital", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                }
+            }
+        }
+    ) { innerPadding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .padding(horizontal = 20.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            Text(
+                text = "Select your active AI companion mascot personality:",
+                color = Color(0xFF94A3B8),
+                fontSize = 13.sp
+            )
+
+            CharacterChoiceCard(
+                id = "aether",
+                name = "Aether",
+                title = "The Celestial Overseer",
+                desc = "Analytical, precise, and executive. Ideal for device automation and coding.",
+                isSelected = selectedCharacter == "aether",
+                onClick = { onSelect("aether") }
+            )
+
+            CharacterChoiceCard(
+                id = "lumy",
+                name = "Lumy",
+                title = "The Luminous Guide",
+                desc = "Friendly, creative, and proactive companion with expressive emotional states.",
+                isSelected = selectedCharacter == "lumy",
+                onClick = { onSelect("lumy") }
+            )
+
+            CharacterChoiceCard(
+                id = "volo",
+                name = "Volo",
+                title = "The Dynamic Tactician",
+                desc = "High-energy, fast responses, tailored for rapid workflows and notifications.",
+                isSelected = selectedCharacter == "volo",
+                onClick = { onSelect("volo") }
+            )
+        }
+    }
+}
+
+@Composable
+fun CharacterChoiceCard(
+    id: String,
+    name: String,
     title: String,
-    description: String,
+    desc: String,
     isSelected: Boolean,
     onClick: () -> Unit
 ) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        onClick = onClick,
-        elevation = CardDefaults.cardElevation(defaultElevation = if (isSelected) 4.dp else 2.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer
-            else MaterialTheme.colorScheme.surfaceVariant
-        )
+    Surface(
+        color = if (isSelected) Color(0xFF1E1738) else Color(0xFF111424),
+        shape = RoundedCornerShape(16.dp),
+        border = BorderStroke(
+            if (isSelected) 2.dp else 1.dp,
+            if (isSelected) Color(0xFF8B5CF6) else Color(0xFF222842)
+        ),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() }
     ) {
-        Column(
-            modifier = Modifier.padding(16.dp)
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
-                modifier = Modifier.fillMaxWidth()
+            val spriteRes = MascotSpriteHelper.getSprite(id, MascotState.IDLE)
+            Box(
+                modifier = Modifier
+                    .size(48.dp)
+                    .clip(CircleShape)
+                    .background(if (isSelected) Color(0xFF7C3AED).copy(alpha = 0.3f) else Color(0xFF1E2540))
+                    .border(
+                        1.dp,
+                        if (isSelected) Color(0xFF8B5CF6) else Color(0xFF333E63),
+                        CircleShape
+                    )
+                    .padding(4.dp),
+                contentAlignment = Alignment.Center
             ) {
-                Column(
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Text(
-                        text = title,
-                        style = MaterialTheme.typography.titleMedium,
-                        color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer
-                        else MaterialTheme.colorScheme.onSurface
-                    )
-                    Text(
-                        text = description,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
-                        else MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(top = 4.dp)
-                    )
-                }
-                if (isSelected) {
-                    Icon(
-                        imageVector = Icons.Default.Check,
-                        contentDescription = "Selected",
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                }
+                Image(
+                    painter = painterResource(id = spriteRes),
+                    contentDescription = name,
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+            Spacer(modifier = Modifier.width(14.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(name, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                Text(title, color = Color(0xFF38BDF8), fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(desc, color = Color(0xFF94A3B8), fontSize = 11.5.sp, lineHeight = 15.sp)
+            }
+            if (isSelected) {
+                Icon(
+                    Icons.Default.CheckCircle,
+                    contentDescription = "Selected",
+                    tint = Color(0xFF8B5CF6),
+                    modifier = Modifier.size(22.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun OnboardingFeatureCard(icon: String, title: String, desc: String) {
+    Surface(
+        color = Color(0xFF111424),
+        shape = RoundedCornerShape(14.dp),
+        border = BorderStroke(1.dp, Color(0xFF202640)),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier.padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(icon, fontSize = 24.sp)
+            Spacer(modifier = Modifier.width(14.dp))
+            Column {
+                Text(title, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(desc, color = Color(0xFF94A3B8), fontSize = 11.5.sp, lineHeight = 15.sp)
             }
         }
     }

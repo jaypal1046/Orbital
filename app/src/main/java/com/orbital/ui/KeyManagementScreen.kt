@@ -157,26 +157,49 @@ fun KeyManagementScreen(
         },
         bottomBar = {
             Surface(
-                color = Color(0xFF101322),
+                color = Color(0xFF0F1322),
                 tonalElevation = 8.dp,
                 border = BorderStroke(1.dp, Color(0xFF1E243D)),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Button(
-                    onClick = onContinue,
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp, vertical = 12.dp)
-                        .height(48.dp),
-                    shape = RoundedCornerShape(14.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF7C3AED))
                 ) {
                     Text(
-                        text = if (configuredCount > 0) "Launch Companion (${configuredCount} ${if (configuredCount == 1) "Key" else "Keys"} Active)" else "Continue with Free Auto-Router",
-                        color = Color.White,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 14.5.sp
+                        text = "💡 API keys are optional. Orbital includes a free Auto-Router and you can add or edit keys anytime in Settings.",
+                        color = Color(0xFF94A3B8),
+                        fontSize = 11.5.sp,
+                        lineHeight = 15.sp,
+                        modifier = Modifier.padding(bottom = 8.dp)
                     )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = onContinue,
+                            modifier = Modifier.weight(1f).height(48.dp),
+                            shape = RoundedCornerShape(12.dp),
+                            border = BorderStroke(1.dp, Color(0xFF2E3856))
+                        ) {
+                            Text("Skip for Now", color = Color(0xFFCBD5E1), fontSize = 13.sp)
+                        }
+                        Button(
+                            onClick = onContinue,
+                            modifier = Modifier.weight(1.3f).height(48.dp),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF7C3AED))
+                        ) {
+                            Text(
+                                text = if (configuredCount > 0) "Continue ($configuredCount Active)" else "Continue (Free Auto-Router)",
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp
+                            )
+                        }
+                    }
                 }
             }
         },

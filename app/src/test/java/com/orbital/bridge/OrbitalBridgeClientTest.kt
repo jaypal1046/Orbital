@@ -32,7 +32,7 @@ class OrbitalBridgeClientTest {
         context = RuntimeEnvironment.getApplication()
         val executor = mock(DeviceActionExecutor::class.java)
         actionDispatcher = BridgeActionDispatcher(context, executor)
-        bridgeClient = OrbitalBridgeClient(context, actionDispatcher)
+        bridgeClient = OrbitalBridgeClient(context, actionDispatcher, OrbitalCryptoAuth())
     }
 
     @After
