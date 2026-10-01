@@ -57,8 +57,17 @@ fun InAppChatScreen(
     var showAboutDialog by remember { mutableStateOf(false) }
     var showBridgeScreen by remember { mutableStateOf(false) }
     var showFeedbackDialog by remember { mutableStateOf(false) }
+    var showAccessibilityDisclosure by remember { mutableStateOf(false) }
     var feedbackInitialLog by remember { mutableStateOf<String?>(null) }
     var showAttachmentSheet by remember { mutableStateOf(false) }
+
+    if (showLegalScreen) {
+        LegalScreen(
+            onBack = { showLegalScreen = false },
+            initialTab = legalTab
+        )
+        return
+    }
 
     if (showBridgeScreen) {
         com.orbital.bridge.ui.LaptopBridgeScreen(
@@ -171,6 +180,7 @@ fun InAppChatScreen(
                     chatViewModel.checkForUpdates(force = true)
                 },
                 onOpenBridge = { showBridgeScreen = true },
+                onOpenAccessibilityDisclosure = { showAccessibilityDisclosure = true },
                 onCloseDrawer = {
                     coroutineScope.launch { drawerState.close() }
                 }
@@ -712,6 +722,14 @@ fun InAppChatScreen(
             activeCharacterName = characterName,
             activeProviderName = activeServingProvider ?: "Auto-Router",
             onDismiss = { showFeedbackDialog = false }
+        )
+    }
+
+    // Prominent Accessibility Disclosure Modal (Google Play & Privacy Compliant)
+    if (showAccessibilityDisclosure) {
+        AccessibilityDisclosureDialog(
+            onDismiss = { showAccessibilityDisclosure = false },
+            onEnableClicked = { showAccessibilityDisclosure = false }
         )
     }
 

@@ -51,6 +51,7 @@ fun SideNavDrawer(
     onCheckForUpdates: () -> Unit = {},
     onOpenBridge: () -> Unit = {},
     onOpenFeedback: () -> Unit = {},
+    onOpenAccessibilityDisclosure: () -> Unit = {},
     onCloseDrawer: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -288,6 +289,17 @@ fun SideNavDrawer(
                     subtitle = "Remote MCP Controller & Inspection",
                     onClick = {
                         onOpenBridge()
+                        onCloseDrawer()
+                    }
+                )
+
+                DrawerMenuItem(
+                    icon = Icons.Default.Settings,
+                    iconTint = Color(0xFF10B981),
+                    title = "Screen Automation & Privacy",
+                    subtitle = "Accessibility disclosure & permissions",
+                    onClick = {
+                        onOpenAccessibilityDisclosure()
                         onCloseDrawer()
                     }
                 )

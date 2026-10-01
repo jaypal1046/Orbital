@@ -22,6 +22,7 @@ data class UIElement(
     val viewId: String?,
     val className: String,
     val isClickable: Boolean,
+    val isScrollable: Boolean = false,
     val isEditable: Boolean,
     val bounds: Rect
 )
@@ -138,7 +139,7 @@ class OrbitalAccessibilityService : AccessibilityService() {
             val desc = node.contentDescription?.toString()?.trim()
             val viewId = node.viewIdResourceName
 
-            if (text.isNotBlank() || !desc.isNullOrBlank() || node.isClickable || node.isEditable) {
+            if (text.isNotBlank() || !desc.isNullOrBlank() || node.isClickable || node.isEditable || node.isScrollable) {
                 elements.add(
                     UIElement(
                         text = text,
@@ -146,6 +147,7 @@ class OrbitalAccessibilityService : AccessibilityService() {
                         viewId = viewId,
                         className = node.className?.toString() ?: "",
                         isClickable = node.isClickable,
+                        isScrollable = node.isScrollable,
                         isEditable = node.isEditable,
                         bounds = rect
                     )
@@ -268,7 +270,47 @@ class OrbitalAccessibilityService : AccessibilityService() {
     fun performScroll(forward: Boolean = true): Boolean {
         val root = rootInActiveWindow ?: return false
         val action = if (forward) AccessibilityNodeInfo.ACTION_SCROLL_FORWARD else AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD
-        return findAndPerformAction(root, action)
+        val success = findAndPerformAction(root, action)
+        if (!success && Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            // Fallback to gesture-based scroll
+            val displayMetrics = resources.displayMetrics
+            val width = displayMetrics.widthPixels.toFloat()
+            val height = displayMetrics.heightPixels.toFloat()
+            val startX = width / 2
+            val startY = if (forward) height * 0.75f else height * 0.25f
+            val endY = if (forward) height * 0.25f else height * 0.75f
+            return swipeCoordinates(startX, startY, startX, endY, 300)
+        }
+        return success
+    }
+
+    fun swipeDirection(direction: String): Boolean {
+        val displayMetrics = resources.displayMetrics
+        val width = displayMetrics.widthPixels.toFloat()
+        val height = displayMetrics.heightPixels.toFloat()
+        val midX = width / 2
+        val midY = height / 2
+
+        return when (direction.uppercase().trim()) {
+            "UP" -> swipeCoordinates(midX, height * 0.75f, midX, height * 0.25f, 300)
+            "DOWN" -> swipeCoordinates(midX, height * 0.25f, midX, height * 0.75f, 300)
+            "LEFT" -> swipeCoordinates(width * 0.85f, midY, width * 0.15f, midY, 300)
+            "RIGHT" -> swipeCoordinates(width * 0.15f, midY, width * 0.85f, midY, 300)
+            else -> performScroll(forward = true)
+        }
+    }
+
+    fun swipeCoordinates(startX: Float, startY: Float, endX: Float, endY: Float, durationMs: Long = 300): Boolean {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            val path = Path().apply {
+                moveTo(startX, startY)
+                lineTo(endX, endY)
+            }
+            val stroke = GestureDescription.StrokeDescription(path, 0, durationMs)
+            val gesture = GestureDescription.Builder().addStroke(stroke).build()
+            return dispatchGesture(gesture, null, null)
+        }
+        return false
     }
 
     fun tapCoordinates(x: Float, y: Float): Boolean {
@@ -281,6 +323,20 @@ class OrbitalAccessibilityService : AccessibilityService() {
             return dispatchGesture(gesture, null, null)
         }
         return false
+    }
+
+    fun pressGlobalKey(key: String): Boolean {
+        return when (key.uppercase().trim()) {
+            "BACK" -> performGlobalAction(GLOBAL_ACTION_BACK)
+            "HOME" -> performGlobalAction(GLOBAL_ACTION_HOME)
+            "RECENTS" -> performGlobalAction(GLOBAL_ACTION_RECENTS)
+            "NOTIFICATIONS" -> performGlobalAction(GLOBAL_ACTION_NOTIFICATIONS)
+            "QUICK_SETTINGS" -> performGlobalAction(GLOBAL_ACTION_QUICK_SETTINGS)
+            "POWER_DIALOG" -> performGlobalAction(GLOBAL_ACTION_POWER_DIALOG)
+            "LOCK_SCREEN" -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) performGlobalAction(GLOBAL_ACTION_LOCK_SCREEN) else false
+            "TAKE_SCREENSHOT" -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) performGlobalAction(GLOBAL_ACTION_TAKE_SCREENSHOT) else false
+            else -> false
+        }
     }
 
     private fun performClickOnNodeOrParent(node: AccessibilityNodeInfo?): Boolean {

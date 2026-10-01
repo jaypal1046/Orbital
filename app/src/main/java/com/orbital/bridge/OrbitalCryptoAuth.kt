@@ -91,15 +91,26 @@ class OrbitalCryptoAuth @Inject constructor() {
      * Drops any unauthorized or tampered message.
      */
     fun verifyIncomingMessage(message: BridgeMessage): Boolean {
-        val secret = activeSessionToken
+        var secret = activeSessionToken
 
-        // If no session token is established yet, allow only initial handshake PAIRING with matching PIN
+        // If no session token was preset (e.g. connected via nearby discovery or direct IP),
+        // adopt the host's token if provided on this authenticated direct connection
         if (secret.isNullOrBlank()) {
-            if (message.type == "PAIRING") {
+            if (message.type == "PAIRING" || message.type == "PAIRING_ACK") {
+                if (!message.token.isNullOrBlank()) {
+                    activeSessionToken = message.token
+                    Log.i(TAG, "🔒 Established session token from host handshake")
+                }
                 return true
             }
-            Log.w(TAG, "❌ Rejected message '${message.type}': No active cryptographic session.")
-            return false
+            if (!message.token.isNullOrBlank()) {
+                activeSessionToken = message.token
+                secret = message.token
+                Log.i(TAG, "🔒 Established session token from host action")
+            } else {
+                Log.w(TAG, "❌ Rejected message '${message.type}': No active cryptographic session.")
+                return false
+            }
         }
 
         // Replay attack prevention

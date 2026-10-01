@@ -1,11 +1,11 @@
 package com.orbital.bridge
 
 import android.content.Context
-import android.graphics.Rect
 import android.util.Log
+import com.orbital.action.ActionResult
+import com.orbital.action.DeviceAction
 import com.orbital.action.DeviceActionExecutor
 import com.orbital.automation.OrbitalAccessibilityService
-import com.orbital.automation.UIElement
 import com.orbital.chat.ChatEngine
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -37,6 +37,7 @@ class BridgeActionDispatcher @Inject constructor(
         }
 
         val snapshot = service.captureScreenHierarchy()
+        val displayMetrics = context.resources.displayMetrics
         val nodesList = snapshot?.elements?.map { el ->
             ScreenNodeDto(
                 id = el.viewId,
@@ -45,6 +46,7 @@ class BridgeActionDispatcher @Inject constructor(
                 className = el.className,
                 bounds = listOf(el.bounds.left, el.bounds.top, el.bounds.right, el.bounds.bottom),
                 isClickable = el.isClickable,
+                isScrollable = el.isScrollable,
                 isEditable = el.isEditable,
                 isEnabled = true
             )
@@ -53,6 +55,8 @@ class BridgeActionDispatcher @Inject constructor(
         ScreenStatePayload(
             currentPackage = snapshot?.packageName ?: OrbitalAccessibilityService.currentForegroundPackage.value.ifBlank { "com.ai.orbital" },
             currentActivity = snapshot?.activityTitle ?: "",
+            screenWidth = displayMetrics.widthPixels,
+            screenHeight = displayMetrics.heightPixels,
             nodes = nodesList
         )
     }
@@ -71,7 +75,7 @@ class BridgeActionDispatcher @Inject constructor(
                     ActionResultPayload(
                         actionId = action.actionId,
                         success = true,
-                        message = "Screen captured successfully (${state.nodes.size} interactive nodes)",
+                        message = "Screen captured successfully (${state.nodes.size} interactive nodes in ${state.currentPackage})",
                         executionDurationMs = System.currentTimeMillis() - startTime,
                         updatedScreenState = state
                     )
@@ -83,7 +87,7 @@ class BridgeActionDispatcher @Inject constructor(
                     var success = false
 
                     if (service != null) {
-                        if (targetId != null) {
+                        if (!targetId.isNullOrBlank()) {
                             success = service.clickElementById(targetId)
                         }
                         if (!success && textQuery.isNotBlank()) {
@@ -95,7 +99,7 @@ class BridgeActionDispatcher @Inject constructor(
                     ActionResultPayload(
                         actionId = action.actionId,
                         success = success,
-                        message = if (success) "Clicked target '$textQuery'" else "Element '$textQuery' not found or accessibility service unavailable",
+                        message = if (success) "Clicked target '$textQuery'" else "Element '$textQuery' not found on screen",
                         executionDurationMs = System.currentTimeMillis() - startTime,
                         updatedScreenState = state
                     )
@@ -111,7 +115,7 @@ class BridgeActionDispatcher @Inject constructor(
                     ActionResultPayload(
                         actionId = action.actionId,
                         success = success,
-                        message = if (success) "Clicked at (${coords?.get(0)}, ${coords?.get(1)})" else "Failed to click coordinates",
+                        message = if (success) "Tapped at (${coords?.get(0)}, ${coords?.get(1)})" else "Failed to tap coordinates",
                         executionDurationMs = System.currentTimeMillis() - startTime,
                         updatedScreenState = state
                     )
@@ -119,48 +123,68 @@ class BridgeActionDispatcher @Inject constructor(
 
                 BridgeActionType.TYPE_TEXT -> {
                     val text = action.textToType.orEmpty()
-                    val success = service?.inputText(text) ?: false
+                    val success = service?.inputText(text, action.targetText) ?: false
                     val state = captureScreenState()
                     ActionResultPayload(
                         actionId = action.actionId,
                         success = success,
-                        message = if (success) "Typed '$text'" else "Failed to type text",
+                        message = if (success) "Typed '$text'" else "Failed to type text into target field",
                         executionDurationMs = System.currentTimeMillis() - startTime,
                         updatedScreenState = state
                     )
                 }
 
                 BridgeActionType.SWIPE -> {
-                    val dir = action.swipeDirection?.uppercase() ?: "UP"
-                    val success = when (dir) {
-                        "UP" -> service?.performScroll(forward = true) ?: false
-                        "DOWN" -> service?.performScroll(forward = false) ?: false
-                        else -> false
+                    val success = if (action.startCoordinates != null && action.endCoordinates != null && service != null) {
+                        val start = action.startCoordinates
+                        val end = action.endCoordinates
+                        service.swipeCoordinates(start[0].toFloat(), start[1].toFloat(), end[0].toFloat(), end[1].toFloat(), 300)
+                    } else {
+                        val dir = action.swipeDirection?.uppercase() ?: "UP"
+                        service?.swipeDirection(dir) ?: false
                     }
                     val state = captureScreenState()
                     ActionResultPayload(
                         actionId = action.actionId,
                         success = success,
-                        message = "Swiped $dir (success=$success)",
+                        message = "Swiped ${action.swipeDirection ?: "gesture"} (success=$success)",
                         executionDurationMs = System.currentTimeMillis() - startTime,
                         updatedScreenState = state
                     )
                 }
 
                 BridgeActionType.OPEN_APP -> {
-                    val pkg = action.packageName ?: action.targetText.orEmpty()
-                    val intent = context.packageManager.getLaunchIntentForPackage(pkg)
-                    val success = if (intent != null) {
-                        intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-                        context.startActivity(intent)
-                        true
-                    } else false
+                    val targetApp = action.packageName ?: action.targetText ?: action.target.orEmpty()
+                    var success = false
+                    var message = ""
+
+                    // 1. Direct package intent
+                    val directIntent = context.packageManager.getLaunchIntentForPackage(targetApp)
+                    if (directIntent != null) {
+                        directIntent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                        context.startActivity(directIntent)
+                        success = true
+                        message = "Launched app package $targetApp"
+                    } else {
+                        // 2. Dynamic fuzzy resolution via DeviceActionExecutor
+                        val execResult = actionExecutor.execute(DeviceAction(action = "OPEN_APP", target = targetApp))
+                        when (execResult) {
+                            is ActionResult.Success -> {
+                                success = true
+                                message = execResult.message
+                            }
+                            is ActionResult.Error -> {
+                                success = false
+                                message = execResult.errorMessage
+                            }
+                        }
+                    }
 
                     val state = captureScreenState()
                     ActionResultPayload(
                         actionId = action.actionId,
                         success = success,
-                        message = if (success) "Launched app $pkg" else "App $pkg not found on device",
+                        message = message,
                         executionDurationMs = System.currentTimeMillis() - startTime,
                         updatedScreenState = state
                     )
@@ -168,17 +192,53 @@ class BridgeActionDispatcher @Inject constructor(
 
                 BridgeActionType.PRESS_KEY -> {
                     val key = action.keyCode?.uppercase() ?: "BACK"
-                    val success = when (key) {
-                        "BACK" -> service?.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK) ?: false
-                        "HOME" -> service?.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_HOME) ?: false
-                        "RECENTS" -> service?.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_RECENTS) ?: false
-                        else -> false
+                    var success = service?.pressGlobalKey(key) ?: false
+                    var msg = "Pressed key $key (success=$success)"
+
+                    // Intent fallback for HOME if accessibility service is inactive
+                    if (!success && key == "HOME") {
+                        try {
+                            val homeIntent = android.content.Intent(android.content.Intent.ACTION_MAIN).apply {
+                                addCategory(android.content.Intent.CATEGORY_HOME)
+                                flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK
+                            }
+                            context.startActivity(homeIntent)
+                            success = true
+                            msg = "Navigated to Home screen via Intent fallback"
+                        } catch (e: Exception) {
+                            msg = "Failed to dispatch HOME: ${e.message}"
+                        }
+                    }
+
+                    val state = captureScreenState()
+                    ActionResultPayload(
+                        actionId = action.actionId,
+                        success = success,
+                        message = msg,
+                        executionDurationMs = System.currentTimeMillis() - startTime,
+                        updatedScreenState = state
+                    )
+                }
+
+                BridgeActionType.DEVICE_ACTION -> {
+                    val devActionName = action.deviceAction?.uppercase() ?: action.targetText?.uppercase() ?: "DEVICE_STATUS"
+                    val deviceAction = DeviceAction(
+                        action = devActionName,
+                        target = action.target ?: action.targetText,
+                        query = action.query,
+                        url = action.url,
+                        enabled = action.enabled
+                    )
+                    val execResult = actionExecutor.execute(deviceAction)
+                    val (success, message) = when (execResult) {
+                        is ActionResult.Success -> true to "${execResult.message}${if (execResult.details != null) " (${execResult.details})" else ""}"
+                        is ActionResult.Error -> false to execResult.errorMessage
                     }
                     val state = captureScreenState()
                     ActionResultPayload(
                         actionId = action.actionId,
                         success = success,
-                        message = "Pressed key $key (success=$success)",
+                        message = message,
                         executionDurationMs = System.currentTimeMillis() - startTime,
                         updatedScreenState = state
                     )

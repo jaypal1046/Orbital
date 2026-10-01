@@ -96,6 +96,28 @@ async function handleHttpRequest(req, res) {
       res.writeHead(500, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ error: err.message }));
     }
+  } else if (req.url === "/action" && req.method === "POST") {
+    let body = "";
+    req.on("data", chunk => { body += chunk; });
+    req.on("end", async () => {
+      try {
+        const actionPayload = JSON.parse(body);
+        const actionId = actionPayload.actionId || "act-" + Date.now();
+        const fullPayload = {
+          type: "EXECUTE_ACTION",
+          action: {
+            ...actionPayload,
+            actionId
+          }
+        };
+        const result = await sendToPhone(fullPayload, actionId, 15000);
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify(result, null, 2));
+      } catch (err) {
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: err.message }));
+      }
+    });
   } else {
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify({
@@ -126,7 +148,16 @@ function setupWebSocket(ws, protocol) {
   ws.on("message", (raw) => {
     try {
       const data = JSON.parse(raw.toString());
-      if (data.type === "SCREEN_STATE" && pendingRequests.has("INSPECT_SCREEN")) {
+      if (data.type === "PAIRING") {
+        const pairingAck = {
+          type: "PAIRING_ACK",
+          token: AUTH_KEY,
+          authFingerprint: KEY_FINGERPRINT,
+          rawText: "Pairing acknowledged by Host"
+        };
+        ws.send(JSON.stringify(pairingAck));
+        console.error("🔒 Sent PAIRING_ACK with session cryptographic key to mobile device");
+      } else if (data.type === "SCREEN_STATE" && pendingRequests.has("INSPECT_SCREEN")) {
         const resolve = pendingRequests.get("INSPECT_SCREEN");
         pendingRequests.delete("INSPECT_SCREEN");
         resolve(data.screenState);
@@ -136,6 +167,12 @@ function setupWebSocket(ws, protocol) {
           const resolve = pendingRequests.get(actionId);
           pendingRequests.delete(actionId);
           resolve(data.result);
+        }
+      } else if (data.type === "SECURITY_ALERT") {
+        console.error("⚠️ Security alert received from mobile:", data.rawText);
+        for (const [key, callback] of pendingRequests.entries()) {
+          pendingRequests.delete(key);
+          callback({ success: false, message: `Security Alert: ${data.rawText}` });
         }
       }
     } catch (e) {
@@ -290,14 +327,47 @@ server.tool(
   }
 );
 
-// Tool 3: Type Text
+// Tool 3: Tap Coordinates (Exact X, Y Pixel Tap)
+server.tool(
+  "tap_phone_coordinates",
+  "Tap exact (x, y) pixel coordinates on the phone screen",
+  {
+    x: z.number().describe("X coordinate in pixels (e.g. 540)"),
+    y: z.number().describe("Y coordinate in pixels (e.g. 1100)")
+  },
+  async ({ x, y }) => {
+    try {
+      const actionId = "act-" + Date.now();
+      const payload = {
+        type: "EXECUTE_ACTION",
+        action: {
+          actionId,
+          actionType: "CLICK_COORDINATES",
+          coordinates: [Math.round(x), Math.round(y)]
+        }
+      };
+      const result = await sendToPhone(payload, actionId);
+      return {
+        content: [{ type: "text", text: `Tap Coordinates Result: ${result.message} (success=${result.success})` }]
+      };
+    } catch (err) {
+      return {
+        content: [{ type: "text", text: `Error tapping coordinates: ${err.message}` }],
+        isError: true
+      };
+    }
+  }
+);
+
+// Tool 4: Type Text
 server.tool(
   "type_phone_text",
-  "Type text into the currently focused input field on the phone screen",
+  "Type text into the currently focused or specified input field on the phone screen",
   {
-    text: z.string().describe("The text string to type into the focused field")
+    text: z.string().describe("The text string to type into the field"),
+    targetLabel: z.string().optional().describe("Optional label or hint of the target text box")
   },
-  async ({ text }) => {
+  async ({ text, targetLabel }) => {
     try {
       const actionId = "act-" + Date.now();
       const payload = {
@@ -305,12 +375,13 @@ server.tool(
         action: {
           actionId,
           actionType: "TYPE_TEXT",
-          textToType: text
+          textToType: text,
+          targetText: targetLabel || null
         }
       };
       const result = await sendToPhone(payload, actionId);
       return {
-        content: [{ type: "text", text: `Type Result: ${result.message}` }]
+        content: [{ type: "text", text: `Type Result: ${result.message} (success=${result.success})` }]
       };
     } catch (err) {
       return {
@@ -321,12 +392,12 @@ server.tool(
   }
 );
 
-// Tool 4: Open App
+// Tool 5: Open App
 server.tool(
   "open_phone_app",
-  "Launch any application on the Android phone by package name or app name",
+  "Launch any application on the Android phone by package name (e.g. 'com.google.android.youtube') or common app name (e.g. 'Settings', 'YouTube', 'WhatsApp', 'Chrome', 'Camera')",
   {
-    packageName: z.string().describe("Package name of the app to launch (e.g. 'com.google.android.youtube', 'com.android.settings')")
+    packageName: z.string().describe("Name of the app (e.g. 'Settings', 'YouTube') or exact package name (e.g. 'com.android.settings')")
   },
   async ({ packageName }) => {
     try {
@@ -336,12 +407,13 @@ server.tool(
         action: {
           actionId,
           actionType: "OPEN_APP",
-          packageName
+          packageName: packageName,
+          targetText: packageName
         }
       };
       const result = await sendToPhone(payload, actionId);
       return {
-        content: [{ type: "text", text: `Launch Result: ${result.message}` }]
+        content: [{ type: "text", text: `Launch Result: ${result.message} (success=${result.success})` }]
       };
     } catch (err) {
       return {
@@ -352,27 +424,34 @@ server.tool(
   }
 );
 
-// Tool 5: Swipe Screen
+// Tool 6: Swipe Screen
 server.tool(
   "swipe_phone_screen",
-  "Scroll or swipe the phone screen in a specified direction (UP, DOWN)",
+  "Scroll or swipe the phone screen in a specified direction (UP, DOWN, LEFT, RIGHT) or custom start/end coordinates",
   {
-    direction: z.enum(["UP", "DOWN"]).describe("Direction to scroll/swipe the screen")
+    direction: z.enum(["UP", "DOWN", "LEFT", "RIGHT"]).describe("Direction to swipe/scroll"),
+    startX: z.number().optional().describe("Optional custom gesture start X"),
+    startY: z.number().optional().describe("Optional custom gesture start Y"),
+    endX: z.number().optional().describe("Optional custom gesture end X"),
+    endY: z.number().optional().describe("Optional custom gesture end Y")
   },
-  async ({ direction }) => {
+  async ({ direction, startX, startY, endX, endY }) => {
     try {
       const actionId = "act-" + Date.now();
+      const hasCoords = startX !== undefined && startY !== undefined && endX !== undefined && endY !== undefined;
       const payload = {
         type: "EXECUTE_ACTION",
         action: {
           actionId,
           actionType: "SWIPE",
-          swipeDirection: direction
+          swipeDirection: direction,
+          startCoordinates: hasCoords ? [Math.round(startX), Math.round(startY)] : null,
+          endCoordinates: hasCoords ? [Math.round(endX), Math.round(endY)] : null
         }
       };
       const result = await sendToPhone(payload, actionId);
       return {
-        content: [{ type: "text", text: `Swipe Result: ${result.message}` }]
+        content: [{ type: "text", text: `Swipe Result: ${result.message} (success=${result.success})` }]
       };
     } catch (err) {
       return {
@@ -383,7 +462,83 @@ server.tool(
   }
 );
 
-// Tool 6: Assert Screen Contains (App Testing / QA Verification)
+// Tool 7: Press Global Key
+server.tool(
+  "press_phone_key",
+  "Press global Android navigation and system keys (BACK, HOME, RECENTS, NOTIFICATIONS, QUICK_SETTINGS, LOCK_SCREEN, TAKE_SCREENSHOT)",
+  {
+    key: z.enum(["BACK", "HOME", "RECENTS", "NOTIFICATIONS", "QUICK_SETTINGS", "LOCK_SCREEN", "TAKE_SCREENSHOT"]).describe("Key to press on the Android device")
+  },
+  async ({ key }) => {
+    try {
+      const actionId = "act-" + Date.now();
+      const payload = {
+        type: "EXECUTE_ACTION",
+        action: {
+          actionId,
+          actionType: "PRESS_KEY",
+          keyCode: key
+        }
+      };
+      const result = await sendToPhone(payload, actionId);
+      return {
+        content: [{ type: "text", text: `Key Result: ${result.message} (success=${result.success})` }]
+      };
+    } catch (err) {
+      return {
+        content: [{ type: "text", text: `Error pressing key: ${err.message}` }],
+        isError: true
+      };
+    }
+  }
+);
+
+// Tool 8: Execute Device Hardware & System Action
+server.tool(
+  "execute_device_action",
+  "Execute native Android system and hardware actions (FLASHLIGHT, DEVICE_STATUS, SET_SOUND_MODE, OPEN_SETTING, SET_TIMER, SEARCH_WEB, OPEN_URL)",
+  {
+    action: z.enum([
+      "FLASHLIGHT",
+      "DEVICE_STATUS",
+      "SET_SOUND_MODE",
+      "OPEN_SETTING",
+      "SET_TIMER",
+      "SEARCH_WEB",
+      "OPEN_URL"
+    ]).describe("The action to perform"),
+    target: z.string().optional().describe("Parameter for the action (e.g. 'on'/'off' for FLASHLIGHT, 'NORMAL'/'VIBRATE'/'SILENT' for SOUND_MODE, 'WIFI'/'BLUETOOTH' for OPEN_SETTING, URL for OPEN_URL)"),
+    query: z.string().optional().describe("Search query for SEARCH_WEB or label for SET_TIMER"),
+    enabled: z.boolean().optional().describe("Boolean state (e.g. true for flashlight on)")
+  },
+  async ({ action, target, query, enabled }) => {
+    try {
+      const actionId = "act-" + Date.now();
+      const payload = {
+        type: "EXECUTE_ACTION",
+        action: {
+          actionId,
+          actionType: "DEVICE_ACTION",
+          deviceAction: action,
+          target: target || null,
+          query: query || null,
+          enabled: enabled !== undefined ? enabled : null
+        }
+      };
+      const result = await sendToPhone(payload, actionId);
+      return {
+        content: [{ type: "text", text: `Device Action Result: ${result.message} (success=${result.success})` }]
+      };
+    } catch (err) {
+      return {
+        content: [{ type: "text", text: `Error executing device action: ${err.message}` }],
+        isError: true
+      };
+    }
+  }
+);
+
+// Tool 9: Assert Screen Contains (App Testing / QA Verification)
 server.tool(
   "assert_screen_contains",
   "Verify and assert that specific text or element exists on the phone screen (useful for automated app testing & QA)",
@@ -418,38 +573,7 @@ server.tool(
   }
 );
 
-// Tool 7: Press Global Key
-server.tool(
-  "press_phone_key",
-  "Press global Android navigation keys (BACK, HOME, RECENTS)",
-  {
-    key: z.enum(["BACK", "HOME", "RECENTS"]).describe("Key to press on the Android device")
-  },
-  async ({ key }) => {
-    try {
-      const actionId = "act-" + Date.now();
-      const payload = {
-        type: "EXECUTE_ACTION",
-        action: {
-          actionId,
-          actionType: "PRESS_KEY",
-          keyCode: key
-        }
-      };
-      const result = await sendToPhone(payload, actionId);
-      return {
-        content: [{ type: "text", text: `Key Result: ${result.message}` }]
-      };
-    } catch (err) {
-      return {
-        content: [{ type: "text", text: `Error pressing key: ${err.message}` }],
-        isError: true
-      };
-    }
-  }
-);
-
-// Tool 8: Ask Phone AI (AI-to-AI Autonomous Task Delegation)
+// Tool 10: Ask Phone AI (AI-to-AI Autonomous Task Delegation)
 server.tool(
   "ask_phone_ai",
   "Delegate a high-level task or query to the on-device Orbital Phone AI. The Phone AI autonomously routes through local/cloud LLMs and executes device actions (apps, settings, workflows) and returns its full result.",

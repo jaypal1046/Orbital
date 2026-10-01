@@ -1,25 +1,79 @@
-<h3>Privacy Policy for Orbital</h3>
-<p><strong>Effective Date:</strong> January 1, 2026</p>
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Privacy Policy for Orbital</title>
+</head>
+<body>
+    <h3>Privacy Policy for Orbital</h3>
+    <p><strong>Effective Date:</strong> January 1, 2026<br>
+    <strong>Last Updated:</strong> October 1, 2026</p>
 
-<h4>1. Introduction</h4>
-<p>Orbital ("we", "our", or "the app") is committed to protecting your privacy. Orbital is architected as a local-first application designed to operate without central servers or tracking infrastructure.</p>
+    <h4>1. Overview & Local-First Architecture</h4>
+    <p>Orbital ("we", "our", or "the app") is a local-first, privacy-by-design AI companion and autonomous device automation system for Android. Orbital is architected from the ground up to operate <strong>without central tracking servers or developer-hosted databases</strong>. Your data remains strictly on your device.</p>
 
-<h4>2. Data Collection & Processing</h4>
-<p><strong>We do not collect, store, or transmit your personal data to our own servers.</strong></p>
-<ul>
-    <li><strong>API Keys:</strong> Your LLM API keys (e.g., OpenAI, Groq, OpenRouter, Together, Fireworks, Gemini) are stored locally on your device using Android EncryptedSharedPreferences and are only sent directly to the respective API provider you configure.</li>
-    <li><strong>Conversations & Voice:</strong> Conversation history and voice audio are processed locally or sent directly to your chosen AI provider endpoint. No chat logs are sent to Orbital developers.</li>
-    <li><strong>Device Permissions:</strong> Permissions such as Microphone (audio input), Overlay (companion floating window), and Usage Stats (safety monitoring) are utilized strictly on-device to enable the respective core features.</li>
-</ul>
+    <h4>2. Categories of Information Processed</h4>
+    <ul>
+        <li><strong>API Credentials & Keys:</strong> Your third-party AI provider API keys (e.g. OpenAI, Anthropic, Groq, OpenRouter, Together AI, Fireworks, Google Gemini) are stored locally in your device's hardware-backed private storage using Android <code>EncryptedSharedPreferences</code>. Keys are never transmitted to Orbital developers.</li>
+        <li><strong>Conversations & Chat Sessions:</strong> Chat messages, generated responses, and prompt history are persisted exclusively in a local on-device SQLite/Room database. No chat logs are collected or backed up to external servers.</li>
+        <li><strong>Voice & Audio Input:</strong> Audio recording via the microphone occurs strictly on-demand when you interact with the voice input button. Orbital does not perform passive background audio recording or continuous acoustic surveillance. Audio data is streamed directly to your configured speech-to-text or AI provider endpoint.</li>
+        <li><strong>Media & Documents:</strong> Images, PDFs, and files attached to chat queries are processed in memory and sent directly over TLS to your selected AI provider for multi-modal inference.</li>
+    </ul>
 
-<h4>3. Third-Party Services</h4>
-<p>When you interact with AI features, queries are transmitted directly to the third-party AI provider you choose in Settings. Each provider governs data handling according to their own privacy policies.</p>
+    <h4>3. Mandatory Accessibility Service Disclosure (Google Play Compliance)</h4>
+    <p>Orbital includes an optional <strong>Accessibility Service</strong> (<code>com.orbital.automation.OrbitalAccessibilityService</code>) to provide autonomous device automation, on-screen inspection, and remote AI testing. In strict adherence to the Google Play Accessibility Guidelines and User Data Policies:</p>
+    <ul>
+        <li><strong>Specific API Usage:</strong> Orbital utilizes Android's official <code>AccessibilityService</code> API to retrieve window content, inspect visible accessibility nodes (view IDs, text labels, clickable states, and bounding boxes), and dispatch user-directed gestures (e.g. clicks, swipes, and text input).</li>
+        <li><strong>Legitimate Purpose:</strong> The service is used exclusively to fulfill explicit user automation commands (e.g. navigating settings, clicking buttons, testing app flows, and answering questions about on-screen content).</li>
+        <li><strong>Strict Data Protection & Non-Collection:</strong> Orbital does <strong>NOT</strong> record, collect, store, or sell sensitive personal information, keystrokes, passwords, payment details, or banking credentials. All accessibility hierarchy traversal occurs locally in temporary memory and is discarded immediately after action execution.</li>
+        <li><strong>No Advertising or Tracking:</strong> Accessibility data is never used for advertising, profiling, behavioral analytics, or third-party sharing.</li>
+        <li><strong>Voluntary Consent & Revocation:</strong> The Accessibility Service is disabled by default and requires explicit, voluntary user activation via a prominent disclosure dialog. You can revoke or disable this permission at any time in Android System Settings &rarr; Accessibility.</li>
+    </ul>
 
-<h4>4. Security</h4>
-<p>All sensitive configuration data is encrypted at rest on your device using hardware-backed keystores where available.</p>
+    <h4>4. Remote Laptop AI Bridge & Cryptographic Security</h4>
+    <p>Orbital features an optional wireless Laptop AI Bridge allowing verified desktop development environments (e.g. Antigravity IDE, Claude Code, Cursor, ChatGPT MCP) to dispatch remote automation commands to your device over local Wi-Fi, USB reverse forwarding, or encrypted WebSockets:</p>
+    <ul>
+        <li><strong>Bitcoin-Grade Cryptographic Authentication:</strong> Every bridge connection requires explicit user pairing authorization and utilizes 256-bit HMAC-SHA256 session signatures.</li>
+        <li><strong>Tamper Proof:</strong> Any unauthenticated or unsigned remote command is dropped immediately with a security alert.</li>
+    </ul>
 
-<h4>5. Open Source & Transparency</h4>
-<p>Orbital is open source. You can inspect the complete source code and verify our privacy and security claims directly on GitHub.</p>
+    <h4>5. Third-Party AI Service Providers</h4>
+    <p>When you send queries, requests are routed directly from your device to the third-party AI provider API you have configured in Settings. These communications are encrypted in transit via standard TLS 1.3. Each third-party provider processes data according to their respective privacy policies:</p>
+    <ul>
+        <li><strong>OpenAI:</strong> <a href="https://openai.com/privacy">https://openai.com/privacy</a></li>
+        <li><strong>Anthropic:</strong> <a href="https://www.anthropic.com/privacy">https://www.anthropic.com/privacy</a></li>
+        <li><strong>Groq:</strong> <a href="https://groq.com/privacy-policy/">https://groq.com/privacy-policy/</a></li>
+        <li><strong>Google Gemini:</strong> <a href="https://policies.google.com/privacy">https://policies.google.com/privacy</a></li>
+        <li><strong>OpenRouter:</strong> <a href="https://openrouter.ai/privacy">https://openrouter.ai/privacy</a></li>
+    </ul>
 
-<h4>6. Contact</h4>
-<p>If you have questions about this policy, please reach out via GitHub Issues.</p>
+    <h4>6. Device Permissions & Purpose</h4>
+    <ul>
+        <li><code>RECORD_AUDIO</code>: Required for voice input when the microphone button is pressed.</li>
+        <li><code>SYSTEM_ALERT_WINDOW</code>: Required for rendering the optional floating mascot overlay.</li>
+        <li><code>BIND_ACCESSIBILITY_SERVICE</code>: Required for on-screen node inspection and simulated touch automation.</li>
+        <li><code>POST_NOTIFICATIONS</code>: Required for automated status alerts and scheduled briefings (Android 13+).</li>
+        <li><code>ACCESS_NETWORK_STATE</code> & <code>INTERNET</code>: Required for connecting directly to your chosen AI model endpoints and local bridge.</li>
+        <li><code>PACKAGE_USAGE_STATS</code>: Used strictly on-device to pause assistant overlays during payment or banking app usage.</li>
+    </ul>
+
+    <h4>7. User Rights & Data Deletion (GDPR & CCPA)</h4>
+    <p>Because Orbital stores all data locally on your device, you have complete sovereignty over your data:</p>
+    <ul>
+        <li><strong>Instant Data Purge:</strong> You can wipe all chat history, cached models, and stored API keys at any time via App Settings &rarr; Clear Data, or by uninstalling the application.</li>
+        <li><strong>Export & Transparency:</strong> You can view, export, and copy all your conversation logs directly from the in-app chat interface.</li>
+    </ul>
+
+    <h4>8. Children's Privacy (COPPA Compliance)</h4>
+    <p>Orbital is not directed to children under the age of 13. We do not knowingly collect or solicit personal information from children.</p>
+
+    <h4>9. Open Source Transparency</h4>
+    <p>Orbital is open-source software released under the MIT License. The complete source code is publicly auditable on GitHub to verify all privacy, security, and data handling claims.</p>
+
+    <h4>10. Changes to This Privacy Policy</h4>
+    <p>We may update this Privacy Policy from time to time. Any changes will be reflected in updated application releases and documented in our public repository.</p>
+
+    <h4>11. Contact & Inquiries</h4>
+    <p>If you have any questions or feedback regarding this Privacy Policy, please submit an issue on our official GitHub repository: <a href="https://github.com/jaypal1046/Orbital">https://github.com/jaypal1046/Orbital</a>.</p>
+</body>
+</html>

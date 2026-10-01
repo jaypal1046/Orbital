@@ -17,6 +17,7 @@ enum class BridgeActionType {
     OPEN_APP,
     PRESS_KEY,
     INSPECT_SCREEN,
+    DEVICE_ACTION,
     CUSTOM_PROMPT
 }
 
@@ -50,10 +51,17 @@ data class ActionPayload(
     val targetText: String? = null,
     val targetId: String? = null,
     val coordinates: List<Int>? = null, // [x, y]
+    val startCoordinates: List<Int>? = null, // [startX, startY]
+    val endCoordinates: List<Int>? = null, // [endX, endY]
     val swipeDirection: String? = null, // "UP", "DOWN", "LEFT", "RIGHT"
     val textToType: String? = null,
     val packageName: String? = null,
-    val keyCode: String? = null, // "BACK", "HOME", "RECENTS"
+    val keyCode: String? = null, // "BACK", "HOME", "RECENTS", "NOTIFICATIONS", "QUICK_SETTINGS", "LOCK_SCREEN", "TAKE_SCREENSHOT"
+    val deviceAction: String? = null, // "FLASHLIGHT", "DEVICE_STATUS", "SET_SOUND_MODE", "OPEN_SETTING", "SET_TIMER", "SET_ALARM", "SEARCH_WEB", "OPEN_URL"
+    val enabled: Boolean? = null,
+    val query: String? = null,
+    val url: String? = null,
+    val target: String? = null,
     val customPrompt: String? = null
 )
 
