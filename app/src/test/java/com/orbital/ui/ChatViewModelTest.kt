@@ -103,6 +103,23 @@ class ChatViewModelTest {
         override fun confirmPendingAction() {}
 
         override fun cancelPendingAction() {}
+
+        override fun addActionMessage(
+            content: String,
+            actionLabel: String,
+            actionDetails: String?,
+            steps: List<com.orbital.action.ExecutionStep>?,
+            durationMs: Long
+        ) {
+            _messages.value = _messages.value + ChatMessage(
+                role = "assistant",
+                content = content,
+                actionLabel = actionLabel,
+                actionDetails = actionDetails,
+                steps = steps,
+                executionDurationMs = durationMs
+            )
+        }
     }
 
     private class FakeLlmRepository : LlmRepository() {
