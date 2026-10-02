@@ -1,0 +1,27 @@
+name: Sync Standalone MCP Repository
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'tools/orbital-mcp/**'
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Monorepo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Publish tools/orbital-mcp to Standalone Repository
+        uses: s0/git-publish-subdir-action@v2.6.0
+        env:
+          REPO: "git@github.com:jaypal1046/orbital_mcp.git"
+          BRANCH: main
+          FOLDER: tools/orbital-mcp
+          SSH_KEY: ${{ secrets.SSH_DEPLOY_KEY }}
+          MESSAGE: "chore(mcp): sync standalone orbital_mcp from Orbital monorepo [skip ci]"

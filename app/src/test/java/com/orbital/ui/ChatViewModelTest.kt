@@ -94,7 +94,7 @@ class ChatViewModelTest {
             isStreaming.value = false
         }
 
-        override fun newSession() = clearMessages()
+        override fun newSession(customSessionId: String?, customTitle: String?) = clearMessages()
         override fun loadSession(sessionId: String) {}
         override fun renameSession(sessionId: String, title: String) {}
 
@@ -225,7 +225,10 @@ class ChatViewModelTest {
 
     @After
     fun tearDown() {
-        Dispatchers.resetMain()
+        testDispatcher.scheduler.advanceUntilIdle()
+        try {
+            Dispatchers.resetMain()
+        } catch (_: Exception) {}
     }
 
     @Test

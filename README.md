@@ -87,17 +87,26 @@ graph TD
 
 ## 🔌 Model Context Protocol (MCP) Bridge
 
-Orbital embeds an enterprise-grade MCP server (`tools/orbital-mcp`) that exposes native tools for AI coding assistants and automation agents:
+Orbital embeds an enterprise-grade MCP server (`tools/orbital-mcp`) that exposes 13 native tools for AI coding assistants (**Antigravity, Cursor, Claude Desktop, Windsurf, VS Code**):
 
-| MCP Tool | Input Parameters | Description |
-| :--- | :--- | :--- |
-| `inspect_phone_screen` | _None_ | Captures real-time accessibility hierarchy nodes, bounding boxes, text labels, and clickability states. |
-| `tap_phone_element` | `targetText` (String) | Taps interactive UI elements matching exact text, label, or coordinate bounds. |
-| `type_phone_text` | `text` (String), `target` (Optional) | Enters text into active input fields, search bars, or chat prompts. |
-| `open_phone_app` | `packageName` or `appName` | Dynamically resolves and launches installed applications. |
-| `press_phone_key` | `key` (`BACK`, `HOME`, `RECENTS`) | Sends global system key events. |
-| `ask_phone_ai` | `prompt` (String) | Delegates autonomous, natural language goals directly to the on-device Orbital AI engine. |
-| `assert_screen_contains`| `expectedText` (String) | Verifies that expected text, state, or UI elements are actively rendered on screen. |
+> [!TIP]
+> **Zero-Install Quick Start**: Run `npx -y orbital-mcp` to launch the bridge host immediately without cloning the entire Android codebase!
+
+| # | MCP Tool | Input Parameters | Description |
+| :--- | :--- | :--- | :--- |
+| 1 | `inspect_phone_screen` | _None_ | Captures real-time accessibility hierarchy nodes, bounding boxes, text labels, and clickability states. |
+| 2 | `tap_phone_element` | `targetText`, `targetId` | Taps interactive UI elements matching exact text or resource ID. |
+| 3 | `tap_phone_coordinates` | `x`, `y` | Taps exact pixel coordinates on the phone screen. |
+| 4 | `type_phone_text` | `text`, `targetLabel` | Enters text into focused or targeted input fields. |
+| 5 | `open_phone_app` | `packageName` | Dynamically launches installed applications by name or package ID. |
+| 6 | `swipe_phone_screen` | `direction`, `startX/Y`, `endX/Y` | Scrolls or gestures across the screen in any direction or custom vector. |
+| 7 | `press_phone_key` | `key` (`BACK`, `HOME`, `RECENTS`, etc.) | Triggers global Android navigation and hardware keys. |
+| 8 | `execute_device_action` | `action`, `target`, `query`, `enabled` | Controls system toggles (`FLASHLIGHT`, `DEVICE_STATUS`, `SET_SOUND_MODE`, `OPEN_SETTING`, `SET_TIMER`, `SEARCH_WEB`, `OPEN_URL`). |
+| 9 | `assert_screen_contains`| `expectedText` | Asserts that specific text or element exists on the screen for test verification. |
+| 10 | `ask_phone_ai` | `prompt`, `sessionTitle` | Delegates high-level natural language goals to the on-device Orbital AI companion. |
+| 11 | `execute_phone_task_batch` | `planTitle`, `steps[]`, `stopOnError` | Executes multi-step batch interaction plans in a single round-trip with post-step assertions and telemetry. |
+| 12 | `manage_phone_session` | `command`, `sessionId`, `title` | Manages persistent on-device Room-backed chat and execution sessions. |
+| 13 | `explore_and_analyze_app` | `appName` | Autonomously explores any app, analyzes spatial layout, and generates UX/product reports. |
 
 ---
 
@@ -249,6 +258,13 @@ Verify build packaging:
 ```bash
 ./gradlew assembleRelease
 ```
+
+---
+
+## 🌐 Ecosystem Repositories
+
+- **🛰️ Dedicated MCP Server**: [https://github.com/jaypal1046/orbital_mcp](https://github.com/jaypal1046/orbital_mcp) (Standalone MCP bridge for developers who only need the desktop MCP tool)
+- **🔒 Privacy Policy & Security Terms**: [https://github.com/jaypal1046/orbital_policy](https://github.com/jaypal1046/orbital_policy) (Compliance, data isolation, and financial shielding policy)
 
 ---
 

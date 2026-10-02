@@ -9,6 +9,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import java.util.UUID
 
 @RunWith(RobolectricTestRunner::class)
 @Config(manifest = Config.NONE)
@@ -19,6 +20,13 @@ class OrbitalCryptoAuthTest {
     @Before
     fun setUp() {
         cryptoAuth = OrbitalCryptoAuth()
+    }
+
+    private fun buildTestSignatureKey(action: ActionPayload): String {
+        val stepsStr = action.batchSteps?.joinToString(";") { s ->
+            "${s.stepIndex}:${s.actionType}:${s.targetText.orEmpty()}:${s.targetId.orEmpty()}:${s.packageName.orEmpty()}:${s.keyCode.orEmpty()}:${s.textToType.orEmpty()}:${s.coordinates?.joinToString(",") ?: ""}:${s.deviceAction.orEmpty()}:${s.assertionText.orEmpty()}"
+        }.orEmpty()
+        return "${action.actionId}:${action.actionType}:${action.targetText.orEmpty()}:${action.targetId.orEmpty()}:${action.packageName.orEmpty()}:${action.keyCode.orEmpty()}:${action.textToType.orEmpty()}:${action.coordinates?.joinToString(",") ?: ""}:${action.deviceAction.orEmpty()}:${action.customPrompt.orEmpty()}:${action.sessionCommand.orEmpty()}:${action.sessionId.orEmpty()}:${action.sessionTitle.orEmpty()}:$stepsStr"
     }
 
     @Test
@@ -47,21 +55,24 @@ class OrbitalCryptoAuthTest {
     }
 
     @Test
-    fun testSignAndVerifyMessage() {
+    fun testSignAndVerifyMessageWithNonce() {
         val testToken = "secure-secret-token"
         cryptoAuth.establishSession(testToken, "ORB-1111", "Host")
 
         val timestamp = System.currentTimeMillis()
-        val content = "TEST_ACTION"
-        val signature = cryptoAuth.signMessage(content, timestamp)
+        val nonce = UUID.randomUUID().toString()
+        val action = ActionPayload(actionId = "act-123", actionType = BridgeActionType.OPEN_APP, packageName = "com.test.app")
+        val actionKey = buildTestSignatureKey(action)
+        val signature = cryptoAuth.signMessage(actionKey, timestamp, nonce)
 
         assertNotNull("Signature should be generated", signature)
         assertTrue("Signature should not be empty", signature!!.isNotEmpty())
 
         val bridgeMsg = BridgeMessage(
-            type = "ACTION",
-            action = ActionPayload(actionId = content, actionType = BridgeActionType.OPEN_APP),
+            type = "EXECUTE_ACTION",
+            action = action,
             timestamp = timestamp,
+            nonce = nonce,
             signature = signature
         )
 
@@ -70,19 +81,48 @@ class OrbitalCryptoAuthTest {
     }
 
     @Test
+    fun testReplayedNonceIsRejected() {
+        val testToken = "secure-secret-token"
+        cryptoAuth.establishSession(testToken, "ORB-1111", "Host")
+
+        val timestamp = System.currentTimeMillis()
+        val nonce = UUID.randomUUID().toString()
+        val action = ActionPayload(actionId = "act-123", actionType = BridgeActionType.INSPECT_SCREEN)
+        val actionKey = buildTestSignatureKey(action)
+        val signature = cryptoAuth.signMessage(actionKey, timestamp, nonce)
+
+        val bridgeMsg = BridgeMessage(
+            type = "EXECUTE_ACTION",
+            action = action,
+            timestamp = timestamp,
+            nonce = nonce,
+            signature = signature
+        )
+
+        val firstPass = cryptoAuth.verifyIncomingMessage(bridgeMsg)
+        assertTrue("First message with fresh nonce must pass", firstPass)
+
+        val secondPass = cryptoAuth.verifyIncomingMessage(bridgeMsg)
+        assertFalse("Second message reusing the identical nonce must be rejected as replay", secondPass)
+    }
+
+    @Test
     fun testReplayAttackExpiredTimestampRejected() {
         val testToken = "secure-secret-token"
         cryptoAuth.establishSession(testToken, "ORB-1111", "Host")
 
-        // Timestamp 5 minutes in the past (> 2 min replay window)
-        val expiredTimestamp = System.currentTimeMillis() - 300_000L
-        val content = "TEST_ACTION"
-        val signature = cryptoAuth.signMessage(content, expiredTimestamp)
+        // Timestamp 30 seconds in the past (> 15s replay window)
+        val expiredTimestamp = System.currentTimeMillis() - 30_000L
+        val nonce = UUID.randomUUID().toString()
+        val action = ActionPayload(actionId = "act-expired", actionType = BridgeActionType.OPEN_APP)
+        val actionKey = buildTestSignatureKey(action)
+        val signature = cryptoAuth.signMessage(actionKey, expiredTimestamp, nonce)
 
         val expiredMsg = BridgeMessage(
-            type = "ACTION",
-            action = ActionPayload(actionId = content, actionType = BridgeActionType.OPEN_APP),
+            type = "EXECUTE_ACTION",
+            action = action,
             timestamp = expiredTimestamp,
+            nonce = nonce,
             signature = signature
         )
 
@@ -97,9 +137,10 @@ class OrbitalCryptoAuthTest {
 
         val timestamp = System.currentTimeMillis()
         val tamperedMsg = BridgeMessage(
-            type = "ACTION",
+            type = "EXECUTE_ACTION",
             action = ActionPayload(actionId = "ORIGINAL_ACTION", actionType = BridgeActionType.OPEN_APP),
             timestamp = timestamp,
+            nonce = UUID.randomUUID().toString(),
             signature = "tampered_invalid_signature_hex_0000000000000"
         )
 

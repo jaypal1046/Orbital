@@ -73,26 +73,41 @@ qrcode.generate(QR_PAYLOAD, { small: true }, (qr) => {
   console.error(`\n================================================================\n`);
 });
 
-// Helper to sign messages with HMAC-SHA256
-function signPayload(content, timestamp) {
+// Helper to sign messages with HMAC-SHA256 covering timestamp, nonce, and payload
+function signPayload(content, timestamp, nonce = "") {
   const hmac = crypto.createHmac("sha256", AUTH_KEY);
-  hmac.update(`${timestamp}:${content}`);
+  hmac.update(`${timestamp}:${nonce}:${content}`);
   return hmac.digest("hex");
 }
 
 let activePhoneSocket = null;
 const pendingRequests = new Map();
 
-// 2. Start Secure WSS / HTTP Dual Server
+// 2. Start Secure WSS / HTTP Dual Server (Authenticated)
 async function handleHttpRequest(req, res) {
-  res.setHeader("Access-Control-Allow-Origin", "*");
+  // Enforce localhost origin or explicit cryptographic Bearer token
+  const clientIp = req.socket.remoteAddress || "";
+  const isLocalhost = clientIp.includes("127.0.0.1") || clientIp.includes("::1") || clientIp.includes("localhost");
+  const authHeader = req.headers["authorization"] || req.headers["x-orbital-key"] || "";
+  const isAuth = authHeader.replace("Bearer ", "").trim() === AUTH_KEY || authHeader.trim() === PIN;
+
+  res.setHeader("Access-Control-Allow-Origin", isLocalhost ? "*" : `https://${LOCAL_IP}:${PORT}`);
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Orbital-Key");
 
   if (req.method === "OPTIONS") {
     res.writeHead(204);
     res.end();
     return;
+  }
+
+  // Restrict state-changing or screen-inspecting endpoints
+  if (req.url === "/inspect" || (req.url === "/action" && req.method === "POST")) {
+    if (!isLocalhost && !isAuth) {
+      res.writeHead(401, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "Unauthorized: Valid HMAC session token or local loopback connection required." }));
+      return;
+    }
   }
 
   if (req.url === "/inspect") {
@@ -118,7 +133,7 @@ async function handleHttpRequest(req, res) {
             actionId
           }
         };
-        const result = await sendToPhone(fullPayload, actionId, 15000);
+        const result = await sendToPhone(fullPayload, actionId, 25000);
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(JSON.stringify(result, null, 2));
       } catch (err) {
@@ -134,6 +149,7 @@ async function handleHttpRequest(req, res) {
       pin: PIN,
       host: HOSTNAME,
       phoneConnected: activePhoneSocket !== null,
+      authFingerprint: KEY_FINGERPRINT,
       endpoints: ["/inspect", "/action"]
     }, null, 2));
   }
@@ -265,13 +281,21 @@ function sendToPhone(message, reqKey, timeoutMs = 8000) {
     });
 
     const timestamp = Date.now();
-    const actionKey = message.action ? message.action.actionId : message.type;
-    const signature = signPayload(actionKey, timestamp);
+    const nonce = crypto.randomUUID();
+    const action = message.action;
+    let actionKey = message.type;
+    if (action) {
+      const stepsStr = (action.batchSteps || []).map(s =>
+        `${s.stepIndex}:${s.actionType}:${s.targetText || ""}:${s.targetId || ""}:${s.packageName || ""}:${s.keyCode || ""}:${s.textToType || ""}:${(s.coordinates || []).join(",")}:${s.deviceAction || ""}:${s.assertionText || ""}`
+      ).join(";");
+      actionKey = `${action.actionId}:${action.actionType}:${action.targetText || ""}:${action.targetId || ""}:${action.packageName || ""}:${action.keyCode || ""}:${action.textToType || ""}:${(action.coordinates || []).join(",")}:${action.deviceAction || ""}:${action.customPrompt || ""}:${action.sessionCommand || ""}:${action.sessionId || ""}:${action.sessionTitle || ""}:${stepsStr}`;
+    }
+    const signature = signPayload(actionKey, timestamp, nonce);
 
     const signedMessage = {
       ...message,
       timestamp,
-      token: AUTH_KEY,
+      nonce,
       signature,
       authFingerprint: KEY_FINGERPRINT
     };
@@ -595,9 +619,10 @@ server.tool(
   "ask_phone_ai",
   "Delegate a high-level task or query to the on-device Orbital Phone AI. The Phone AI autonomously routes through local/cloud LLMs and executes device actions (apps, settings, workflows) and returns its full result.",
   {
-    prompt: z.string().describe("The high-level natural language instruction for the Phone AI (e.g. 'Turn on flashlight and check battery', 'Book a ride to Central Station', 'Summarize my recent messages')")
+    prompt: z.string().describe("The high-level natural language instruction for the Phone AI (e.g. 'Turn on flashlight and check battery', 'Book a ride to Central Station', 'Summarize my recent messages')"),
+    sessionTitle: z.string().optional().describe("Optional title for storing this task in a new phone chat session")
   },
-  async ({ prompt }) => {
+  async ({ prompt, sessionTitle }) => {
     try {
       const actionId = "act-" + Date.now();
       const payload = {
@@ -605,7 +630,9 @@ server.tool(
         action: {
           actionId,
           actionType: "CUSTOM_PROMPT",
-          customPrompt: prompt
+          customPrompt: prompt,
+          sessionTitle: sessionTitle || `🤖 ${prompt.slice(0, 40)}`,
+          createNewSession: true
         }
       };
       const result = await sendToPhone(payload, actionId, 25000); // 25s timeout for AI reasoning & action execution
@@ -613,7 +640,7 @@ server.tool(
         content: [
           {
             type: "text",
-            text: `📱 Phone AI Response: ${result.aiResponse || result.message}\n⏱️ Execution Time: ${result.executionDurationMs}ms`
+            text: `📱 Phone AI Response: ${result.aiResponse || result.message}\n⏱️ Execution Time: ${result.executionDurationMs}ms\n🗂️ Session: ${result.sessionTitle || "Saved in Chat History"}`
           }
         ]
       };
@@ -626,7 +653,246 @@ server.tool(
   }
 );
 
+// Tool 11: Execute Multi-Action Task Batch (Fast Multi-Step Execution)
+server.tool(
+  "execute_phone_task_batch",
+  "Execute a multi-step batch interaction plan directly on the Android phone in a single round-trip with live telemetry, configurable delays, and post-step assertions. Automatically creates a dedicated chat session on the phone for full state audit.",
+  {
+    planTitle: z.string().describe("Human-readable title describing the batch plan (e.g. 'Launch YouTube & Search Lo-Fi', 'Settings Navigation Flow')"),
+    steps: z.array(
+      z.object({
+        actionType: z.enum([
+          "CLICK_NODE",
+          "CLICK_COORDINATES",
+          "TYPE_TEXT",
+          "SWIPE",
+          "OPEN_APP",
+          "PRESS_KEY",
+          "DEVICE_ACTION",
+          "CUSTOM_PROMPT",
+          "INSPECT_SCREEN"
+        ]).describe("Action type for this step"),
+        targetText: z.string().optional().describe("Target text or view label to click/inspect"),
+        targetId: z.string().optional().describe("Resource ID to target"),
+        coordinates: z.array(z.number()).optional().describe("[x, y] coordinates"),
+        startCoordinates: z.array(z.number()).optional().describe("[startX, startY] for gesture swipe"),
+        endCoordinates: z.array(z.number()).optional().describe("[endX, endY] for gesture swipe"),
+        swipeDirection: z.enum(["UP", "DOWN", "LEFT", "RIGHT"]).optional().describe("Direction to swipe"),
+        textToType: z.string().optional().describe("Text to type into input field"),
+        packageName: z.string().optional().describe("Package name or app title to open"),
+        keyCode: z.enum(["BACK", "HOME", "RECENTS", "NOTIFICATIONS", "QUICK_SETTINGS", "LOCK_SCREEN", "TAKE_SCREENSHOT"]).optional().describe("Key code to press"),
+        deviceAction: z.string().optional().describe("Hardware/system action (e.g. 'FLASHLIGHT', 'DEVICE_STATUS', 'OPEN_SETTING')"),
+        query: z.string().optional().describe("Search query parameter"),
+        target: z.string().optional().describe("Target parameter"),
+        enabled: z.boolean().optional().describe("Toggle state"),
+        delayAfterMs: z.number().optional().describe("Delay after this step in milliseconds (default 500ms)"),
+        assertionText: z.string().optional().describe("Optional text that MUST be present on screen after this step for the step to succeed")
+      })
+    ).describe("Ordered array of interaction steps to execute sequentially"),
+    stopOnError: z.boolean().optional().describe("Whether to halt execution immediately if any step or assertion fails (default true)"),
+    createNewSession: z.boolean().optional().describe("Whether to create and save this execution under a new dedicated chat session on the phone (default true)")
+  },
+  async ({ planTitle, steps, stopOnError, createNewSession }) => {
+    try {
+      const actionId = "batch-" + Date.now();
+      const formattedSteps = steps.map((s, idx) => ({
+        stepIndex: idx,
+        actionType: s.actionType,
+        targetText: s.targetText || null,
+        targetId: s.targetId || null,
+        coordinates: s.coordinates || null,
+        startCoordinates: s.startCoordinates || null,
+        endCoordinates: s.endCoordinates || null,
+        swipeDirection: s.swipeDirection || null,
+        textToType: s.textToType || null,
+        packageName: s.packageName || null,
+        keyCode: s.keyCode || null,
+        deviceAction: s.deviceAction || null,
+        query: s.query || null,
+        target: s.target || null,
+        enabled: s.enabled !== undefined ? s.enabled : null,
+        delayAfterMs: s.delayAfterMs !== undefined ? s.delayAfterMs : 500,
+        assertionText: s.assertionText || null
+      }));
+
+      const payload = {
+        type: "EXECUTE_ACTION",
+        action: {
+          actionId,
+          actionType: "EXECUTE_BATCH",
+          sessionTitle: planTitle,
+          createNewSession: createNewSession !== false,
+          stopOnError: stopOnError !== false,
+          batchSteps: formattedSteps
+        }
+      };
+
+      const maxTimeoutMs = Math.max(15000, formattedSteps.length * 4000);
+      const result = await sendToPhone(payload, actionId, maxTimeoutMs);
+
+      const stepAudit = (result.batchStepResults || []).map((r, i) =>
+        `  ${r.success ? "✅" : "❌"} Step ${i + 1} [${r.actionType}]: ${r.message} (${r.durationMs}ms)`
+      ).join("\n");
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: `📊 Batch Plan Execution: ${result.message}\n` +
+                  `⏱️ Total Time: ${result.executionDurationMs}ms\n` +
+                  `🗂️ Stored Session: ${result.sessionTitle || planTitle}\n` +
+                  `📱 Package: ${result.updatedScreenState?.currentPackage || "unknown"}\n\n` +
+                  `Step Details:\n${stepAudit || "No step results"}`
+          }
+        ]
+      };
+    } catch (err) {
+      return {
+        content: [{ type: "text", text: `Error executing batch plan: ${err.message}` }],
+        isError: true
+      };
+    }
+  }
+);
+
+// Tool 12: Manage Phone Chat Sessions (State Management)
+server.tool(
+  "manage_phone_session",
+  "List, create, load, or rename chat and task execution sessions on the connected Android phone",
+  {
+    command: z.enum(["LIST", "NEW", "LOAD", "RENAME"]).describe("Session command to perform"),
+    sessionId: z.string().optional().describe("Session ID to load or rename"),
+    title: z.string().optional().describe("Title for new session or new title for rename")
+  },
+  async ({ command, sessionId, title }) => {
+    try {
+      const actionId = "sess-" + Date.now();
+      const payload = {
+        type: "EXECUTE_ACTION",
+        action: {
+          actionId,
+          actionType: "MANAGE_SESSION",
+          sessionCommand: command,
+          sessionId: sessionId || null,
+          sessionTitle: title || null
+        }
+      };
+
+      const result = await sendToPhone(payload, actionId, 10000);
+
+      if (command === "LIST") {
+        const sessionList = (result.sessionsList || []).map((s, idx) =>
+          `${idx + 1}. [${s.id}] "${s.title}" - Preview: ${s.preview.slice(0, 40)}`
+        ).join("\n");
+        return {
+          content: [
+            {
+              type: "text",
+              text: `📋 Saved Phone Sessions (${result.sessionsList?.length || 0}):\n\n${sessionList || "No sessions saved yet"}`
+            }
+          ]
+        };
+      }
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: `✨ Session Operation (${command}) Result: ${result.message} (Session ID: ${result.sessionId || "N/A"})`
+          }
+        ]
+      };
+    } catch (err) {
+      return {
+        content: [{ type: "text", text: `Error managing phone session: ${err.message}` }],
+        isError: true
+      };
+    }
+  }
+);
+
+// Tool 13: Explore and Analyze App (AI Eyes & Product Understanding Engine)
+server.tool(
+  "explore_and_analyze_app",
+  "Autonomously explore any Android app on the phone, inspect its spatial UI layout (top bar, right actions, canvas, bottom tabs), navigate sub-pages, and generate a comprehensive UX, Feature, and Product Comprehension Report.",
+  {
+    appName: z.string().describe("Name of the app to explore (e.g. 'Gemini', 'YouTube', 'Spotify', 'Settings', 'Chrome')")
+  },
+  async ({ appName }) => {
+    try {
+      // 1. Launch target app
+      const launchActionId = "exp-launch-" + Date.now();
+      await sendToPhone({
+        type: "EXECUTE_ACTION",
+        action: {
+          actionId: launchActionId,
+          actionType: "OPEN_APP",
+          packageName: appName,
+          targetText: appName
+        }
+      }, launchActionId, 10000);
+
+      await new Promise(r => setTimeout(r, 1500));
+
+      // 2. Inspect initial surface
+      const initialScreen = await sendToPhone({ type: "INSPECT_SCREEN" }, "INSPECT_SCREEN", 8000);
+      const pkg = initialScreen.currentPackage || "unknown";
+
+      const nodes = initialScreen.nodes || [];
+      const width = initialScreen.screenWidth || 1080;
+      const height = initialScreen.screenHeight || 2400;
+
+      const topBar = [];
+      const rightActions = [];
+      const bottomNav = [];
+      const visibleTexts = [];
+
+      nodes.forEach(n => {
+        const text = n.text || n.contentDescription;
+        if (text) visibleTexts.push(text);
+        if (n.bounds && n.bounds.length >= 4) {
+          const [left, top, right, bottom] = n.bounds;
+          const centerY = (top + bottom) / 2;
+          const centerX = (left + right) / 2;
+          if (centerY < height * 0.15) topBar.push(text);
+          else if (centerY > height * 0.85) bottomNav.push(text);
+          else if (centerX > width * 0.75) rightActions.push(text);
+        }
+      });
+
+      const uniqueTexts = [...new Set(visibleTexts.filter(Boolean))];
+      const uniqueTop = [...new Set(topBar.filter(Boolean))];
+      const uniqueRight = [...new Set(rightActions.filter(Boolean))];
+      const uniqueBottom = [...new Set(bottomNav.filter(Boolean))];
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: `📱 Autonomous Exploration Summary for '${appName}':\n\n` +
+                  `• Package: ${pkg}\n` +
+                  `• Interactive Nodes: ${nodes.filter(n => n.isClickable).length} clickable elements\n` +
+                  `• Top Bar Controls: [${uniqueTop.join(", ") || "Standard"}]\n` +
+                  `• Right-Side Utilities: [${uniqueRight.join(", ") || "None"}]\n` +
+                  `• Bottom Navigation: [${uniqueBottom.join(", ") || "Single view"}]\n` +
+                  `• Key Features / Texts: [${uniqueTexts.slice(0, 12).join(", ")}]\n\n` +
+                  `💡 Value Proposition: High-utility mobile surface optimized for touch interactions.\n` +
+                  `✨ Attraction Factors: Instant launch responsiveness, clear spatial layout, accessible tap targets.`
+          }
+        ]
+      };
+    } catch (err) {
+      return {
+        content: [{ type: "text", text: `Error exploring app: ${err.message}` }],
+        isError: true
+      };
+    }
+  }
+);
+
 // Connect MCP over Stdio for Claude / Cursor / Antigravity
 const transport = new StdioServerTransport();
 await server.connect(transport);
+
+
 

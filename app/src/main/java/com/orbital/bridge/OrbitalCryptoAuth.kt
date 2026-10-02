@@ -2,6 +2,8 @@ package com.orbital.bridge
 
 import android.util.Log
 import java.security.MessageDigest
+import java.util.Collections
+import java.util.LinkedHashMap
 import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
 import javax.inject.Inject
@@ -13,7 +15,8 @@ class OrbitalCryptoAuth @Inject constructor() {
     companion object {
         private const val TAG = "OrbitalCryptoAuth"
         private const val HMAC_ALGORITHM = "HmacSHA256"
-        private const val REPLAY_WINDOW_MS = 120_000L // 2 minutes window
+        private const val REPLAY_WINDOW_MS = 15_000L // Strict 15-second replay window
+        private const val MAX_SEEN_NONCES = 1000
     }
 
     @Volatile
@@ -25,8 +28,17 @@ class OrbitalCryptoAuth @Inject constructor() {
     @Volatile
     private var authenticatedHostName: String? = null
 
+    // Thread-safe LRU cache for tracking message nonces to prevent replay attacks
+    private val seenNonces: MutableMap<String, Long> = Collections.synchronizedMap(
+        object : LinkedHashMap<String, Long>(MAX_SEEN_NONCES, 0.75f, true) {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Long>?): Boolean {
+                return size > MAX_SEEN_NONCES
+            }
+        }
+    )
+
     /**
-     * Initializes a verified session key scanned from the laptop terminal QR code.
+     * Initializes a verified session key scanned from the laptop terminal QR code or authenticated handshake.
      */
     fun establishSession(token: String, pin: String? = null, hostName: String? = null) {
         activeSessionToken = token.trim()
@@ -49,6 +61,7 @@ class OrbitalCryptoAuth @Inject constructor() {
         activeSessionToken = null
         activeSessionPin = null
         authenticatedHostName = null
+        seenNonces.clear()
         Log.i(TAG, "Session key cleared.")
     }
 
@@ -71,13 +84,13 @@ class OrbitalCryptoAuth @Inject constructor() {
     /**
      * Generates an HMAC-SHA256 signature for outgoing messages.
      */
-    fun signMessage(content: String, timestamp: Long): String? {
+    fun signMessage(content: String, timestamp: Long, nonce: String? = null): String? {
         val secret = activeSessionToken ?: return null
         return try {
             val keySpec = SecretKeySpec(secret.toByteArray(Charsets.UTF_8), HMAC_ALGORITHM)
             val mac = Mac.getInstance(HMAC_ALGORITHM)
             mac.init(keySpec)
-            val dataToSign = "$timestamp:$content"
+            val dataToSign = "$timestamp:${nonce.orEmpty()}:$content"
             val rawHmac = mac.doFinal(dataToSign.toByteArray(Charsets.UTF_8))
             rawHmac.joinToString("") { "%02x".format(it) }
         } catch (e: Exception) {
@@ -88,53 +101,76 @@ class OrbitalCryptoAuth @Inject constructor() {
 
     /**
      * Verifies the authenticity and cryptographic integrity of an incoming message from the laptop.
-     * Drops any unauthorized or tampered message.
+     * Strictly validates HMAC-SHA256 signature and rejects expired timestamps or replayed nonces.
      */
     fun verifyIncomingMessage(message: BridgeMessage): Boolean {
-        var secret = activeSessionToken
+        val secret = activeSessionToken
 
-        // If no session token was preset (e.g. connected via nearby discovery or direct IP),
-        // adopt the host's token if provided on this authenticated direct connection
-        if (secret.isNullOrBlank()) {
-            if (message.type == "PAIRING" || message.type == "PAIRING_ACK") {
-                if (!message.token.isNullOrBlank()) {
-                    activeSessionToken = message.token
-                    Log.i(TAG, "🔒 Established session token from host handshake")
-                }
-                return true
-            }
+        // Handle initial pairing handshake & key refresh
+        if (message.type == "PAIRING" || message.type == "PAIRING_ACK") {
             if (!message.token.isNullOrBlank()) {
                 activeSessionToken = message.token
-                secret = message.token
-                Log.i(TAG, "🔒 Established session token from host action")
-            } else {
-                Log.w(TAG, "❌ Rejected message '${message.type}': No active cryptographic session.")
-                return false
+                seenNonces.clear()
+                Log.i(TAG, "🔒 Established/refreshed cryptographic session token from host handshake")
             }
-        }
-
-        // Replay attack prevention
-        val now = System.currentTimeMillis()
-        if (Math.abs(now - message.timestamp) > REPLAY_WINDOW_MS) {
-            Log.w(TAG, "❌ Rejected message '${message.type}': Timestamp expired / Replay attempt (diff=${now - message.timestamp}ms)")
-            return false
-        }
-
-        // 1. Direct 256-bit token match validation
-        if (message.token != null && message.token == secret) {
             return true
         }
 
-        // 2. Cryptographic HMAC-SHA256 signature verification
-        if (message.signature != null) {
-            val actionKey = message.action?.actionId ?: message.type
-            val expectedSig = signMessage(actionKey, message.timestamp)
-            if (expectedSig != null && expectedSig.equals(message.signature, ignoreCase = true)) {
-                return true
-            }
+        if (secret.isNullOrBlank()) {
+            Log.w(TAG, "❌ Rejected message '${message.type}': No active cryptographic session.")
+            return false
         }
 
-        Log.w(TAG, "❌ SECURITY ALERT: Cryptographic signature mismatch! Message rejected.")
-        return false
+        // 1. Replay attack prevention: Strict timestamp skew check
+        val now = System.currentTimeMillis()
+        if (Math.abs(now - message.timestamp) > REPLAY_WINDOW_MS) {
+            Log.w(TAG, "❌ Rejected message '${message.type}': Timestamp expired (skew=${now - message.timestamp}ms)")
+            return false
+        }
+
+        // 2. Replay attack prevention: Nonce uniqueness check
+        val nonce = message.nonce
+        if (!nonce.isNullOrBlank()) {
+            if (seenNonces.containsKey(nonce)) {
+                Log.w(TAG, "🚨 REPLAY ATTACK BLOCKED: Nonce '$nonce' already consumed!")
+                return false
+            }
+            seenNonces[nonce] = now
+        }
+
+        // 3. Cryptographic HMAC-SHA256 signature verification over payload
+        val incomingSig = message.signature
+        if (incomingSig.isNullOrBlank()) {
+            Log.w(TAG, "❌ SECURITY ALERT: Missing cryptographic signature! Message rejected.")
+            return false
+        }
+
+        val actionKey = buildActionSignatureKey(message)
+        val expectedSig = signMessage(actionKey, message.timestamp, nonce) ?: return false
+
+        // Constant-time signature comparison to prevent timing attacks
+        val isAuthentic = MessageDigest.isEqual(
+            expectedSig.toByteArray(Charsets.UTF_8),
+            incomingSig.toByteArray(Charsets.UTF_8)
+        )
+
+        if (!isAuthentic) {
+            Log.w(TAG, "❌ SECURITY ALERT: Cryptographic signature mismatch! Message rejected.")
+            return false
+        }
+
+        return true
+    }
+
+    private fun buildActionSignatureKey(message: BridgeMessage): String {
+        val action = message.action
+        return if (action != null) {
+            val stepsStr = action.batchSteps?.joinToString(";") { s ->
+                "${s.stepIndex}:${s.actionType}:${s.targetText.orEmpty()}:${s.targetId.orEmpty()}:${s.packageName.orEmpty()}:${s.keyCode.orEmpty()}:${s.textToType.orEmpty()}:${s.coordinates?.joinToString(",") ?: ""}:${s.deviceAction.orEmpty()}:${s.assertionText.orEmpty()}"
+            }.orEmpty()
+            "${action.actionId}:${action.actionType}:${action.targetText.orEmpty()}:${action.targetId.orEmpty()}:${action.packageName.orEmpty()}:${action.keyCode.orEmpty()}:${action.textToType.orEmpty()}:${action.coordinates?.joinToString(",") ?: ""}:${action.deviceAction.orEmpty()}:${action.customPrompt.orEmpty()}:${action.sessionCommand.orEmpty()}:${action.sessionId.orEmpty()}:${action.sessionTitle.orEmpty()}:$stepsStr"
+        } else {
+            message.type
+        }
     }
 }

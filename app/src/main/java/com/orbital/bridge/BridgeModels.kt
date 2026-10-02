@@ -18,7 +18,9 @@ enum class BridgeActionType {
     PRESS_KEY,
     INSPECT_SCREEN,
     DEVICE_ACTION,
-    CUSTOM_PROMPT
+    CUSTOM_PROMPT,
+    EXECUTE_BATCH,
+    MANAGE_SESSION
 }
 
 @Serializable
@@ -45,6 +47,46 @@ data class ScreenStatePayload(
 )
 
 @Serializable
+data class BatchStepPayload(
+    val stepIndex: Int = 0,
+    val actionType: BridgeActionType,
+    val targetText: String? = null,
+    val targetId: String? = null,
+    val coordinates: List<Int>? = null, // [x, y]
+    val startCoordinates: List<Int>? = null, // [startX, startY]
+    val endCoordinates: List<Int>? = null, // [endX, endY]
+    val swipeDirection: String? = null, // "UP", "DOWN", "LEFT", "RIGHT"
+    val textToType: String? = null,
+    val packageName: String? = null,
+    val keyCode: String? = null,
+    val deviceAction: String? = null,
+    val enabled: Boolean? = null,
+    val query: String? = null,
+    val url: String? = null,
+    val target: String? = null,
+    val customPrompt: String? = null,
+    val delayAfterMs: Long = 500L,
+    val assertionText: String? = null
+)
+
+@Serializable
+data class BatchStepResult(
+    val stepIndex: Int,
+    val actionType: BridgeActionType,
+    val success: Boolean,
+    val message: String,
+    val durationMs: Long = 0L
+)
+
+@Serializable
+data class SessionSummaryDto(
+    val id: String,
+    val title: String,
+    val preview: String = "",
+    val updatedAt: Long = 0L
+)
+
+@Serializable
 data class ActionPayload(
     val actionId: String,
     val actionType: BridgeActionType,
@@ -62,7 +104,13 @@ data class ActionPayload(
     val query: String? = null,
     val url: String? = null,
     val target: String? = null,
-    val customPrompt: String? = null
+    val customPrompt: String? = null,
+    val batchSteps: List<BatchStepPayload>? = null,
+    val stopOnError: Boolean = true,
+    val sessionTitle: String? = null,
+    val sessionId: String? = null,
+    val createNewSession: Boolean = false,
+    val sessionCommand: String? = null // "LIST", "NEW", "LOAD", "RENAME"
 )
 
 @Serializable
@@ -73,6 +121,10 @@ data class ActionResultPayload(
     val aiResponse: String? = null,
     val executionDurationMs: Long = 0L,
     val updatedScreenState: ScreenStatePayload? = null,
+    val batchStepResults: List<BatchStepResult>? = null,
+    val sessionId: String? = null,
+    val sessionTitle: String? = null,
+    val sessionsList: List<SessionSummaryDto>? = null,
     val timestamp: Long = System.currentTimeMillis()
 )
 
@@ -83,6 +135,7 @@ data class BridgeMessage(
     val token: String? = null,
     val signature: String? = null,
     val authFingerprint: String? = null,
+    val nonce: String? = null,
     val screenState: ScreenStatePayload? = null,
     val action: ActionPayload? = null,
     val result: ActionResultPayload? = null,

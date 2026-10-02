@@ -1,37 +1,40 @@
-# Orbital MCP Server (`orbital-mcp`)
+# 🛰️ Orbital MCP Server (`orbital-mcp`)
 
-[![npm version](https://img.shields.io/npm/v/orbital-mcp.svg)](https://www.npmjs.com/package/orbital-mcp)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![npm version](https://img.shields.io/npm/v/orbital-mcp.svg?style=for-the-badge&color=7C3AED)](https://www.npmjs.com/package/orbital-mcp)
+[![Model Context Protocol](https://img.shields.io/badge/Protocol-Model%20Context%20Protocol%20(MCP)-blue?style=for-the-badge)](https://modelcontextprotocol.io/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](https://opensource.org/licenses/MIT)
 
-**Model Context Protocol (MCP)** server for controlling and inspecting your Android phone in real-time from AI models (Claude Desktop, Cursor IDE, Windsurf, Antigravity, or custom agent scripts) using the [Orbital Android App](https://github.com/jaypal1046/Orbital).
+The official **Model Context Protocol (MCP)** server for controlling, inspecting, and testing Android devices wirelessly in real-time from AI coding assistants (**Antigravity, Claude Desktop, Cursor IDE, Windsurf, VS Code**) using the **[Orbital Android App](https://github.com/jaypal1046/Orbital)**.
 
 ---
 
-## 🚀 Quick Start (Zero Install)
+## ⚡ Zero-Install Quick Start (Recommended)
 
-You can run `orbital-mcp` directly without installing:
+You don't need to clone the full Android codebase or install manual dependencies. Run `orbital-mcp` instantly with `npx`:
 
 ```bash
 npx -y orbital-mcp
 ```
 
-This will output your local IP and pairing code:
-```
-================================================
- 🛰️  Orbital Laptop-to-Mobile AI Bridge Host
-================================================
-🔑 Pairing Code : ORB-5543
-🌐 Local WS     : ws://192.168.1.5:8765
-📱 In Orbital App: Open Side Menu -> "Laptop AI Bridge" -> Connect
-================================================
+This launches the local bridge host with automatic IP discovery, QR code pairing, and mDNS network broadcasting:
+
+```text
+================================================================
+ 🛰️  ORBITAL LAPTOP-TO-MOBILE AI BRIDGE (SECURE CRYPTO HOST)
+================================================================
+🔑 Pairing PIN   : ORB-7821
+🔐 Crypto Key ID : 4A8F:B12C:99E1:F3D0 (256-bit Bitcoin-grade Auth)
+🌐 Primary WSS   : wss://192.168.1.5:8765
+📡 QuickShare NSD: _orbital-bridge._tcp (Laptop)
+📱 Scan QR Code or Connect via Orbital App
+================================================================
 ```
 
 ---
 
-## 🛠️ AI Configuration
+## 🛠️ AI IDE Configuration
 
-### 1. Claude Desktop
-Add to your `claude_desktop_config.json`:
+### 1. Antigravity IDE (`mcp_config.json`)
 ```json
 {
   "mcpServers": {
@@ -43,76 +46,86 @@ Add to your `claude_desktop_config.json`:
 }
 ```
 
-### 2. Cursor / Windsurf IDE
-In Cursor Settings $\rightarrow$ Features $\rightarrow$ MCP Servers $\rightarrow$ Add New:
+### 2. Claude Desktop (`claude_desktop_config.json`)
+```json
+{
+  "mcpServers": {
+    "orbital-phone": {
+      "command": "npx",
+      "args": ["-y", "orbital-mcp"]
+    }
+  }
+}
+```
+
+### 3. Cursor / Windsurf IDE
+In **Cursor Settings** $\rightarrow$ **Features** $\rightarrow$ **MCP Servers** $\rightarrow$ **Add New**:
 - **Name**: `orbital-phone`
 - **Type**: `command`
 - **Command**: `npx -y orbital-mcp`
-
-### 3. Antigravity IDE (`mcp_config.json`)
-```json
-{
-  "mcpServers": {
-    "orbital-phone": {
-      "command": "npx",
-      "args": ["-y", "orbital-mcp"]
-    }
-  }
-}
-```
 
 ---
 
 ## 📱 Connect Your Android Device
 
-1. Install and open the **[Orbital Android App](https://github.com/jaypal1046/Orbital)**.
-2. Grant **Accessibility Service** permission.
+1. Install the **[Orbital Android Companion](https://github.com/jaypal1046/Orbital/releases)** APK.
+2. Grant **Accessibility Service** permission on the phone.
 3. Open the side menu $\rightarrow$ tap **Laptop AI Bridge**.
-4. Enter your laptop's IP address (e.g. `192.168.1.5`) or PIN.
-5. Tap **Connect**!
+4. Scan the QR code displayed in your terminal or enter the 4-digit PIN.
+5. The device connects immediately over an encrypted WebSocket tunnel.
 
 ---
 
-## 🎯 Automated App Testing & QA Use Cases
+## 🧰 Full Suite of 13 MCP Tools
 
-With `orbital-mcp`, developers and AI agents can execute automated End-to-End tests on ANY Android application:
-
-```text
-"Open WhatsApp, search for 'Dev Group', send 'Build #42 deployed', and assert that 'Build #42 deployed' is visible."
-```
-
-```text
-"Launch Amazon app, search for 'Mechanical Keyboard', scroll down twice, click the first product, and verify the Buy Now button exists."
-```
-
-```text
-"Run a full regression test on Settings -> Display -> Dark Mode toggle and report any UI hierarchy anomalies."
-```
+| # | MCP Tool | Arguments | Description |
+|---|---|---|---|
+| 1 | `inspect_phone_screen` | _None_ | Captures live UI hierarchy, node bounding boxes, resource IDs, and clickability states. |
+| 2 | `tap_phone_element` | `targetText`, `targetId` | Taps interactive UI elements matching exact text or resource ID. |
+| 3 | `tap_phone_coordinates` | `x`, `y` | Taps exact pixel coordinates on the phone screen. |
+| 4 | `type_phone_text` | `text`, `targetLabel` | Enters text into focused or targeted input fields. |
+| 5 | `open_phone_app` | `packageName` | Dynamically launches installed applications by name or package ID. |
+| 6 | `swipe_phone_screen` | `direction`, `startX`, `startY`, `endX`, `endY` | Scrolls or gestures across the screen in any direction or custom vector. |
+| 7 | `press_phone_key` | `key` (`BACK`, `HOME`, `RECENTS`, `NOTIFICATIONS`, etc.) | Triggers global Android navigation and hardware keys. |
+| 8 | `execute_device_action` | `action`, `target`, `query`, `enabled` | Controls system toggles (`FLASHLIGHT`, `DEVICE_STATUS`, `SET_SOUND_MODE`, `OPEN_SETTING`, `SET_TIMER`, `SEARCH_WEB`, `OPEN_URL`). |
+| 9 | `assert_screen_contains` | `expectedText` | Asserts that specific text or element exists on the screen for test verification. |
+| 10 | `ask_phone_ai` | `prompt`, `sessionTitle` | Delegates high-level natural language goals to the on-device Orbital AI companion. |
+| 11 | `execute_phone_task_batch` | `planTitle`, `steps[]`, `stopOnError`, `createNewSession` | Executes multi-step batch interaction plans in a single round-trip with post-step assertions and telemetry. |
+| 12 | `manage_phone_session` | `command` (`LIST`, `NEW`, `LOAD`, `RENAME`), `sessionId`, `title` | Manages persistent on-device Room-backed chat and execution sessions. |
+| 13 | `explore_and_analyze_app` | `appName` | Autonomously explores any app, analyzes its spatial UI layout (top bar, utilities, canvas, bottom tabs), and generates a product comprehension report. |
 
 ---
 
-## 🧰 Available MCP Tools
+## 🧪 Automated App Testing & QA
 
-| Tool | Description | Arguments |
-|---|---|---|
-| `inspect_phone_screen` | Captures live UI hierarchy and view tree of any open app | None |
-| `tap_phone_element` | Taps element by visible text, ID, or (x, y) coords | `targetText`, `targetId` |
-| `type_phone_text` | Enters text into the focused input field | `text` (string) |
-| `swipe_phone_screen` | Scrolls/swipes screen in a direction | `direction` (`"UP"`, `"DOWN"`) |
-| `open_phone_app` | Launches any target app under test by package name | `packageName` (string) |
-| `assert_screen_contains` | Asserts that expected text exists on screen (for QA tests) | `expectedText` (string) |
-| `press_phone_key` | Presses standard Android navigation keys | `key` (`"BACK"`, `"HOME"`, `"RECENTS"`) |
-| `ask_phone_ai` | Delegates high-level task to Phone AI companion for autonomous execution | `prompt` (string) |
+With `orbital-mcp`, agents can perform end-to-end multi-step verification on physical Android devices:
+
+```json
+{
+  "planTitle": "Settings Display QA Flow",
+  "steps": [
+    { "actionType": "OPEN_APP", "packageName": "Settings", "delayAfterMs": 800, "assertionText": "Settings" },
+    { "actionType": "CLICK_NODE", "targetText": "Display", "delayAfterMs": 500 },
+    { "actionType": "INSPECT_SCREEN" },
+    { "actionType": "PRESS_KEY", "keyCode": "HOME" }
+  ]
+}
+```
 
 ---
 
 ## 🔒 Security & Privacy
 
-- All communications run strictly over **local Wi-Fi / P2P WebSockets**.
-- No telemetry, cloud servers, or 3rd-party relays are used.
-- Full source code available on [GitHub](https://github.com/jaypal1046/Orbital).
+- **100% Local**: Direct peer-to-peer WebSocket tunnel over your local network. No external servers or cloud middleman.
+- **HMAC-SHA256 Authorization**: Every incoming MCP command is authenticated with a 256-bit cryptographic signature covering action parameters, timestamps, and nonces.
+- **Payment App Shield**: Automatically conceals and freezes when banking or payment apps are active.
 
 ---
 
-## 📄 License
-MIT License. Free and open source.
+## 📂 Repositories & Resources
+
+- **Standalone MCP Repository**: [https://github.com/jaypal1046/orbital_mcp](https://github.com/jaypal1046/orbital_mcp) (Direct clone for MCP-only developers)
+- **Full Monorepo (Android App + Engine)**: [https://github.com/jaypal1046/Orbital](https://github.com/jaypal1046/Orbital)
+- **Privacy Policy & Security Terms**: [https://github.com/jaypal1046/orbital_policy](https://github.com/jaypal1046/orbital_policy)
+- **Zero-Install NPX Package**: `npx -y orbital-mcp`
+- **License**: MIT

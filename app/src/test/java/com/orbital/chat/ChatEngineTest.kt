@@ -155,7 +155,10 @@ class ChatEngineTest {
 
     @After
     fun tearDown() {
-        Dispatchers.resetMain()
+        testDispatcher.scheduler.advanceUntilIdle()
+        try {
+            Dispatchers.resetMain()
+        } catch (_: Exception) {}
     }
 
     @Test

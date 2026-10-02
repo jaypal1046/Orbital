@@ -75,7 +75,7 @@ class ScheduledMonitoringWorker(
         val intent = if (!targetApp.isNullOrBlank()) {
             DeepLinkLedger.buildDeepLinkIntent(context, targetApp, mapOf("query" to query))
         } else {
-            DeepLinkLedger.buildDeepLinkIntent(context, "WHERE_IS_MY_TRAIN", mapOf("query" to query))
+            null
         } ?: Intent(Intent.ACTION_VIEW, Uri.parse("https://www.google.com/search?q=" + Uri.encode(query)))
 
         intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP

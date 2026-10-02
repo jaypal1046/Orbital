@@ -17,9 +17,10 @@ object BridgeModule {
     @Singleton
     fun provideBridgeActionDispatcher(
         @ApplicationContext context: Context,
-        actionExecutor: DeviceActionExecutor
+        actionExecutor: DeviceActionExecutor,
+        chatHistoryRepository: com.orbital.data.db.ChatHistoryRepository
     ): BridgeActionDispatcher {
-        return BridgeActionDispatcher(context, actionExecutor)
+        return BridgeActionDispatcher(context, actionExecutor, chatHistoryRepository = chatHistoryRepository)
     }
 
     @Provides

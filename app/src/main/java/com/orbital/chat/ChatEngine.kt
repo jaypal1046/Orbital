@@ -18,7 +18,7 @@ interface ChatEngine {
 
     fun setCharacter(character: String)
     fun clearMessages()
-    fun newSession()
+    fun newSession(customSessionId: String? = null, customTitle: String? = null)
     fun loadSession(sessionId: String)
     fun renameSession(sessionId: String, title: String)
     suspend fun sendMessage(message: String)

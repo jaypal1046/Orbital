@@ -176,11 +176,22 @@ class OrbitalBridgeClient @Inject constructor(
 
     fun sendMessage(msg: BridgeMessage) {
         val timestamp = System.currentTimeMillis()
-        val signature = cryptoAuth.signMessage(msg.action?.actionId ?: msg.type, timestamp)
+        val nonce = java.util.UUID.randomUUID().toString()
+        val action = msg.action
+        val actionKey = if (action != null) {
+            val stepsStr = action.batchSteps?.joinToString(";") { s ->
+                "${s.stepIndex}:${s.actionType}:${s.targetText.orEmpty()}:${s.targetId.orEmpty()}:${s.packageName.orEmpty()}:${s.keyCode.orEmpty()}:${s.textToType.orEmpty()}:${s.coordinates?.joinToString(",") ?: ""}:${s.deviceAction.orEmpty()}:${s.assertionText.orEmpty()}"
+            }.orEmpty()
+            "${action.actionId}:${action.actionType}:${action.targetText.orEmpty()}:${action.targetId.orEmpty()}:${action.packageName.orEmpty()}:${action.keyCode.orEmpty()}:${action.textToType.orEmpty()}:${action.coordinates?.joinToString(",") ?: ""}:${action.deviceAction.orEmpty()}:${action.customPrompt.orEmpty()}:${action.sessionCommand.orEmpty()}:${action.sessionId.orEmpty()}:${action.sessionTitle.orEmpty()}:$stepsStr"
+        } else {
+            msg.type
+        }
+        val signature = cryptoAuth.signMessage(actionKey, timestamp, nonce)
         val securedMsg = msg.copy(
-            token = cryptoAuth.getSessionToken() ?: msg.token,
+            token = if (msg.type == "PAIRING" || msg.type == "PAIRING_ACK") cryptoAuth.getSessionToken() ?: msg.token else null,
             signature = signature ?: msg.signature,
             authFingerprint = cryptoAuth.getFingerprint(),
+            nonce = nonce,
             timestamp = timestamp
         )
         val text = json.encodeToString(BridgeMessage.serializer(), securedMsg)
@@ -205,6 +216,13 @@ class OrbitalBridgeClient @Inject constructor(
         }
 
         when (msg.type) {
+            "PAIRING_ACK" -> {
+                if (!msg.token.isNullOrBlank()) {
+                    cryptoAuth.establishSession(msg.token, cryptoAuth.getSessionPin(), connectedHostName.value)
+                    log("🔒 Handshake complete: Session key synchronized with host (Fingerprint: ${cryptoAuth.getFingerprint()})")
+                }
+            }
+
             "HEARTBEAT" -> {
                 sendMessage(BridgeMessage(type = "HEARTBEAT_ACK"))
             }

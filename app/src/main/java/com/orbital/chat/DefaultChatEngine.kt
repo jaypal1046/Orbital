@@ -83,20 +83,22 @@ class DefaultChatEngine @Inject constructor(
         isStreaming.value = false
     }
 
-    override fun newSession() {
-        currentSessionId = UUID.randomUUID().toString()
-        currentSessionTitle = "New chat"
+    override fun newSession(customSessionId: String?, customTitle: String?) {
+        currentSessionId = customSessionId ?: UUID.randomUUID().toString()
+        currentSessionTitle = customTitle ?: "New chat"
         clearMessages()
     }
 
     override fun loadSession(sessionId: String) {
+        currentSessionId = sessionId
+        val existing = _sessions.value.firstOrNull { it.id == sessionId }
+        if (existing != null) {
+            currentSessionTitle = existing.title
+        }
+        clearMessages()
         scope.launch {
-            val session = _sessions.value.firstOrNull { it.id == sessionId } ?: return@launch
-            currentSessionId = session.id
-            currentSessionTitle = session.title
-            _messages.value = chatHistoryRepository.loadSession(session.id)
-            streamingContent.value = ""
-            isStreaming.value = false
+            _messages.value = chatHistoryRepository.loadSession(sessionId)
+            refreshSessions()
         }
     }
 

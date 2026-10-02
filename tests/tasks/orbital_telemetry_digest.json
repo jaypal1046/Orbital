@@ -1,8 +1,13 @@
 {
-  "timestamp": "2026-10-02T11:15:29.244Z",
-  "scannedDocumentsCount": 19,
+  "timestamp": "2026-10-02T11:46:22.085Z",
+  "scannedDocumentsCount": 20,
   "totalVerifiedAssertions": 13,
   "documents": [
+    {
+      "file": "APP_ANALYSIS_SETTINGS.md",
+      "sizeBytes": 3254,
+      "assertions": 0
+    },
     {
       "file": "APP_SIDE_TESTING_ARCHITECTURE.md",
       "sizeBytes": 12714,

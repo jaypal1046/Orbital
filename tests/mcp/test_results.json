@@ -1,25 +1,25 @@
 {
-  "timestamp": "2026-10-01T11:39:38.458Z",
-  "totalDurationMs": 867,
+  "timestamp": "2026-10-02T10:10:42.048Z",
+  "totalDurationMs": 842,
   "passed": 1,
   "total": 7,
   "results": [
     {
       "test": "Bridge Health & Phone Link",
       "success": false,
-      "latencyMs": 30,
-      "summary": "Connected=false, PIN=ORB-5531, Host=LAPTOP-SCEOSNK0"
+      "latencyMs": 17,
+      "summary": "Connected=false, PIN=ORB-1280, Host=LAPTOP-SCEOSNK0"
     },
     {
       "test": "Live Screen Node Extraction",
       "success": true,
-      "latencyMs": 10,
+      "latencyMs": 6,
       "summary": "Package: unknown, Interactive Nodes: 0"
     },
     {
       "test": "Dynamic App Launching (OPEN_APP)",
       "success": false,
-      "latencyMs": 5,
+      "latencyMs": 7,
       "summary": "Launched Settings"
     },
     {
@@ -31,13 +31,13 @@
     {
       "test": "System Key Navigation (PRESS_KEY)",
       "success": false,
-      "latencyMs": 2,
+      "latencyMs": 3,
       "summary": "Dispatched HOME"
     },
     {
       "test": "Native Hardware & System Controls",
       "success": false,
-      "latencyMs": 3,
+      "latencyMs": 2,
       "summary": "Status retrieved"
     },
     {

@@ -650,11 +650,27 @@ open class DeviceActionExecutor(private val context: Context) {
 
     fun setFlashlight(enabled: Boolean): ActionResult {
         val cameraManager = context.getSystemService(CameraManager::class.java)
-        val cameraId = cameraManager.cameraIdList.firstOrNull {
-            cameraManager.getCameraCharacteristics(it).get(CameraCharacteristics.FLASH_INFO_AVAILABLE) == true
-        } ?: return ActionResult.Error("No flashlight is available on this device")
-        cameraManager.setTorchMode(cameraId, enabled)
-        return ActionResult.Success("Flashlight ${if (enabled) "on" else "off"}")
+            ?: return ActionResult.Error("Camera service is unavailable")
+
+        val cameraId = try {
+            val list = cameraManager.cameraIdList
+            list.firstOrNull { id ->
+                try {
+                    cameraManager.getCameraCharacteristics(id).get(CameraCharacteristics.FLASH_INFO_AVAILABLE) == true
+                } catch (_: Exception) {
+                    false
+                }
+            } ?: if (list.isNotEmpty()) list[0] else "0"
+        } catch (_: Exception) {
+            "0"
+        }
+
+        return try {
+            cameraManager.setTorchMode(cameraId, enabled)
+            ActionResult.Success("Flashlight ${if (enabled) "on" else "off"}")
+        } catch (e: Exception) {
+            ActionResult.Error("Flashlight toggle failed: ${e.message ?: "Camera unavailable"}")
+        }
     }
 
     fun setSoundMode(mode: String): ActionResult {

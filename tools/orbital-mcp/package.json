@@ -9,7 +9,8 @@
   },
   "files": [
     "index.js",
-    "README.md"
+    "README.md",
+    "SKILL.md"
   ],
   "keywords": [
     "mcp",
@@ -24,12 +25,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/jaypal1046/Orbital.git"
+    "url": "git+https://github.com/jaypal1046/orbital_mcp.git"
   },
   "bugs": {
-    "url": "https://github.com/jaypal1046/Orbital/issues"
+    "url": "https://github.com/jaypal1046/orbital_mcp/issues"
   },
-  "homepage": "https://github.com/jaypal1046/Orbital#readme",
+  "homepage": "https://github.com/jaypal1046/orbital_mcp#readme",
   "scripts": {
     "start": "node index.js"
   },
