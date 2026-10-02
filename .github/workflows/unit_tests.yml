@@ -3,8 +3,6 @@ name: 🧪 Orbital Automated Test Suite & CI
 on:
   push:
     branches: [ main, master ]
-  pull_request:
-    branches: [ main, master ]
 
 concurrency:
   group: unit-tests-${{ github.workflow }}-${{ github.ref }}
