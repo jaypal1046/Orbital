@@ -1,21 +1,21 @@
 {
-  "latestVersionCode": 4,
-  "latestVersionName": "1.0.3",
+  "latestVersionCode": 5,
+  "latestVersionName": "1.0.4",
   "minRequiredVersionCode": 1,
-  "releaseDate": "2026-10-01",
+  "releaseDate": "2026-10-02",
   "changelog": [
-    "⚡ OpenJEV System 1 fast decision engine",
-    "🛡️ Foreman agent supervisor with anti-loop watchdog",
-    "🧠 Hindsight semantic long-term memory & habit learning",
-    "📄 Document intelligence with table-to-markdown extraction",
-    "🔄 Dual-track GitHub & Play Store auto-updater"
+    "🚀 13 Standalone MCP Server tools with zero-hardcoding automation engine",
+    "🤖 Zero-latency phone element inspection, gestures & session management",
+    "🧪 Exhaustive test validation suite and task orchestrator",
+    "🔒 Enhanced security, dependabot, and production community templates",
+    "⚡ OpenJEV System 1 fast decision engine & anti-loop watchdog"
   ],
   "playStore": {
     "url": "https://play.google.com/store/apps/details?id=com.ai.orbital",
     "forceUpdate": false
   },
   "githubStandalone": {
-    "apkUrl": "https://github.com/jaypal1046/Orbital/releases/download/v1.0.3/orbital-v1.0.3.apk",
+    "apkUrl": "https://github.com/jaypal1046/Orbital/releases/download/v1.0.4/orbital-v1.0.4.apk",
     "apkSizeBytes": 18500000,
     "sha256": "",
     "forceUpdate": false
