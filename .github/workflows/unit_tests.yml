@@ -49,7 +49,10 @@ jobs:
           cache-dependency-path: 'tools/orbital-mcp/package-lock.json'
 
       - name: 📦 Install MCP Bridge Dependencies
-        run: cd tools/orbital-mcp && npm install
+        run: cd tools/orbital-mcp && npm ci
 
-      - name: 🚀 Run MCP Bridge Smoke & Schema Tests
-        run: node tools/orbital-mcp/index.js --help || true
+      - name: 🚀 Validate MCP Bridge Package
+        working-directory: tools/orbital-mcp
+        run: |
+          node --check index.js
+          npm pack --dry-run
