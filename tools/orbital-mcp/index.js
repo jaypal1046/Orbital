@@ -1,5 +1,13 @@
 #!/usr/bin/env node
 
+process.on("uncaughtException", (err) => {
+  if (err && err.code === "EADDRINUSE") {
+    console.error(`\n⚠️  Port busy (EADDRINUSE). Continuing MCP stdio communication...`);
+    return;
+  }
+  console.error("Uncaught Exception:", err);
+});
+
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
@@ -136,10 +144,32 @@ const serverHttps = https.createServer({
   cert: pems.cert
 }, handleHttpRequest);
 
-const wss = new WebSocketServer({ server: serverHttps });
+const wss = new WebSocketServer({ noServer: true });
+wss.on("connection", (ws) => setupWebSocket(ws, "WSS (Encrypted TLS)"));
+
+serverHttps.on("upgrade", (request, socket, head) => {
+  wss.handleUpgrade(request, socket, head, (ws) => {
+    wss.emit("connection", ws, request);
+  });
+});
+
+serverHttps.on("error", (err) => {
+  console.error("HTTPS Server warning:", err.message);
+});
 
 const serverHttp = http.createServer(handleHttpRequest);
-const wssHttp = new WebSocketServer({ server: serverHttp });
+const wssHttp = new WebSocketServer({ noServer: true });
+wssHttp.on("connection", (ws) => setupWebSocket(ws, "WS"));
+
+serverHttp.on("upgrade", (request, socket, head) => {
+  wssHttp.handleUpgrade(request, socket, head, (ws) => {
+    wssHttp.emit("connection", ws, request);
+  });
+});
+
+serverHttp.on("error", (err) => {
+  console.error("HTTP Server warning:", err.message);
+});
 
 function setupWebSocket(ws, protocol) {
   activePhoneSocket = ws;
@@ -188,47 +218,34 @@ function setupWebSocket(ws, protocol) {
   });
 }
 
-wss.on("connection", (ws) => setupWebSocket(ws, "WSS (Encrypted TLS)"));
-wssHttp.on("connection", (ws) => setupWebSocket(ws, "WS"));
+try {
+  serverHttps.listen(PORT, "0.0.0.0", () => {
+    try {
+      const bonjour = new Bonjour();
+      bonjour.publish({
+        name: `${HOSTNAME} (Orbital Bridge)`,
+        type: "orbital-bridge",
+        port: PORT,
+        txt: {
+          pin: PIN,
+          host: HOSTNAME,
+          ip: LOCAL_IP,
+          ver: "1.0.0",
+          fingerprint: KEY_FINGERPRINT
+        }
+      });
+      console.error(`📡 Broadcasting mDNS service: _orbital-bridge._tcp on local network.`);
+    } catch (err) {
+      console.error(`mDNS broadcast warning: ${err.message}`);
+    }
+  });
+} catch (e) {
+  console.error("Could not start HTTPS listener:", e.message);
+}
 
-serverHttps.on("error", (err) => {
-  if (err.code === "EADDRINUSE") {
-    console.error(`\n⚠️  Port ${PORT} is already in use by another Orbital Bridge process.`);
-    console.error(`   To resolve, kill the old process or run with: PORT=${PORT + 2} node tools/orbital-mcp/index.js\n`);
-  } else {
-    console.error("HTTPS Server error:", err);
-  }
-});
-
-serverHttp.on("error", (err) => {
-  if (err.code !== "EADDRINUSE") {
-    console.error("HTTP Server error:", err);
-  }
-});
-
-serverHttps.listen(PORT, "0.0.0.0", () => {
-  // 3. Publish mDNS Service for Quick Share auto-discovery
-  try {
-    const bonjour = new Bonjour();
-    bonjour.publish({
-      name: `${HOSTNAME} (Orbital Bridge)`,
-      type: "orbital-bridge",
-      port: PORT,
-      txt: {
-        pin: PIN,
-        host: HOSTNAME,
-        ip: LOCAL_IP,
-        ver: "1.0.0",
-        fingerprint: KEY_FINGERPRINT
-      }
-    });
-    console.error(`📡 Broadcasting mDNS service: _orbital-bridge._tcp on local network.`);
-  } catch (err) {
-    console.error(`mDNS broadcast warning: ${err.message}`);
-  }
-});
-
-serverHttp.listen(PORT + 1, "0.0.0.0");
+try {
+  serverHttp.listen(PORT + 1, "0.0.0.0");
+} catch (e) {}
 
 // Helper to send command to phone with HMAC-SHA256 signature and timeout
 function sendToPhone(message, reqKey, timeoutMs = 8000) {
