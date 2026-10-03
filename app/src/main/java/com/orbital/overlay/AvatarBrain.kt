@@ -11,15 +11,16 @@ import android.view.animation.AccelerateDecelerateInterpolator
 import android.view.animation.DecelerateInterpolator
 import android.view.animation.OvershootInterpolator
 import android.widget.ImageView
-import com.orbital.ui.MascotEventBus
 import com.orbital.ui.MascotState
 import kotlinx.coroutines.*
 import java.util.Random
+import kotlin.math.PI
+import kotlin.math.sin
 
 /**
- * AvatarBrain manages autonomous life-like personality behaviors ("Tiny Brain"),
- * natural screen wandering, playful dashes, thinking/blinking loops,
- * and emotional responsiveness for the floating overlay companion.
+ * AvatarBrain manages autonomous life-like personality behaviors ("Living Companion"),
+ * natural screen wandering (top-to-bottom, bottom-to-top, edge patrolling, diagonal swoops),
+ * playful dashes, thinking/blinking loops, and emotional responsiveness.
  */
 class AvatarBrain(
     private val windowManager: WindowManager,
@@ -49,6 +50,9 @@ class AvatarBrain(
     private var isThinking = false
     private var isRoaming = false
     private var personality = Personality.PLAYFUL
+
+    // Movement tracking
+    private var isMovingDown = true // Toggles top <-> bottom vertical roaming
 
     // Movement animators
     private var moveAnimator: ValueAnimator? = null
@@ -111,11 +115,11 @@ class AvatarBrain(
         if (active) {
             stopMovement()
             onStateChanged(MascotState.THINKING)
-            
+
             // Start thinking head tilt & concentrated micro-wobble
             thinkingWobbleAnimator?.cancel()
-            thinkingWobbleAnimator = ObjectAnimator.ofFloat(characterImage, "rotation", -4f, 4f).apply {
-                duration = 800
+            thinkingWobbleAnimator = ObjectAnimator.ofFloat(characterImage, "rotation", -5f, 5f).apply {
+                duration = 750
                 repeatCount = ValueAnimator.INFINITE
                 repeatMode = ValueAnimator.REVERSE
                 interpolator = AccelerateDecelerateInterpolator()
@@ -126,7 +130,7 @@ class AvatarBrain(
             thinkingAnimationJob?.cancel()
             thinkingAnimationJob = brainScope?.launch(Dispatchers.Main) {
                 while (isThinking && isActive) {
-                    delay(1200L + random.nextInt(1000).toLong())
+                    delay(1000L + random.nextInt(900).toLong())
                     if (!isThinking) break
                     performBlinkAnimation(fast = true)
                 }
@@ -135,21 +139,25 @@ class AvatarBrain(
             thinkingAnimationJob?.cancel()
             thinkingWobbleAnimator?.cancel()
             characterImage.animate().rotation(0f).setDuration(200).start()
+            if (canPerformAutonomousAction()) {
+                onStateChanged(MascotState.IDLE)
+            }
         }
     }
 
     /**
-     * Autonomous decision ticker: runs every 4–10 seconds to pick a playful or wandering action.
+     * Autonomous decision ticker: runs every 3.5–7 seconds to pick a lively movement or interaction.
      */
     private fun startDecisionLoop() {
         decisionLoopJob?.cancel()
         decisionLoopJob = brainScope?.launch(Dispatchers.Main) {
+            // Initial warm-up delay before first autonomous action
+            delay(2500)
             while (isActive) {
-                // Determine tick delay based on personality
                 val baseDelay = when (personality) {
-                    Personality.PLAYFUL -> 4500L + random.nextInt(4000)
-                    Personality.CURIOUS -> 6000L + random.nextInt(5000)
-                    Personality.CALM -> 8000L + random.nextInt(7000)
+                    Personality.PLAYFUL -> 3500L + random.nextInt(3000)
+                    Personality.CURIOUS -> 4500L + random.nextInt(3500)
+                    Personality.CALM -> 6000L + random.nextInt(4000)
                 }
                 delay(baseDelay)
 
@@ -165,71 +173,143 @@ class AvatarBrain(
     }
 
     /**
-     * Roll probabilities for autonomous behaviors (Walking, Dashing, Playing, Looking Around).
+     * Decision engine: picks lifelike movements across the full screen.
      */
     private fun decideNextAction() {
         val roll = random.nextInt(100)
         when {
-            roll < 45 -> performWander() // 45% chance: walk to a new spot
-            roll < 65 -> performPlayfulHop() // 20% chance: playful hop/spin
-            roll < 80 -> performLookAround() // 15% chance: look around curiously
-            roll < 90 -> performDash() // 10% chance: fast playful dash
-            else -> {
-                // 10% chance: stay cozy & idle
-                onStateChanged(MascotState.IDLE)
-            }
+            // 40% chance: Smooth Vertical Roaming (Top <-> Bottom along screen)
+            roll < 40 -> performVerticalRoam()
+
+            // 25% chance: Playful Edge Patrol (Glide smoothly along left/right edge)
+            roll < 65 -> performEdgePatrol()
+
+            // 15% chance: Diagonal Floating Swoop across screen
+            roll < 80 -> performDiagonalSwoop()
+
+            // 12% chance: Playful Hop & Spin in place
+            roll < 92 -> performPlayfulHop()
+
+            // 8% chance: Curious Look Around / Peek
+            else -> performLookAround()
         }
     }
 
     /**
-     * Smoothly wander (walk) across the screen with natural walking bob and direction flip.
+     * Smoothly roams vertically from top of screen to bottom, and back up, with graceful sine-wave bobbing.
      */
-    private fun performWander() {
+    private fun performVerticalRoam() {
         val (screenWidth, screenHeight) = getScreenDimensions()
         val avatar = avatarContainerProvider() ?: return
         val characterImage = characterImageProvider() ?: return
 
         val avatarSize = avatar.width.coerceAtLeast(140)
-        val minX = 20
-        val maxX = (screenWidth - avatarSize - 20).coerceAtLeast(minX)
-        val minY = 100 // Below notification bar
-        val maxY = (screenHeight - avatarSize - 180).coerceAtLeast(minY)
+        val minY = 120 // Safely below status bar
+        val maxY = (screenHeight - avatarSize - 220).coerceAtLeast(minY + 200)
 
-        val targetX = minX + random.nextInt((maxX - minX).coerceAtLeast(1))
-        val targetY = minY + random.nextInt((maxY - minY).coerceAtLeast(1))
+        // Decide destination based on current vertical position and cycle
+        val currentY = windowParams.y
+        val targetY = if (currentY < (minY + maxY) / 2) {
+            // Currently near top -> glide down towards bottom
+            isMovingDown = true
+            maxY - random.nextInt(120)
+        } else {
+            // Currently near bottom -> glide up towards top
+            isMovingDown = false
+            minY + random.nextInt(120)
+        }
+
+        // Keep horizontal position on the preferred edge with slight float sway
+        val isLeftEdge = windowParams.x < screenWidth / 2
+        val edgeX = if (isLeftEdge) 24 else (screenWidth - avatarSize - 24).coerceAtLeast(24)
 
         val startX = windowParams.x
         val startY = windowParams.y
-        val deltaX = targetX - startX
+        val deltaY = targetY - startY
 
         isRoaming = true
         onStateChanged(MascotState.WALKING)
 
-        // Flip sprite direction towards target (smooth flip)
-        val targetScaleX = if (deltaX >= 0) 1.0f else -1.0f
+        // Tilt/face towards movement direction
+        val targetScaleX = if (isLeftEdge) 1.0f else -1.0f
         characterImage.animate()
             .scaleX(targetScaleX)
-            .setDuration(150)
+            .rotation(if (deltaY > 0) 6f else -6f)
+            .setDuration(220)
             .start()
 
-        // Walking step bobbing
+        // Walking / floating micro-bob
         currentWalkBobAnimator?.cancel()
-        currentWalkBobAnimator = ObjectAnimator.ofFloat(characterImage, "translationY", 0f, -8f, 0f).apply {
-            duration = 260
+        currentWalkBobAnimator = ObjectAnimator.ofFloat(characterImage, "translationY", 0f, -10f, 0f).apply {
+            duration = 320
             repeatCount = ValueAnimator.INFINITE
             repeatMode = ValueAnimator.REVERSE
             interpolator = AccelerateDecelerateInterpolator()
             start()
         }
 
-        // Window coordinate interpolation
-        val distance = Math.hypot((targetX - startX).toDouble(), (targetY - startY).toDouble()).toFloat()
-        val durationMs = (distance * 3.5f).coerceIn(1200f, 3000f).toLong()
+        val distance = Math.abs(targetY - startY).toFloat()
+        val durationMs = (distance * 4.2f).coerceIn(1800f, 4000f).toLong()
 
         moveAnimator?.cancel()
         moveAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
             duration = durationMs
             interpolator = AccelerateDecelerateInterpolator()
+            addUpdateListener { anim ->
+                if (!canPerformAutonomousAction()) {
+                    cancel()
+                    return@addUpdateListener
+                }
+                val frac = anim.animatedValue as Float
+                // Smooth glide on Y, with subtle sine-wave sway on X
+                val sway = (sin(frac * PI * 2.0) * 18.0).toInt()
+                windowParams.x = (startX + (edgeX - startX) * frac).toInt() + sway
+                windowParams.y = (startY + (targetY - startY) * frac).toInt()
+                updateLayout()
+            }
+            addListener(object : AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: Animator) {
+                    finishRoaming(characterImage)
+                }
+            })
+            start()
+        }
+    }
+
+    /**
+     * Patrols smoothly along the current edge up and down.
+     */
+    private fun performEdgePatrol() {
+        val (screenWidth, screenHeight) = getScreenDimensions()
+        val avatar = avatarContainerProvider() ?: return
+        val characterImage = characterImageProvider() ?: return
+
+        val avatarSize = avatar.width.coerceAtLeast(140)
+        val isLeft = windowParams.x < screenWidth / 2
+        val targetX = if (isLeft) 20 else (screenWidth - avatarSize - 20).coerceAtLeast(20)
+
+        val minY = 140
+        val maxY = (screenHeight - avatarSize - 240).coerceAtLeast(minY + 150)
+        val targetY = minY + random.nextInt((maxY - minY).coerceAtLeast(1))
+
+        val startX = windowParams.x
+        val startY = windowParams.y
+
+        isRoaming = true
+        onStateChanged(MascotState.WALKING)
+
+        characterImage.animate()
+            .scaleX(if (isLeft) 1.0f else -1.0f)
+            .setDuration(180)
+            .start()
+
+        val distance = Math.hypot((targetX - startX).toDouble(), (targetY - startY).toDouble()).toFloat()
+        val durationMs = (distance * 3.8f).coerceIn(1400f, 3200f).toLong()
+
+        moveAnimator?.cancel()
+        moveAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = durationMs
+            interpolator = DecelerateInterpolator()
             addUpdateListener { anim ->
                 if (!canPerformAutonomousAction()) {
                     cancel()
@@ -242,14 +322,7 @@ class AvatarBrain(
             }
             addListener(object : AnimatorListenerAdapter() {
                 override fun onAnimationEnd(animation: Animator) {
-                    isRoaming = false
-                    currentWalkBobAnimator?.cancel()
-                    characterImage.translationY = 0f
-                    // Smoothly restore default facing
-                    characterImage.animate().scaleX(1.0f).setDuration(200).start()
-                    if (canPerformAutonomousAction()) {
-                        onStateChanged(MascotState.IDLE)
-                    }
+                    finishRoaming(characterImage)
                 }
             })
             start()
@@ -257,58 +330,56 @@ class AvatarBrain(
     }
 
     /**
-     * Fast playful dash across the screen.
+     * Playful diagonal swoop across the display.
      */
-    private fun performDash() {
-        val (screenWidth, _) = getScreenDimensions()
+    private fun performDiagonalSwoop() {
+        val (screenWidth, screenHeight) = getScreenDimensions()
         val avatar = avatarContainerProvider() ?: return
         val characterImage = characterImageProvider() ?: return
 
         val avatarSize = avatar.width.coerceAtLeast(140)
         val minX = 20
         val maxX = (screenWidth - avatarSize - 20).coerceAtLeast(minX)
+        val minY = 120
+        val maxY = (screenHeight - avatarSize - 220).coerceAtLeast(minY)
 
+        // Switch edges across screen
         val targetX = if (windowParams.x < screenWidth / 2) maxX else minX
+        val targetY = if (windowParams.y < (minY + maxY) / 2) maxY - random.nextInt(160) else minY + random.nextInt(160)
+
         val startX = windowParams.x
+        val startY = windowParams.y
         val deltaX = targetX - startX
 
         isRoaming = true
         onStateChanged(MascotState.EXCITED)
 
-        // Squash on dash start
         characterImage.animate()
-            .scaleX(if (deltaX >= 0) 1.25f else -1.25f)
-            .scaleY(0.78f)
-            .setDuration(120)
-            .withEndAction {
-                characterImage.animate()
-                    .scaleX(if (deltaX >= 0) 1.0f else -1.0f)
-                    .scaleY(1.0f)
-                    .setDuration(120)
-                    .start()
-            }
+            .scaleX(if (deltaX >= 0) 1.15f else -1.15f)
+            .scaleY(0.9f)
+            .rotation(if (deltaX >= 0) 12f else -12f)
+            .setDuration(180)
             .start()
 
         moveAnimator?.cancel()
         moveAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
-            duration = 750
-            interpolator = OvershootInterpolator(1.2f)
+            duration = 1600
+            interpolator = AccelerateDecelerateInterpolator()
             addUpdateListener { anim ->
                 if (!canPerformAutonomousAction()) {
                     cancel()
                     return@addUpdateListener
                 }
                 val frac = anim.animatedValue as Float
+                // Curved parabolic arc trajectory
+                val arcOffset = (sin(frac * PI) * 50.0).toInt()
                 windowParams.x = (startX + (targetX - startX) * frac).toInt()
+                windowParams.y = (startY + (targetY - startY) * frac).toInt() - arcOffset
                 updateLayout()
             }
             addListener(object : AnimatorListenerAdapter() {
                 override fun onAnimationEnd(animation: Animator) {
-                    isRoaming = false
-                    characterImage.animate().scaleX(1.0f).scaleY(1.0f).setDuration(150).start()
-                    if (canPerformAutonomousAction()) {
-                        onStateChanged(MascotState.HAPPY)
-                    }
+                    finishRoaming(characterImage)
                 }
             })
             start()
@@ -322,15 +393,15 @@ class AvatarBrain(
         val characterImage = characterImageProvider() ?: return
         onStateChanged(MascotState.PLAYING)
 
-        val hopY = ObjectAnimator.ofFloat(characterImage, "translationY", 0f, -20f, 0f).apply {
-            duration = 450
-            interpolator = OvershootInterpolator(1.6f)
+        val hopY = ObjectAnimator.ofFloat(characterImage, "translationY", 0f, -24f, 0f).apply {
+            duration = 480
+            interpolator = OvershootInterpolator(1.8f)
         }
-        val squashX = ObjectAnimator.ofFloat(characterImage, "scaleX", 1f, 1.18f, 0.92f, 1f).apply {
-            duration = 450
+        val squashX = ObjectAnimator.ofFloat(characterImage, "scaleX", 1f, 1.22f, 0.9f, 1f).apply {
+            duration = 480
         }
-        val squashY = ObjectAnimator.ofFloat(characterImage, "scaleY", 1f, 0.85f, 1.15f, 1f).apply {
-            duration = 450
+        val squashY = ObjectAnimator.ofFloat(characterImage, "scaleY", 1f, 0.82f, 1.18f, 1f).apply {
+            duration = 480
         }
 
         AnimatorSet().apply {
@@ -338,7 +409,7 @@ class AvatarBrain(
             addListener(object : AnimatorListenerAdapter() {
                 override fun onAnimationEnd(animation: Animator) {
                     if (canPerformAutonomousAction()) {
-                        onStateChanged(MascotState.IDLE)
+                        onStateChanged(MascotState.HAPPY)
                     }
                 }
             })
@@ -353,8 +424,8 @@ class AvatarBrain(
         val characterImage = characterImageProvider() ?: return
         onStateChanged(MascotState.LOOKING)
 
-        val lookTilt = ObjectAnimator.ofFloat(characterImage, "rotation", 0f, -12f, 12f, 0f).apply {
-            duration = 1100
+        val lookTilt = ObjectAnimator.ofFloat(characterImage, "rotation", 0f, -14f, 14f, 0f).apply {
+            duration = 1200
             interpolator = AccelerateDecelerateInterpolator()
         }
 
@@ -369,13 +440,13 @@ class AvatarBrain(
     }
 
     /**
-     * Natural periodic blinking loop (every 2.5–5.5 seconds).
+     * Natural periodic eye blinking loop.
      */
     private fun startBlinkLoop() {
         blinkLoopJob?.cancel()
         blinkLoopJob = brainScope?.launch(Dispatchers.Main) {
             while (isActive) {
-                delay(2500L + random.nextInt(3000))
+                delay(2200L + random.nextInt(2800))
                 if (!isThinking && !isUserInteracting) {
                     performBlinkAnimation(fast = false)
                 }
@@ -388,10 +459,10 @@ class AvatarBrain(
      */
     private fun performBlinkAnimation(fast: Boolean) {
         val characterImage = characterImageProvider() ?: return
-        val blinkDuration = if (fast) 70L else 110L
+        val blinkDuration = if (fast) 65L else 100L
 
         characterImage.animate()
-            .scaleY(0.18f)
+            .scaleY(0.15f)
             .setDuration(blinkDuration)
             .withEndAction {
                 characterImage.animate()
@@ -402,6 +473,21 @@ class AvatarBrain(
             .start()
     }
 
+    private fun finishRoaming(characterImage: ImageView) {
+        isRoaming = false
+        currentWalkBobAnimator?.cancel()
+        characterImage.translationY = 0f
+        characterImage.animate()
+            .scaleX(1.0f)
+            .scaleY(1.0f)
+            .rotation(0f)
+            .setDuration(240)
+            .start()
+        if (canPerformAutonomousAction()) {
+            onStateChanged(MascotState.IDLE)
+        }
+    }
+
     private fun stopMovement() {
         isRoaming = false
         moveAnimator?.cancel()
@@ -410,6 +496,7 @@ class AvatarBrain(
             it.translationY = 0f
             it.scaleX = 1f
             it.scaleY = 1f
+            it.rotation = 0f
         }
     }
 

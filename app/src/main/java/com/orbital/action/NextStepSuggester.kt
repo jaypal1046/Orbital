@@ -1,101 +1,127 @@
 package com.orbital.action
 
+/**
+ * Generates dynamic, context-aware next-step suggestions based strictly on live
+ * action parameters, runtime execution state, and user queries (Zero Hardcoding).
+ */
 object NextStepSuggester {
 
     fun getSuggestions(action: DeviceAction?, responseText: String = ""): List<String> {
         val lowerResponse = responseText.lowercase()
-
-        // 1. Adaptive recovery options when results are empty, failed, loading, or incomplete
-        if (lowerResponse.contains("⚠️") || lowerResponse.contains("failed") || lowerResponse.contains("not installed") || 
-            lowerResponse.contains("0 results") || lowerResponse.contains("0 elements") || lowerResponse.contains("0 text") ||
-            lowerResponse.contains("no train") || lowerResponse.contains("empty") || lowerResponse.contains("loading")) {
-            val query = action?.query ?: action?.target ?: ""
-            return listOf(
-                "📋 Re-scan active screen",
-                if (query.isNotBlank()) "🌐 Search '$query' on Google" else "🌐 Search live status on Google",
-                "🏠 Return to Orbital companion"
-            )
-        }
-
-        // 2. Derive action type and query from action object or response text
-        val target = action?.target?.lowercase() ?: ""
+        val query = action?.query?.trim()
+            ?: action?.label?.trim()
+            ?: action?.subject?.trim()
+            ?: ""
+        val target = action?.target?.trim() ?: ""
         val actionType = action?.action?.uppercase()?.trim() ?: ""
-        val query = action?.query ?: action?.label ?: ""
 
-        // Infer domain context from response text if action is null
-        val isTrainContext = actionType in listOf("SEARCH_TRAIN", "TRAIN_STATUS", "WHERE_IS_MY_TRAIN") || target.contains("train") ||
-                lowerResponse.contains("train") || lowerResponse.contains("station") || lowerResponse.contains("where is my train") || lowerResponse.contains("rail")
-        val isScreenContext = actionType in listOf("PERFORM_TESTING", "TEST_APP", "AUTO_TEST", "SCREEN_TEST", "READ_SCREEN") ||
-                lowerResponse.contains("screen read") || lowerResponse.contains("elements found") || lowerResponse.contains("controls verified")
-        val isNavContext = actionType in listOf("NAVIGATE", "DIRECTIONS", "MAPS") || target.contains("maps") || lowerResponse.contains("navigat") || lowerResponse.contains("maps")
-        val isMediaContext = actionType in listOf("PLAY_MUSIC", "PLAY_MEDIA", "PLAY") || target.contains("spotify") || target.contains("music") || lowerResponse.contains("music") || lowerResponse.contains("song")
-        val isEmailContext = actionType in listOf("COMPOSE_EMAIL", "EMAIL", "SEND_EMAIL") || target.contains("gmail") || target.contains("mail") || lowerResponse.contains("email")
-        val isMessagingContext = actionType in listOf("SEND_SMS", "SMS", "WHATSAPP", "SEND_MESSAGE") || target.contains("whatsapp") || lowerResponse.contains("whatsapp") || lowerResponse.contains("sms")
-        val isTimerContext = actionType in listOf("SET_TIMER", "TIMER") || lowerResponse.contains("timer") || lowerResponse.contains("alarm")
-        val isSettingsContext = actionType in listOf("OPEN_SETTING", "SETTINGS") || lowerResponse.contains("setting")
+        val isFailureOrEmpty = lowerResponse.contains("⚠️") ||
+                lowerResponse.contains("failed") ||
+                lowerResponse.contains("error") ||
+                lowerResponse.contains("not found") ||
+                lowerResponse.contains("not installed") ||
+                lowerResponse.contains("0 results") ||
+                lowerResponse.contains("0 elements") ||
+                lowerResponse.contains("empty")
 
-        return when {
-            isTrainContext -> listOf(
-                "🚆 Live running status for ${query.ifBlank { "train" }}".trim(),
-                "🎟️ Set ticket opening alert",
-                "📋 Read live screen results",
-                "🔄 Check return train options"
-            )
-
-            isScreenContext -> listOf(
-                "📱 Read active screen elements",
-                "⚡ Test primary button tap",
-                "🏠 Return to Orbital companion",
-                "🔄 Refresh screen hierarchy"
-            )
-
-            isNavContext -> listOf(
-                "🧭 Navigate to nearest coffee shop",
-                "⛽ Find fuel stations nearby",
-                "🚗 Check live traffic along route"
-            )
-
-            isMediaContext -> listOf(
-                "🎵 Play top hits playlist",
-                "🎧 Open Liked Songs",
-                "📻 Start radio mix"
-            )
-
-            isEmailContext -> listOf(
-                "✉️ Compose follow-up email",
-                "📥 Search unread messages",
-                "📋 Read screen to summarize email"
-            )
-
-            isMessagingContext -> listOf(
-                "💬 Send another message",
-                "📞 Make a quick call",
-                "🏠 Return to Orbital companion"
-            )
-
-            isTimerContext -> listOf(
-                "⏱️ Set 5 minute break timer",
-                "⏰ Set morning wakeup alarm"
-            )
-
-            isSettingsContext -> listOf(
-                "📶 Open Wi-Fi settings",
-                "🔋 Check Battery saver",
-                "🔊 Open Sound & Vibration"
-            )
-
-            actionType in listOf("SCHEDULE_MONITOR", "SCHEDULE_CRON", "MONITOR_TRAIN", "MONITOR_TICKET") -> listOf(
-                "📋 List active monitors",
-                "❌ Cancel this monitor",
-                "⏱️ Change monitor interval"
-            )
-
-            else -> listOf(
-                "📋 Read live screen",
-                "🏠 Return to Orbital",
-                "✨ What can you automate next?"
-            )
+        // 1. Dynamic Recovery Options for Failures / Empty results
+        if (isFailureOrEmpty) {
+            val recoveryList = mutableListOf<String>()
+            recoveryList.add("📋 Re-scan active screen")
+            if (query.isNotBlank()) {
+                recoveryList.add("🌐 Search \"$query\" in browser")
+                recoveryList.add("🔄 Retry action with \"$query\"")
+            } else if (target.isNotBlank()) {
+                recoveryList.add("🔄 Retry action for \"$target\"")
+            } else {
+                recoveryList.add("🔄 Retry action")
+            }
+            recoveryList.add("🏠 Return to companion")
+            return recoveryList.distinct().take(3)
         }
+
+        // 2. Action-type specific dynamic suggestions
+        val suggestions = mutableListOf<String>()
+
+        when {
+            actionType in listOf("SCHEDULE_MONITOR", "SCHEDULE_CRON", "MONITOR") -> {
+                suggestions.add("📋 List active background monitors")
+                suggestions.add("⏱️ Change monitor interval")
+                suggestions.add("❌ Stop active schedule")
+            }
+
+            actionType in listOf("SET_TIMER", "TIMER", "SET_ALARM", "ALARM") -> {
+                if (action?.seconds != null && action.seconds > 0) {
+                    val mins = action.seconds / 60
+                    suggestions.add("⏱️ Check remaining timer (${mins}m)")
+                } else {
+                    suggestions.add("⏱️ Check active timers and alarms")
+                }
+                suggestions.add("⏰ Set another alarm or timer")
+                suggestions.add("🏠 Return to companion")
+            }
+
+            actionType in listOf("OPEN_SETTING", "SETTINGS") -> {
+                if (target.isNotBlank()) {
+                    suggestions.add("⚙️ Toggle $target settings")
+                    suggestions.add("📋 Inspect $target screen")
+                } else {
+                    suggestions.add("⚙️ Check device settings")
+                }
+                suggestions.add("🏠 Return to companion")
+            }
+
+            actionType in listOf("COMPOSE_EMAIL", "EMAIL", "SEND_EMAIL") -> {
+                suggestions.add(if (query.isNotBlank()) "✉️ Compose email about \"$query\"" else "✉️ Compose new email")
+                suggestions.add("📥 Search unread messages and emails")
+                suggestions.add("📋 Read screen to summarize email")
+            }
+
+            actionType in listOf("SEND_SMS", "SMS", "SEND_MESSAGE") -> {
+                suggestions.add("💬 Send another message")
+                suggestions.add("📞 Make a quick call")
+                suggestions.add("🏠 Return to companion")
+            }
+
+            actionType in listOf("PLAY_MUSIC", "PLAY_MEDIA", "PLAY") -> {
+                suggestions.add(if (query.isNotBlank()) "🎵 Play \"$query\"" else "🎵 Play media")
+                suggestions.add("🎧 Open Liked Songs and playlists")
+                suggestions.add("📻 Continue playing music")
+            }
+
+            actionType in listOf("NAVIGATE", "DIRECTIONS", "MAPS") -> {
+                suggestions.add(if (query.isNotBlank()) "🧭 Navigate to \"$query\"" else "🧭 Start navigation")
+                suggestions.add("🚗 Check live traffic along route")
+                suggestions.add("⛽ Find places along route")
+            }
+
+            target.isNotBlank() && query.isNotBlank() -> {
+                suggestions.add("📋 Read live results in $target")
+                suggestions.add("🔍 Continue search for \"$query\"")
+                suggestions.add("📤 Share details from $target")
+                suggestions.add("🏠 Return to companion")
+            }
+
+            target.isNotBlank() -> {
+                suggestions.add("📋 Read active screen in $target")
+                suggestions.add("⚡ Interact with elements in $target")
+                suggestions.add("🏠 Return to companion")
+            }
+
+            query.isNotBlank() -> {
+                suggestions.add("📋 Inspect live screen for \"$query\"")
+                suggestions.add("🌐 Search \"$query\" online")
+                suggestions.add("🔄 Refine query for \"$query\"")
+            }
+
+            else -> {
+                suggestions.add("📋 Read live screen")
+                suggestions.add("🔍 Search active content")
+                suggestions.add("✨ What can we automate next?")
+            }
+        }
+
+        return suggestions.distinct().take(4)
     }
 
     fun cleanPromptForInput(suggestion: String): String {
