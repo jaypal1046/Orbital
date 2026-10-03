@@ -28,7 +28,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
@@ -60,7 +59,7 @@ fun TopBar(
                 Icon(
                     imageVector = Icons.Default.Menu,
                     contentDescription = "Open Navigation Menu",
-                    tint = Color.White,
+                    tint = OrbitalTokens.TextPrimary,
                     modifier = Modifier.size(24.dp)
                 )
             }
@@ -73,7 +72,7 @@ fun TopBar(
                     text = characterName.replace(Regex("\\s*\\(AI Companion\\)\\s*", RegexOption.IGNORE_CASE), "").trim(),
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
-                    color = Color.White,
+                    color = OrbitalTokens.TextPrimary,
                     fontSize = 18.sp
                 )
                 Row(
@@ -89,10 +88,10 @@ fun TopBar(
                             .clip(CircleShape)
                             .background(
                                 when (currentRoutingMode) {
-                                    RoutingMode.AUTO -> Color(0xFF10B981)
-                                    RoutingMode.FAST -> Color(0xFF38BDF8)
-                                    RoutingMode.FRONTIER -> Color(0xFFA855F7)
-                                    RoutingMode.PINNED -> Color(0xFFF59E0B)
+                                    RoutingMode.AUTO -> OrbitalTokens.Success
+                                    RoutingMode.FAST -> OrbitalTokens.Primary
+                                    RoutingMode.FRONTIER -> OrbitalTokens.Primary
+                                    RoutingMode.PINNED -> OrbitalTokens.Warning
                                 }
                             )
                     )
@@ -106,12 +105,12 @@ fun TopBar(
                         },
                         fontSize = 11.5.sp,
                         fontWeight = FontWeight.Medium,
-                        color = Color(0xFF94A3B8)
+                        color = OrbitalTokens.TextSecondary
                     )
                     Icon(
                         Icons.Default.ArrowDropDown,
                         contentDescription = "Switch Provider Mode",
-                        tint = Color(0xFF64748B),
+                        tint = OrbitalTokens.TextMuted,
                         modifier = Modifier.size(14.dp)
                     )
                 }
@@ -124,15 +123,11 @@ fun TopBar(
                     .padding(end = 12.dp)
                     .size(40.dp)
                     .clip(CircleShape)
-                    .background(
-                        Brush.linearGradient(
-                            listOf(Color(0xFF8B5CF6), Color(0xFF38BDF8))
-                        )
-                    )
+                    .background(OrbitalTokens.SurfaceSelected)
                     .clickable { onOpenCharacters() }
                     .padding(2.dp)
                     .clip(CircleShape)
-                    .background(Color(0xFF0F111A)),
+                    .background(OrbitalTokens.Surface),
                 contentAlignment = Alignment.Center
             ) {
                 AnimatedMascotView(
@@ -144,7 +139,7 @@ fun TopBar(
                 )
             }
         },
-        colors = TopAppBarDefaults.topAppBarColors(containerColor = Color(0xFF0A0C14))
+        colors = TopAppBarDefaults.topAppBarColors(containerColor = OrbitalTokens.Background)
     )
 }
 

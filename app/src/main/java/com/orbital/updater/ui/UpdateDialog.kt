@@ -214,7 +214,15 @@ fun UpdateDialog(
                                     val apkUrl = updateResult.standaloneApkUrl
                                     if (!apkUrl.isNullOrBlank()) {
                                         scope.launch {
-                                            downloadedFile = downloader.downloadApk(apkUrl)
+                                            val file = downloader.downloadApk(apkUrl)
+                                            downloadedFile = file
+                                            if (file != null) {
+                                                if (!installer.canInstallPackages()) {
+                                                    installer.openInstallPermissionSettings()
+                                                } else {
+                                                    installer.installApk(file)
+                                                }
+                                            }
                                         }
                                     }
                                 },

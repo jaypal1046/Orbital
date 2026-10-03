@@ -1,19 +1,12 @@
 package com.orbital.ui
 
-import android.content.Intent
-import android.os.Build
-import android.provider.Settings
-import android.widget.Toast
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -21,15 +14,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.tooling.preview.Preview
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.text.style.TextOverflow
-import com.orbital.overlay.OverlayService
-import com.orbital.R
+import androidx.compose.ui.unit.dp
 import com.orbital.data.db.ChatSessionSummary
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -56,481 +42,143 @@ fun SideNavDrawer(
     onCloseDrawer: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val context = LocalContext.current
-    var searchQuery by remember { mutableStateOf("") }
+    var query by remember { mutableStateOf("") }
+    var selectedDestination by remember { mutableStateOf<String?>(null) }
     var sessionToRename by remember { mutableStateOf<ChatSessionSummary?>(null) }
-    val scrollState = rememberScrollState()
+    val matchingSessions = remember(sessions, query) {
+        sessions.filter { query.isBlank() || it.title.contains(query, true) || it.preview.contains(query, true) }
+    }
 
     ModalDrawerSheet(
-        modifier = modifier.width(310.dp),
-        drawerContainerColor = Color(0xFF0F121E),
-        drawerContentColor = Color.White
+        modifier = modifier.widthIn(max = 336.dp),
+        drawerContainerColor = OrbitalTokens.Surface,
+        drawerContentColor = OrbitalTokens.TextPrimary
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 16.dp, vertical = 12.dp)
-        ) {
-            // Top Search Bar (Gemini style)
-            Spacer(modifier = Modifier.height(8.dp))
+        Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(top = 20.dp, bottom = 16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(Modifier.size(36.dp).clip(OrbitalTokens.RadiusSmall).background(OrbitalTokens.Primary), contentAlignment = Alignment.Center) {
+                    Icon(Icons.Default.Star, null, tint = Color.White, modifier = Modifier.size(20.dp))
+                }
+                Spacer(Modifier.width(10.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("Orbital", style = MaterialTheme.typography.titleMedium)
+                    Text("AI workspace", style = MaterialTheme.typography.bodySmall, color = OrbitalTokens.TextSecondary)
+                }
+                IconButton(onClick = onCloseDrawer) { Icon(Icons.Default.Close, "Close navigation", tint = OrbitalTokens.TextSecondary) }
+            }
+
+            Button(
+                onClick = { onNewChat(); onCloseDrawer() },
+                modifier = Modifier.fillMaxWidth().height(48.dp),
+                shape = OrbitalTokens.RadiusSmall,
+                colors = ButtonDefaults.buttonColors(containerColor = OrbitalTokens.Primary)
+            ) {
+                Icon(Icons.Default.Edit, null, Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("New chat")
+            }
+            Spacer(Modifier.height(12.dp))
             OutlinedTextField(
-                value = searchQuery,
-                onValueChange = { searchQuery = it },
-                placeholder = {
-                    Text(
-                        "Search for chats",
-                        fontSize = 13.sp,
-                        color = Color(0xFF94A3B8)
-                    )
-                },
-                leadingIcon = {
-                    Icon(
-                        imageVector = Icons.Default.Search,
-                        contentDescription = "Search",
-                        tint = Color(0xFF94A3B8),
-                        modifier = Modifier.size(20.dp)
-                    )
-                },
+                value = query,
+                onValueChange = { query = it },
+                modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
-                shape = RoundedCornerShape(24.dp),
+                shape = OrbitalTokens.RadiusSmall,
+                placeholder = { Text("Search chats") },
+                leadingIcon = { Icon(Icons.Default.Search, null) },
+                trailingIcon = if (query.isBlank()) null else {{ IconButton(onClick = { query = "" }) { Icon(Icons.Default.Close, "Clear search") } }},
                 colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = Color(0xFF7C3AED),
-                    unfocusedBorderColor = Color(0xFF232840),
-                    focusedContainerColor = Color(0xFF161A2C),
-                    unfocusedContainerColor = Color(0xFF161A2C),
-                    focusedTextColor = Color.White,
-                    unfocusedTextColor = Color.White
-                ),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(50.dp)
+                    focusedContainerColor = OrbitalTokens.SurfaceRaised, unfocusedContainerColor = OrbitalTokens.SurfaceRaised,
+                    focusedBorderColor = OrbitalTokens.Primary, unfocusedBorderColor = OrbitalTokens.Border,
+                    focusedTextColor = OrbitalTokens.TextPrimary, unfocusedTextColor = OrbitalTokens.TextPrimary,
+                    focusedPlaceholderColor = OrbitalTokens.TextMuted, unfocusedPlaceholderColor = OrbitalTokens.TextMuted
+                )
             )
 
-            Spacer(modifier = Modifier.height(14.dp))
-
-            // New Chat Action Row
-            Surface(
-                shape = RoundedCornerShape(14.dp),
-                color = Color(0xFF1E1B4B),
-                border = BorderStroke(1.dp, Color(0xFF7C3AED).copy(alpha = 0.5f)),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable {
-                        onNewChat()
-                        onCloseDrawer()
-                    }
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Edit,
-                        contentDescription = "New chat",
-                        tint = Color(0xFFC084FC),
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Text(
-                        text = "New chat",
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = Color.White,
-                        modifier = Modifier.weight(1f)
-                    )
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(Color(0xFF2E1065))
-                            .padding(horizontal = 6.dp, vertical = 2.dp)
-                    ) {
-                        Text(
-                            text = "+",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color(0xFFA78BFA)
-                        )
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(12.dp))
-            HorizontalDivider(color = Color(0xFF20263E), thickness = 1.dp)
-
-            // Scrollable Content
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .verticalScroll(scrollState)
-            ) {
-                // SECTION: Settings & Tools
-                Spacer(modifier = Modifier.height(14.dp))
-                Text(
-                    text = "SETTINGS & TOOLS",
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color(0xFFA78BFA),
-                    letterSpacing = 1.sp
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-
-                DrawerMenuItem(
-                    icon = Icons.Default.Settings,
-                    iconTint = Color(0xFF38BDF8),
-                    title = "API Keys & Providers",
-                    subtitle = "Manage Gemini, Groq, OpenAI & 24+ keys",
-                    onClick = {
-                        onOpenKeys()
-                        onCloseDrawer()
-                    }
-                )
-
-                DrawerMenuItem(
-                    icon = Icons.Default.Share,
-                    iconTint = Color(0xFFA855F7),
-                    title = "AI Model Routing",
-                    subtitle = "Smart Auto-Router & Speed tiers",
-                    onClick = {
-                        onOpenRoutingMode()
-                        onCloseDrawer()
-                    }
-                )
-
-                DrawerMenuItem(
-                    icon = Icons.Default.Star,
-                    iconTint = Color(0xFFF43F5E),
-                    title = "Mobile Skills (Antigravity)",
-                    subtitle = "Modular AI capabilities & system prompt skills",
-                    onClick = {
-                        onOpenSkills()
-                        onCloseDrawer()
-                    }
-                )
-
-                DrawerMenuItem(
-                    icon = Icons.Default.Build,
-                    iconTint = Color(0xFF10B981),
-                    title = "Automation & Power",
-                    subtitle = "Device tasks, summary scheduling",
-                    onClick = {
-                        onOpenAutomations()
-                        onCloseDrawer()
-                    }
-                )
-
-                DrawerMenuItem(
-                    icon = Icons.Default.PlayArrow,
-                    iconTint = Color(0xFFF59E0B),
-                    title = "Floating Mascot Overlay",
-                    subtitle = "Launch companion on screen",
-                    onClick = {
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(context)) {
-                            val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION)
-                            context.startActivity(intent)
-                        } else {
-                            val intent = Intent(context, OverlayService::class.java).apply {
-                                action = OverlayService.ACTION_START
-                                putExtra("character_id", currentCharacterId)
-                            }
-                            context.startService(intent)
-                            Toast.makeText(context, "Floating Companion Overlay Active!", Toast.LENGTH_SHORT).show()
-                        }
-                        onCloseDrawer()
-                    }
-                )
-
-                DrawerMenuItem(
-                    icon = Icons.Default.Warning,
-                    iconTint = Color(0xFFF43F5E),
-                    title = "Feedback & Bug Report",
-                    subtitle = "Submit issue or log directly to GitHub",
-                    onClick = {
-                        onOpenFeedback()
-                        onCloseDrawer()
-                    }
-                )
-
-                DrawerMenuItem(
-                    icon = Icons.Default.Lock,
-                    iconTint = Color(0xFF38BDF8),
-                    title = stringResource(R.string.menu_privacy_policy),
-                    subtitle = "How we protect your data",
-                    onClick = {
-                        onOpenLegal(LegalTab.PRIVACY)
-                        onCloseDrawer()
-                    }
-                )
-
-                DrawerMenuItem(
-                    icon = Icons.Default.Info,
-                    iconTint = Color(0xFFA855F7),
-                    title = stringResource(R.string.menu_terms_of_service),
-                    subtitle = "Terms of use",
-                    onClick = {
-                        onOpenLegal(LegalTab.TERMS)
-                        onCloseDrawer()
-                    }
-                )
-
-                DrawerMenuItem(
-                    icon = Icons.Default.Info,
-                    iconTint = Color(0xFF10B981),
-                    title = stringResource(R.string.menu_about),
-                    subtitle = "Version, license, open source",
-                    onClick = {
-                        onOpenAbout()
-                        onCloseDrawer()
-                    }
-                )
-
-                DrawerMenuItem(
-                    icon = Icons.Default.Refresh,
-                    iconTint = Color(0xFF8B5CF6),
-                    title = "Check for Updates",
-                    subtitle = "GitHub releases & instant hot-patches",
-                    onClick = {
-                        onCheckForUpdates()
-                        onCloseDrawer()
-                    }
-                )
-
-                DrawerMenuItem(
-                    icon = Icons.Default.Share,
-                    iconTint = Color(0xFF06B6D4),
-                    title = "Laptop AI Bridge",
-                    subtitle = "Remote MCP Controller & Inspection",
-                    onClick = {
-                        onOpenBridge()
-                        onCloseDrawer()
-                    }
-                )
-
-                DrawerMenuItem(
-                    icon = Icons.Default.Settings,
-                    iconTint = Color(0xFF10B981),
-                    title = "Screen Automation & Privacy",
-                    subtitle = "Accessibility disclosure & permissions",
-                    onClick = {
-                        onOpenAccessibilityDisclosure()
-                        onCloseDrawer()
-                    }
-                )
-
-                // SECTION: Recent Topics / History
-                Spacer(modifier = Modifier.height(18.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "RECENT CHATS (30 DAYS)",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFFA78BFA),
-                        letterSpacing = 1.sp
-                    )
-                    if (sessions.isNotEmpty()) {
-                        Text(
-                            text = "${sessions.size} saved",
-                            fontSize = 10.5.sp,
-                            color = Color(0xFF64748B)
-                        )
-                    }
-                }
-                Spacer(modifier = Modifier.height(8.dp))
-
-                val matchingSessions = sessions.filter {
-                        if (searchQuery.isBlank()) true
-                        else it.title.contains(searchQuery, ignoreCase = true) || it.preview.contains(searchQuery, ignoreCase = true)
-                    }
-
+            Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(top = 20.dp)) {
+                DrawerSection("Chats")
                 if (matchingSessions.isEmpty()) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 12.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = if (searchQuery.isNotBlank()) "No matching chats found" else "No recent chats yet",
-                            fontSize = 12.sp,
-                            color = Color(0xFF64748B)
-                        )
-                    }
-                } else {
-                    matchingSessions.take(20).forEach { session ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(8.dp))
-                                .clickable {
-                                    onSelectSession(session.id)
-                                    onCloseDrawer()
-                                }
-                                .padding(vertical = 8.dp, horizontal = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Face,
-                                contentDescription = null,
-                                tint = Color(0xFFA78BFA),
-                                modifier = Modifier.size(15.dp)
-                            )
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = session.title,
-                                    fontSize = 13.sp,
-                                    color = Color(0xFFE2E8F0),
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                Text(
-                                    text = session.preview,
-                                    fontSize = 10.5.sp,
-                                    color = Color(0xFF94A3B8),
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                            IconButton(onClick = { sessionToRename = session }) {
-                                Icon(Icons.Default.Edit, contentDescription = "Rename chat", tint = Color(0xFF94A3B8), modifier = Modifier.size(16.dp))
-                            }
-                        }
-                    }
+                    Text(if (query.isBlank()) "Your recent chats will appear here." else "No chats match “$query”.", style = MaterialTheme.typography.bodySmall, color = OrbitalTokens.TextMuted, modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp))
+                } else matchingSessions.take(12).forEach { session ->
+                    DrawerChatItem(session, onOpen = { onSelectSession(session.id); onCloseDrawer() }, onRename = { sessionToRename = session })
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    TextButton(onClick = { onShareChat(false) }) { Text("Share text", fontSize = 11.sp) }
-                    TextButton(onClick = { onShareChat(true) }) { Text("Export .md", fontSize = 11.sp) }
+                if (sessions.isNotEmpty()) Row(Modifier.fillMaxWidth().padding(start = 4.dp, top = 4.dp)) {
+                    TextButton(onClick = { onShareChat(false) }) { Text("Share") }
+                    TextButton(onClick = { onShareChat(true) }) { Text("Export") }
                 }
-                Spacer(modifier = Modifier.height(16.dp))
+
+                Spacer(Modifier.height(20.dp))
+                DrawerSection("Workspace")
+                DrawerNavItem(Icons.Default.Settings, "Providers", "Keys and model access", selectedDestination == "providers") { selectedDestination = "providers"; onOpenKeys(); onCloseDrawer() }
+                DrawerNavItem(Icons.Default.Share, "Routing", "Choose how models are selected", selectedDestination == "routing") { selectedDestination = "routing"; onOpenRoutingMode(); onCloseDrawer() }
+                DrawerNavItem(Icons.Default.Build, "Automation", "Tasks and power settings", selectedDestination == "automation") { selectedDestination = "automation"; onOpenAutomations(); onCloseDrawer() }
+                DrawerNavItem(Icons.Default.Star, "Skills", "Capabilities and instructions", selectedDestination == "skills") { selectedDestination = "skills"; onOpenSkills(); onCloseDrawer() }
+                DrawerNavItem(Icons.Default.Share, "Laptop bridge", "Connect a development machine", selectedDestination == "bridge") { selectedDestination = "bridge"; onOpenBridge(); onCloseDrawer() }
+
+                Spacer(Modifier.height(20.dp))
+                DrawerSection("Support")
+                DrawerNavItem(Icons.Default.Warning, "Send feedback", null, false) { onOpenFeedback(); onCloseDrawer() }
+                DrawerNavItem(Icons.Default.Settings, "Screen access", null, false) { onOpenAccessibilityDisclosure(); onCloseDrawer() }
+                DrawerNavItem(Icons.Default.Refresh, "Check for updates", null, false) { onCheckForUpdates(); onCloseDrawer() }
+                DrawerNavItem(Icons.Default.Lock, "Privacy and terms", null, false) { onOpenLegal(LegalTab.PRIVACY); onCloseDrawer() }
+                DrawerNavItem(Icons.Default.Info, "About Orbital", null, false) { onOpenAbout(); onCloseDrawer() }
+                Spacer(Modifier.height(16.dp))
             }
 
-            // Drawer Footer
-            HorizontalDivider(color = Color(0xFF20263E), thickness = 1.dp)
-            Spacer(modifier = Modifier.height(10.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Column {
-                    Text(
-                        text = "Orbital Companion",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White
-                    )
-                    Text(
-                        text = "v2.0 • Client-Side Engine",
-                        fontSize = 10.sp,
-                        color = Color(0xFF64748B)
-                    )
+            HorizontalDivider(color = OrbitalTokens.Border)
+            Row(Modifier.fillMaxWidth().clickable { onOpenCharacters(); onCloseDrawer() }.padding(vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(32.dp).clip(CircleShape).background(OrbitalTokens.SurfaceSelected), contentAlignment = Alignment.Center) { Icon(Icons.Default.Face, null, tint = OrbitalTokens.Primary, modifier = Modifier.size(18.dp)) }
+                Spacer(Modifier.width(10.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("Companion", style = MaterialTheme.typography.titleSmall)
+                    Text("Choose character", style = MaterialTheme.typography.bodySmall, color = OrbitalTokens.TextSecondary)
                 }
-                Box(
-                    modifier = Modifier
-                        .clip(CircleShape)
-                        .background(Color(0xFF10B981).copy(alpha = 0.2f))
-                        .padding(horizontal = 8.dp, vertical = 4.dp)
-                ) {
-                    Text(
-                        text = "● Online",
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = Color(0xFF34D399)
-                    )
-                }
+                Box(Modifier.size(8.dp).clip(CircleShape).background(OrbitalTokens.Success))
             }
         }
     }
+
     sessionToRename?.let { session ->
         var title by remember(session.id) { mutableStateOf(session.title) }
         AlertDialog(
-            onDismissRequest = { sessionToRename = null },
-            title = { Text("Rename chat") },
+            onDismissRequest = { sessionToRename = null }, title = { Text("Rename chat") },
             text = { OutlinedTextField(value = title, onValueChange = { title = it }, singleLine = true) },
-            confirmButton = {
-                TextButton(onClick = { onRenameSession(session.id, title); sessionToRename = null }) { Text("Save") }
-            },
+            confirmButton = { TextButton(onClick = { onRenameSession(session.id, title.trim()); sessionToRename = null }) { Text("Save") } },
             dismissButton = { TextButton(onClick = { sessionToRename = null }) { Text("Cancel") } }
         )
     }
 }
 
 @Composable
-private fun DrawerMenuItem(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    iconTint: Color,
-    title: String,
-    subtitle: String,
-    onClick: () -> Unit
-) {
-    Surface(
-        shape = RoundedCornerShape(10.dp),
-        color = Color(0xFF151829),
-        border = BorderStroke(1.dp, Color(0xFF222842)),
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 4.dp)
-            .clickable { onClick() }
+private fun DrawerSection(label: String) = Text(label, style = MaterialTheme.typography.labelMedium, color = OrbitalTokens.TextMuted, modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp))
+
+@Composable
+private fun DrawerNavItem(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, subtitle: String?, selected: Boolean, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth().clip(OrbitalTokens.RadiusSmall).background(if (selected) OrbitalTokens.SurfaceSelected else Color.Transparent).clickable(onClick = onClick).padding(horizontal = 12.dp, vertical = if (subtitle == null) 10.dp else 9.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(34.dp)
-                    .clip(CircleShape)
-                    .background(iconTint.copy(alpha = 0.15f)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = title,
-                    tint = iconTint,
-                    modifier = Modifier.size(18.dp)
-                )
-            }
-            Spacer(modifier = Modifier.width(12.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = title,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = Color.White
-                )
-                Text(
-                    text = subtitle,
-                    fontSize = 10.5.sp,
-                    color = Color(0xFF94A3B8),
-                    maxLines = 1
-                )
-            }
-            Icon(
-                imageVector = Icons.AutoMirrored.Filled.ArrowForward,
-                contentDescription = null,
-                tint = Color(0xFF475569),
-                modifier = Modifier.size(14.dp)
-            )
+        Icon(icon, null, tint = if (selected) OrbitalTokens.Primary else OrbitalTokens.TextSecondary, modifier = Modifier.size(20.dp))
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.titleSmall, color = if (selected) OrbitalTokens.TextPrimary else OrbitalTokens.TextSecondary)
+            subtitle?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = OrbitalTokens.TextMuted, maxLines = 1, overflow = TextOverflow.Ellipsis) }
         }
     }
 }
 
-@Preview
 @Composable
-fun PreviewSideNavDrawer() {
-    SideNavDrawer(
-        currentCharacterId = "lumy",
-        onSelectCharacter = {},
-        onNewChat = {},
-        onOpenKeys = {},
-        onOpenCharacters = {},
-        onOpenAutomations = {},
-        onOpenRoutingMode = {},
-        onOpenLegal = {},
-        onOpenAbout = {},
-        onCloseDrawer = {}
-    )
+private fun DrawerChatItem(session: ChatSessionSummary, onOpen: () -> Unit, onRename: () -> Unit) {
+    Row(Modifier.fillMaxWidth().clip(OrbitalTokens.RadiusSmall).clickable(onClick = onOpen).padding(horizontal = 12.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
+        Icon(Icons.Default.Face, null, tint = OrbitalTokens.TextMuted, modifier = Modifier.size(18.dp))
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(session.title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(session.preview, style = MaterialTheme.typography.bodySmall, color = OrbitalTokens.TextMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        IconButton(onClick = onRename, modifier = Modifier.size(36.dp)) { Icon(Icons.Default.MoreVert, "Chat options", tint = OrbitalTokens.TextMuted) }
+    }
 }
