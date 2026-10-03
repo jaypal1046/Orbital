@@ -71,7 +71,7 @@ class ChatEngineTest {
 
     private class FakeDeviceActionExecutor(context: Context) : DeviceActionExecutor(context) {
         var executedAction: DeviceAction? = null
-        var returnResult: ActionResult = ActionResult.Success("Opened YouTube", "App launched successfully")
+        var returnResult: ActionResult = ActionResult.Success("Opened target app", "App launched successfully")
 
         override fun execute(action: DeviceAction): ActionResult {
             executedAction = action
@@ -191,7 +191,7 @@ class ChatEngineTest {
 
     @Test
     fun handleStreamCompletion_withAction_executesActionAndAppendsMessage() = runTest(testDispatcher) {
-        val contentWithAction = "Opening YouTube for you.\n```action\n{\"action\": \"OPEN_APP\", \"target\": \"YouTube\"}\n```"
+        val contentWithAction = "Opening the requested app for you.\n```action\n{\"action\": \"OPEN_APP\", \"target\": \"<installed-app>\"}\n```"
         chatEngine.streamingContent.value = contentWithAction
         chatEngine.isStreaming.value = true
 
@@ -200,15 +200,15 @@ class ChatEngineTest {
         assertEquals(1, chatEngine.messages.value.size)
         val assistantMsg = chatEngine.messages.value[0]
         assertEquals("assistant", assistantMsg.role)
-        assertTrue(assistantMsg.content?.contains("Opening YouTube for you") == true)
-        assertEquals("⚡ Executed: Opened YouTube", assistantMsg.actionLabel)
+        assertTrue(assistantMsg.content?.contains("Opening the requested app for you") == true)
+        assertEquals("⚡ Executed: Opened target app", assistantMsg.actionLabel)
         assertEquals("App launched successfully", assistantMsg.actionDetails)
 
         assertEquals("", chatEngine.streamingContent.value)
         assertFalse(chatEngine.isStreaming.value)
         assertNotNull(fakeDeviceActionExecutor.executedAction)
         assertEquals("OPEN_APP", fakeDeviceActionExecutor.executedAction?.action)
-        assertEquals("YouTube", fakeDeviceActionExecutor.executedAction?.target)
+        assertEquals("<installed-app>", fakeDeviceActionExecutor.executedAction?.target)
     }
 
     @Test

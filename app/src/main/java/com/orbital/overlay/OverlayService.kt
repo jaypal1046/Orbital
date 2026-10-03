@@ -1305,12 +1305,12 @@ class OverlayService : Service() {
         val density = resources.displayMetrics.density
 
         val quickList = listOfNotNull(foregroundSuggestion()) + listOf(
-            "✉️ Open Gmail",
-            "▶️ Open YouTube",
-            "💬 Open WhatsApp",
-            "⏱️ Set 5m Timer",
-            "🔋 Check Battery",
-            "🌐 Search AI News"
+            "✦ Summarize current screen",
+            "⚙️ Check device status",
+            "🔎 Find an installed app",
+            "⏱️ Set a timer",
+            "🔋 Check battery",
+            "🌐 Search the web"
         )
 
         quickList.forEach { prompt ->
@@ -1340,14 +1340,7 @@ class OverlayService : Service() {
             usage.queryUsageStats(UsageStatsManager.INTERVAL_DAILY, System.currentTimeMillis() - 60_000, System.currentTimeMillis())
                 .maxByOrNull { it.lastTimeUsed }?.packageName
         } catch (_: SecurityException) { null } ?: return null
-        return when {
-            packageName.contains("gmail") -> "✦ Summarize recent emails"
-            packageName.contains("whatsapp") -> "✦ Draft a quick reply"
-            packageName.contains("youtube") -> "✦ Find a focus video"
-            packageName.contains("maps") -> "✦ Navigate home"
-            packageName.contains("chrome") || packageName.contains("browser") -> "✦ Summarize this page"
-            else -> null
-        }
+        return packageName.takeIf { it.isNotBlank() }?.let { "✦ Summarize current screen" }
     }
 
     private var shouldSpeakLastResult = false

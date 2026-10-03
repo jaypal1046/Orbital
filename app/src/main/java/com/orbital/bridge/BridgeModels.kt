@@ -136,6 +136,7 @@ data class BridgeMessage(
     val signature: String? = null,
     val authFingerprint: String? = null,
     val nonce: String? = null,
+    val requestId: String? = null,
     val screenState: ScreenStatePayload? = null,
     val action: ActionPayload? = null,
     val result: ActionResultPayload? = null,

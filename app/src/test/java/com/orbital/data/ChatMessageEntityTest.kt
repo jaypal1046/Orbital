@@ -16,8 +16,8 @@ class ChatMessageEntityTest {
             encryptedContent = "enc_12345",
             timestamp = now,
             providerName = "gemini",
-            actionLabel = "⚡ Executed: Opened YouTube",
-            actionDetails = "package: com.google.android.youtube"
+            actionLabel = "⚡ Executed: Opened target app",
+            actionDetails = "package: test.dynamic.app"
         )
 
         assertEquals("msg_12345", entity.id)
@@ -25,7 +25,7 @@ class ChatMessageEntityTest {
         assertEquals("enc_12345", entity.encryptedContent)
         assertEquals(now, entity.timestamp)
         assertEquals("gemini", entity.providerName)
-        assertEquals("⚡ Executed: Opened YouTube", entity.actionLabel)
-        assertEquals("package: com.google.android.youtube", entity.actionDetails)
+        assertEquals("⚡ Executed: Opened target app", entity.actionLabel)
+        assertEquals("package: test.dynamic.app", entity.actionDetails)
     }
 }

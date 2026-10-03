@@ -160,7 +160,7 @@ fun MessageList(
                 // Elegant Inspiration Starter Prompts
                 val starterPrompts = listOf(
                     "✉️  Summarize my recent unread emails",
-                    "🎵  Play focus lo-fi chill beats on YouTube",
+                    "🔎  Search an installed app",
                     "🔋  Check device battery & storage health",
                     "🌐  What are the top AI breakthroughs today?"
                 )

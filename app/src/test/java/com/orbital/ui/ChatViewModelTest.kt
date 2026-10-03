@@ -348,8 +348,8 @@ class ChatViewModelTest {
 
     @Test
     fun onSuggestionClick_cleansPromptAndSetsInput() {
-        viewModel.onSuggestionClick("🔍 Search YouTube for: ")
-        assertEquals("Search YouTube for:", viewModel.inputText.value)
+        viewModel.onSuggestionClick("🔍 Search installed apps for: ")
+        assertEquals("Search installed apps for:", viewModel.inputText.value)
     }
 
     @Test
@@ -362,9 +362,9 @@ class ChatViewModelTest {
 
     @Test
     fun onQuickSuggestionClick_populatesInputField() {
-        viewModel.onQuickSuggestionClick("✉️ Open Gmail")
+        viewModel.onQuickSuggestionClick("✉️ Open an installed app")
 
-        assertEquals("Open Gmail", viewModel.inputText.value)
+        assertEquals("Open an installed app", viewModel.inputText.value)
     }
 
     @Test

@@ -60,8 +60,8 @@ class HindsightMemoryEngineTest {
         engine.retain(
             bankId = "user_1",
             category = MemoryType.APP_QUIRK,
-            contextKey = "com.spotify.music",
-            summary = "Spotify search bar requires double click to focus"
+            contextKey = "test.dynamic.app",
+            summary = "Search bar requires double click to focus"
         )
 
         val results = engine.recall(

@@ -19,7 +19,7 @@ class MascotEventBusTest {
 
     @Test
     fun postEvent_promptSent_setsThinkingState() = runTest {
-        MascotEventBus.postEvent(MascotEvent.PromptSent("Open YouTube"))
+        MascotEventBus.postEvent(MascotEvent.PromptSent("Open an installed app"))
         assertEquals(MascotState.THINKING, MascotEventBus.currentState.value)
     }
 
@@ -31,7 +31,7 @@ class MascotEventBusTest {
 
     @Test
     fun postEvent_actionSuccess_setsCelebratingState() = runTest {
-        MascotEventBus.postEvent(MascotEvent.ActionSuccess("Opened YouTube"))
+        MascotEventBus.postEvent(MascotEvent.ActionSuccess("Opened target app"))
         assertEquals(MascotState.CELEBRATING, MascotEventBus.currentState.value)
     }
 

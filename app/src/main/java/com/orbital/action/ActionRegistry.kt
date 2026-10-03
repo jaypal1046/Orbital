@@ -15,13 +15,13 @@ object ActionRegistry {
             type = "OPEN_APP",
             description = "Launch any installed app on the device dynamically",
             requiredParams = listOf("target"),
-            exampleJson = """{"action": "OPEN_APP", "target": "WhatsApp"}"""
+            exampleJson = """{"action": "OPEN_APP", "target": "<installed-app>"}"""
         ),
         ActionDefinition(
             type = "SEARCH_APP",
             description = "Search inside any installed application or specific service",
             requiredParams = listOf("target", "query"),
-            exampleJson = """{"action": "SEARCH_APP", "target": "YouTube", "query": "lo-fi beats"}"""
+            exampleJson = """{"action": "SEARCH_APP", "target": "<installed-app>", "query": "<user-query>"}"""
         ),
         ActionDefinition(
             type = "NAVIGATE",
@@ -44,10 +44,10 @@ object ActionRegistry {
         ),
         ActionDefinition(
             type = "SEND_SMS",
-            description = "Send message or open chat in WhatsApp or default messaging app",
+            description = "Send message or open a chat in the selected messaging app",
             requiredParams = listOf("recipient"),
             optionalParams = listOf("message", "target"),
-            exampleJson = """{"action": "SEND_SMS", "target": "WhatsApp", "recipient": "Arvind", "message": "Hey Arvind"}"""
+            exampleJson = """{"action": "SEND_SMS", "target": "<installed-messaging-app>", "recipient": "<contact>", "message": "<message>"}"""
         ),
         ActionDefinition(
             type = "SEARCH_WEB",

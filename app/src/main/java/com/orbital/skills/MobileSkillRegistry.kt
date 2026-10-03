@@ -25,9 +25,9 @@ class MobileSkillRegistry @Inject constructor() {
 - Execute confirmations gracefully before triggering destructive steps.
 """.trimIndent(),
             examplePrompts = listOf(
-                "Open YouTube and search for Lo-Fi chill beats",
-                "Open Settings and check my display brightness",
-                "Open Clock and set a 25-minute focus timer"
+                "Open an installed app and search for a topic",
+                "Open a system setting and inspect its current value",
+                "Set a focus timer"
             )
         ),
         MobileSkill(
@@ -71,7 +71,7 @@ class MobileSkillRegistry @Inject constructor() {
             name = "Communication & Messaging",
             category = SkillCategory.COMMUNICATION,
             icon = "💬",
-            description = "Drafts and sends WhatsApp messages, SMS, or emails with dynamic contact resolution.",
+            description = "Drafts and sends messages or emails with dynamic contact resolution.",
             detailedInstructions = """
 ### Skill: Communication & Messaging
 - Resolve recipient names dynamically without hardcoded phone numbers.
@@ -79,9 +79,9 @@ class MobileSkillRegistry @Inject constructor() {
 - Compose clear, concise message bodies tailored to the companion mascot tone.
 """.trimIndent(),
             examplePrompts = listOf(
-                "Send a WhatsApp message saying I will be there in 10 minutes",
-                "Compose an SMS to Mom asking about dinner",
-                "Open Gmail and draft a quick thank-you email"
+                "Draft a message for a contact",
+                "Compose an SMS for a contact",
+                "Draft an email"
             )
         ),
         MobileSkill(

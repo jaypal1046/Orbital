@@ -82,14 +82,31 @@ function signPayload(content, timestamp, nonce = "") {
 
 let activePhoneSocket = null;
 const pendingRequests = new Map();
+const seenPhoneNonces = new Map();
+const REPLAY_WINDOW_MS = 15_000;
+
+function verifyPhoneMessage(data) {
+  if (!data || typeof data.timestamp !== "number" || typeof data.nonce !== "string" || !data.nonce || typeof data.signature !== "string") return false;
+  if (Math.abs(Date.now() - data.timestamp) > REPLAY_WINDOW_MS || seenPhoneNonces.has(data.nonce)) return false;
+
+  const expected = signPayload(data.type, data.timestamp, data.nonce);
+  const valid = data.signature.length === expected.length && crypto.timingSafeEqual(Buffer.from(data.signature), Buffer.from(expected));
+  if (valid) {
+    seenPhoneNonces.set(data.nonce, Date.now());
+    for (const [nonce, createdAt] of seenPhoneNonces) {
+      if (Date.now() - createdAt > REPLAY_WINDOW_MS) seenPhoneNonces.delete(nonce);
+    }
+  }
+  return valid;
+}
 
 // 2. Start Secure WSS / HTTP Dual Server (Authenticated)
 async function handleHttpRequest(req, res) {
-  // Enforce localhost origin or explicit cryptographic Bearer token
+  // This compatibility API is loopback-only; the phone connects over authenticated WSS.
   const clientIp = req.socket.remoteAddress || "";
   const isLocalhost = clientIp.includes("127.0.0.1") || clientIp.includes("::1") || clientIp.includes("localhost");
   const authHeader = req.headers["authorization"] || req.headers["x-orbital-key"] || "";
-  const isAuth = authHeader.replace("Bearer ", "").trim() === AUTH_KEY || authHeader.trim() === PIN;
+  const isAuth = authHeader.replace("Bearer ", "").trim() === AUTH_KEY;
 
   res.setHeader("Access-Control-Allow-Origin", isLocalhost ? "*" : `https://${LOCAL_IP}:${PORT}`);
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
@@ -146,7 +163,6 @@ async function handleHttpRequest(req, res) {
     res.end(JSON.stringify({
       status: "ok",
       name: "Orbital AI Bridge",
-      pin: PIN,
       host: HOSTNAME,
       phoneConnected: activePhoneSocket !== null,
       authFingerprint: KEY_FINGERPRINT,
@@ -188,24 +204,38 @@ serverHttp.on("error", (err) => {
 });
 
 function setupWebSocket(ws, protocol) {
-  activePhoneSocket = ws;
-  console.error(`🟢 Mobile Phone Connected via ${protocol}!`);
+  let isAuthenticated = false;
+  console.error(`🟡 Mobile Phone connection awaiting authenticated pairing via ${protocol}.`);
 
   ws.on("message", (raw) => {
     try {
       const data = JSON.parse(raw.toString());
-      if (data.type === "PAIRING") {
+      if (!isAuthenticated) {
+        if (data.type !== "PAIRING" || data.token !== AUTH_KEY || !verifyPhoneMessage(data)) {
+          ws.close(1008, "Authenticated pairing required");
+          return;
+        }
+        if (activePhoneSocket && activePhoneSocket !== ws) activePhoneSocket.close(1000, "Replaced by new paired phone");
+        activePhoneSocket = ws;
+        isAuthenticated = true;
+        const timestamp = Date.now();
+        const nonce = crypto.randomUUID();
         const pairingAck = {
           type: "PAIRING_ACK",
           token: AUTH_KEY,
           authFingerprint: KEY_FINGERPRINT,
+          timestamp,
+          nonce,
+          signature: signPayload("PAIRING_ACK", timestamp, nonce),
           rawText: "Pairing acknowledged by Host"
         };
         ws.send(JSON.stringify(pairingAck));
-        console.error("🔒 Sent PAIRING_ACK with session cryptographic key to mobile device");
-      } else if (data.type === "SCREEN_STATE" && pendingRequests.has("INSPECT_SCREEN")) {
-        const resolve = pendingRequests.get("INSPECT_SCREEN");
-        pendingRequests.delete("INSPECT_SCREEN");
+        console.error(`🟢 Mobile Phone authenticated via ${protocol}.`);
+      } else if (!verifyPhoneMessage(data)) {
+        ws.close(1008, "Invalid signed message");
+      } else if (data.type === "SCREEN_STATE" && data.requestId && pendingRequests.has(data.requestId)) {
+        const resolve = pendingRequests.get(data.requestId);
+        pendingRequests.delete(data.requestId);
         resolve(data.screenState);
       } else if (data.type === "ACTION_RESULT" && data.result) {
         const actionId = data.result.actionId;
@@ -243,7 +273,6 @@ try {
         type: "orbital-bridge",
         port: PORT,
         txt: {
-          pin: PIN,
           host: HOSTNAME,
           ip: LOCAL_IP,
           ver: "1.0.0",
@@ -260,7 +289,7 @@ try {
 }
 
 try {
-  serverHttp.listen(PORT + 1, "0.0.0.0");
+  serverHttp.listen(PORT + 1, "127.0.0.1");
 } catch (e) {}
 
 // Helper to send command to phone with HMAC-SHA256 signature and timeout
@@ -270,12 +299,13 @@ function sendToPhone(message, reqKey, timeoutMs = 8000) {
       return reject(new Error("No phone currently connected. Please open Orbital on your phone and scan the QR code to connect to " + LOCAL_IP));
     }
 
+    const requestId = reqKey === "INSPECT_SCREEN" ? `${reqKey}-${crypto.randomUUID()}` : reqKey;
     const timer = setTimeout(() => {
-      pendingRequests.delete(reqKey);
+      pendingRequests.delete(requestId);
       reject(new Error(`Timeout waiting for phone response (${timeoutMs}ms)`));
     }, timeoutMs);
 
-    pendingRequests.set(reqKey, (result) => {
+    pendingRequests.set(requestId, (result) => {
       clearTimeout(timer);
       resolve(result);
     });
@@ -294,6 +324,7 @@ function sendToPhone(message, reqKey, timeoutMs = 8000) {
 
     const signedMessage = {
       ...message,
+      requestId,
       timestamp,
       nonce,
       signature,
@@ -436,9 +467,9 @@ server.tool(
 // Tool 5: Open App
 server.tool(
   "open_phone_app",
-  "Launch any application on the Android phone by package name (e.g. 'com.google.android.youtube') or common app name (e.g. 'Settings', 'YouTube', 'WhatsApp', 'Chrome', 'Camera')",
+  "Launch an installed Android application by its package name or visible app name.",
   {
-    packageName: z.string().describe("Name of the app (e.g. 'Settings', 'YouTube') or exact package name (e.g. 'com.android.settings')")
+    packageName: z.string().describe("Visible installed-app name or exact package name")
   },
   async ({ packageName }) => {
     try {
@@ -658,7 +689,7 @@ server.tool(
   "execute_phone_task_batch",
   "Execute a multi-step batch interaction plan directly on the Android phone in a single round-trip with live telemetry, configurable delays, and post-step assertions. Automatically creates a dedicated chat session on the phone for full state audit.",
   {
-    planTitle: z.string().describe("Human-readable title describing the batch plan (e.g. 'Launch YouTube & Search Lo-Fi', 'Settings Navigation Flow')"),
+    planTitle: z.string().describe("Human-readable title describing the batch plan"),
     steps: z.array(
       z.object({
         actionType: z.enum([
@@ -816,7 +847,7 @@ server.tool(
   "explore_and_analyze_app",
   "Autonomously explore any Android app on the phone, inspect its spatial UI layout (top bar, right actions, canvas, bottom tabs), navigate sub-pages, and generate a comprehensive UX, Feature, and Product Comprehension Report.",
   {
-    appName: z.string().describe("Name of the app to explore (e.g. 'Gemini', 'YouTube', 'Spotify', 'Settings', 'Chrome')")
+    appName: z.string().describe("Name of an installed app to explore")
   },
   async ({ appName }) => {
     try {
@@ -872,12 +903,12 @@ server.tool(
             text: `📱 Autonomous Exploration Summary for '${appName}':\n\n` +
                   `• Package: ${pkg}\n` +
                   `• Interactive Nodes: ${nodes.filter(n => n.isClickable).length} clickable elements\n` +
-                  `• Top Bar Controls: [${uniqueTop.join(", ") || "Standard"}]\n` +
-                  `• Right-Side Utilities: [${uniqueRight.join(", ") || "None"}]\n` +
-                  `• Bottom Navigation: [${uniqueBottom.join(", ") || "Single view"}]\n` +
+                  `• Top Bar Controls: [${uniqueTop.join(", ") || "Not observed"}]\n` +
+                  `• Right-Side Utilities: [${uniqueRight.join(", ") || "Not observed"}]\n` +
+                  `• Bottom Navigation: [${uniqueBottom.join(", ") || "Not observed"}]\n` +
                   `• Key Features / Texts: [${uniqueTexts.slice(0, 12).join(", ")}]\n\n` +
-                  `💡 Value Proposition: High-utility mobile surface optimized for touch interactions.\n` +
-                  `✨ Attraction Factors: Instant launch responsiveness, clear spatial layout, accessible tap targets.`
+                  `💡 Value Proposition: ${nodes.length ? "Observed from the live UI hierarchy." : "Not assessed: no live UI hierarchy was returned."}\n` +
+                  `✨ Attraction Factors: ${nodes.length ? "Observed controls and accessible tap targets." : "No product claims made without live evidence."}`
           }
         ]
       };

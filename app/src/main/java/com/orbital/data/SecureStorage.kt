@@ -16,6 +16,9 @@ open class SecureStorage(context: Context) {
         private const val KEY_SAFETY_ACTION = "safety_action"
         private const val KEY_SELECTED_CHARACTER = "selected_character"
         private const val KEY_SETUP_COMPLETE = "setup_complete"
+        private const val KEY_BRIDGE_TOKEN = "bridge_token"
+        private const val KEY_BRIDGE_PIN = "bridge_pin"
+        private const val KEY_BRIDGE_HOST = "bridge_host"
     }
 
     private val masterKey = MasterKey.Builder(context)
@@ -151,6 +154,26 @@ open class SecureStorage(context: Context) {
 
     fun markSetupComplete() {
         sharedPreferences.edit().putBoolean(KEY_SETUP_COMPLETE, true).apply()
+    }
+
+    fun saveBridgeSession(token: String, pin: String?, hostName: String?) {
+        sharedPreferences.edit()
+            .putString(KEY_BRIDGE_TOKEN, token)
+            .putString(KEY_BRIDGE_PIN, pin)
+            .putString(KEY_BRIDGE_HOST, hostName)
+            .apply()
+    }
+
+    fun getBridgeSessionToken(): String? = sharedPreferences.getString(KEY_BRIDGE_TOKEN, null)
+    fun getBridgeSessionPin(): String? = sharedPreferences.getString(KEY_BRIDGE_PIN, null)
+    fun getBridgeSessionHost(): String? = sharedPreferences.getString(KEY_BRIDGE_HOST, null)
+
+    fun clearBridgeSession() {
+        sharedPreferences.edit()
+            .remove(KEY_BRIDGE_TOKEN)
+            .remove(KEY_BRIDGE_PIN)
+            .remove(KEY_BRIDGE_HOST)
+            .apply()
     }
 
     fun clearAll() {

@@ -24,7 +24,7 @@ data class MemoryEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val bankId: String = "default_user",
     val category: MemoryType,
-    val contextKey: String, // e.g. "cab_booking", "com.whatsapp", "flight_search"
+    val contextKey: String,
     val summary: String,
     val detailJson: String = "{}",
     val rawEmbedding: String = "", // Comma-separated Float string for SQLite portability

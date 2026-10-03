@@ -111,8 +111,8 @@ open class DeviceActionExecutor(private val context: Context) {
                 "OPEN_SETTING", "SETTINGS" -> openSetting(action.target ?: "")
                 "DEVICE_STATUS", "BATTERY" -> getDeviceStatus()
                 "MAKE_CALL", "CALL" -> makeCall(action.phoneNumber ?: action.target ?: "")
-                "SEND_SMS", "SMS", "WHATSAPP", "SEND_MESSAGE" -> sendMessage(
-                    action.target ?: if (action.action.equals("WHATSAPP", ignoreCase = true)) "whatsapp" else "sms",
+                "SEND_SMS", "SMS", "SEND_MESSAGE" -> sendMessage(
+                    action.target ?: "sms",
                     action.phoneNumber ?: action.recipient,
                     action.message ?: action.query ?: ""
                 )
@@ -130,7 +130,7 @@ open class DeviceActionExecutor(private val context: Context) {
             com.orbital.data.ActionApprovalMode.ALWAYS_PROCEED -> false
             com.orbital.data.ActionApprovalMode.REQUEST_FOR_ACTION -> true
             com.orbital.data.ActionApprovalMode.AUTO_SAFE -> action.action.uppercase().trim() in setOf(
-                "SEND_SMS", "SMS", "WHATSAPP", "SEND_MESSAGE", "MAKE_CALL", "CALL", "OPEN_SETTING", "SETTINGS"
+                "SEND_SMS", "SMS", "SEND_MESSAGE", "MAKE_CALL", "CALL", "OPEN_SETTING", "SETTINGS"
             )
         }
     }
@@ -452,22 +452,6 @@ open class DeviceActionExecutor(private val context: Context) {
         if (messagingApp != null && messagingApp.category == AppCategory.MESSAGING) {
             val pkg = messagingApp.packageName
             val cleanPhone = phoneNumber?.replace(Regex("[^0-9]"), "") ?: ""
-
-            if (cleanPhone.isNotBlank()) {
-                // If it's a web/intent enabled messaging app (like WhatsApp/Telegram)
-                if (pkg.contains("whatsapp") || messagingApp.name.contains("whatsapp", ignoreCase = true)) {
-                    val url = "https://api.whatsapp.com/send?phone=$cleanPhone&text=${Uri.encode(message)}"
-                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
-                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                    }
-                    return try {
-                        context.startActivity(intent)
-                        ActionResult.Success("Opened WhatsApp for $cleanPhone")
-                    } catch (e: Exception) {
-                        openApp(pkg)
-                    }
-                }
-            }
 
             // Launch the messaging app directly
             val pm = context.packageManager

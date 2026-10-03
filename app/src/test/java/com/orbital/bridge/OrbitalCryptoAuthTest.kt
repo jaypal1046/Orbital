@@ -149,6 +149,36 @@ class OrbitalCryptoAuthTest {
     }
 
     @Test
+    fun testMissingNonceIsRejected() {
+        cryptoAuth.establishSession("secure-secret-token")
+        val timestamp = System.currentTimeMillis()
+        val action = ActionPayload(actionId = "act-no-nonce", actionType = BridgeActionType.INSPECT_SCREEN)
+        val signature = cryptoAuth.signMessage(buildTestSignatureKey(action), timestamp)
+
+        assertFalse(
+            cryptoAuth.verifyIncomingMessage(
+                BridgeMessage("EXECUTE_ACTION", action = action, timestamp = timestamp, signature = signature)
+            )
+        )
+    }
+
+    @Test
+    fun testInvalidSignatureDoesNotConsumeNonce() {
+        cryptoAuth.establishSession("secure-secret-token")
+        val timestamp = System.currentTimeMillis()
+        val nonce = UUID.randomUUID().toString()
+        val action = ActionPayload(actionId = "act-invalid", actionType = BridgeActionType.INSPECT_SCREEN)
+        val actionKey = buildTestSignatureKey(action)
+
+        assertFalse(cryptoAuth.verifyIncomingMessage(
+            BridgeMessage("EXECUTE_ACTION", action = action, timestamp = timestamp, nonce = nonce, signature = "invalid")
+        ))
+        assertTrue(cryptoAuth.verifyIncomingMessage(
+            BridgeMessage("EXECUTE_ACTION", action = action, timestamp = timestamp, nonce = nonce, signature = cryptoAuth.signMessage(actionKey, timestamp, nonce))
+        ))
+    }
+
+    @Test
     fun testClearSessionResetsState() {
         cryptoAuth.establishSession("token", "pin", "host")
         assertTrue(cryptoAuth.isSessionActive())
