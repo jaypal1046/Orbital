@@ -104,7 +104,14 @@ class OrbitalAccessibilityService : AccessibilityService() {
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event == null) return
         val pkg = event.packageName?.toString() ?: return
-        if (pkg != packageName) {
+        
+        // Ignore transient system notification events (SystemUI / Keyguard) from hijacking active app state
+        val isSystemOverlay = pkg == "com.android.systemui" || 
+                              pkg == "android" || 
+                              pkg.contains("notification", ignoreCase = true) ||
+                              pkg.contains("keyguard", ignoreCase = true)
+
+        if (pkg != packageName && !isSystemOverlay) {
             _currentForegroundPackage.value = pkg
             // Capture updated screen hierarchy when state or window changes
             if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED || 
@@ -128,10 +135,22 @@ class OrbitalAccessibilityService : AccessibilityService() {
     fun captureScreenHierarchy(): ScreenHierarchySnapshot? {
         val root = rootInActiveWindow ?: return null
         val elements = mutableListOf<UIElement>()
-        val pkg = root.packageName?.toString() ?: _currentForegroundPackage.value
+        val currentAppPkg = _currentForegroundPackage.value.ifBlank { root.packageName?.toString() ?: packageName }
 
         fun traverse(node: AccessibilityNodeInfo?) {
             if (node == null) return
+            
+            // Ignore notification banner nodes from SystemUI to prevent accidental banner click hijack
+            val nodePkg = node.packageName?.toString() ?: ""
+            if (nodePkg == "com.android.systemui") {
+                val rect = Rect()
+                node.getBoundsInScreen(rect)
+                // Filter out top notification heads-up banners (typically y < 350)
+                if (rect.top < 350) {
+                    return
+                }
+            }
+
             val rect = Rect()
             node.getBoundsInScreen(rect)
 
@@ -161,7 +180,7 @@ class OrbitalAccessibilityService : AccessibilityService() {
 
         traverse(root)
         val snapshot = ScreenHierarchySnapshot(
-            packageName = pkg,
+            packageName = currentAppPkg,
             activityTitle = null,
             elements = elements
         )
@@ -342,6 +361,17 @@ class OrbitalAccessibilityService : AccessibilityService() {
     private fun performClickOnNodeOrParent(node: AccessibilityNodeInfo?): Boolean {
         var current = node
         while (current != null) {
+            // Safeguard: Never click SystemUI notification banner nodes during in-app automation
+            val pkg = current.packageName?.toString() ?: ""
+            if (pkg == "com.android.systemui") {
+                val rect = Rect()
+                current.getBoundsInScreen(rect)
+                if (rect.top < 350) {
+                    Log.w(TAG, "Prevented click on SystemUI notification banner at $rect")
+                    return false
+                }
+            }
+
             if (current.isClickable) {
                 return current.performAction(AccessibilityNodeInfo.ACTION_CLICK)
             }
