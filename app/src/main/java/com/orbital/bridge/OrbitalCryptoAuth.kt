@@ -1,6 +1,7 @@
 package com.orbital.bridge
 
 import android.util.Log
+import com.orbital.data.SecureStorage
 import java.security.MessageDigest
 import java.util.Collections
 import java.util.LinkedHashMap
@@ -10,7 +11,9 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
-class OrbitalCryptoAuth @Inject constructor() {
+class OrbitalCryptoAuth @Inject constructor(
+    private val secureStorage: SecureStorage
+) {
 
     companion object {
         private const val TAG = "OrbitalCryptoAuth"
@@ -37,6 +40,14 @@ class OrbitalCryptoAuth @Inject constructor() {
         }
     )
 
+    init {
+        secureStorage?.getBridgeSessionToken()?.takeIf { it.isNotBlank() }?.let { token ->
+            activeSessionToken = token
+            activeSessionPin = secureStorage.getBridgeSessionPin()
+            authenticatedHostName = secureStorage.getBridgeSessionHost()
+        }
+    }
+
     /**
      * Initializes a verified session key scanned from the laptop terminal QR code or authenticated handshake.
      */
@@ -44,6 +55,7 @@ class OrbitalCryptoAuth @Inject constructor() {
         activeSessionToken = token.trim()
         activeSessionPin = pin?.trim()
         authenticatedHostName = hostName?.trim()
+        secureStorage?.saveBridgeSession(activeSessionToken.orEmpty(), activeSessionPin, authenticatedHostName)
         Log.i(TAG, "🔒 Bitcoin-grade Cryptographic Session Established. Fingerprint: ${getFingerprint()}")
     }
 
@@ -62,6 +74,7 @@ class OrbitalCryptoAuth @Inject constructor() {
         activeSessionPin = null
         authenticatedHostName = null
         seenNonces.clear()
+        secureStorage?.clearBridgeSession()
         Log.i(TAG, "Session key cleared.")
     }
 
@@ -106,14 +119,12 @@ class OrbitalCryptoAuth @Inject constructor() {
     fun verifyIncomingMessage(message: BridgeMessage): Boolean {
         val secret = activeSessionToken
 
-        // Handle initial pairing handshake & key refresh
+        // Pairing is only valid after the QR-provisioned session key is present.
         if (message.type == "PAIRING" || message.type == "PAIRING_ACK") {
-            if (!message.token.isNullOrBlank()) {
-                activeSessionToken = message.token
-                seenNonces.clear()
-                Log.i(TAG, "🔒 Established/refreshed cryptographic session token from host handshake")
+            if (secret.isNullOrBlank() || message.token != secret) {
+                Log.w(TAG, "❌ Rejected pairing message: session token mismatch.")
+                return false
             }
-            return true
         }
 
         if (secret.isNullOrBlank()) {
@@ -130,12 +141,13 @@ class OrbitalCryptoAuth @Inject constructor() {
 
         // 2. Replay attack prevention: Nonce uniqueness check
         val nonce = message.nonce
-        if (!nonce.isNullOrBlank()) {
-            if (seenNonces.containsKey(nonce)) {
-                Log.w(TAG, "🚨 REPLAY ATTACK BLOCKED: Nonce '$nonce' already consumed!")
-                return false
-            }
-            seenNonces[nonce] = now
+        if (nonce.isNullOrBlank()) {
+            Log.w(TAG, "❌ SECURITY ALERT: Missing nonce! Message rejected.")
+            return false
+        }
+        if (seenNonces.containsKey(nonce)) {
+            Log.w(TAG, "🚨 REPLAY ATTACK BLOCKED: Nonce '$nonce' already consumed!")
+            return false
         }
 
         // 3. Cryptographic HMAC-SHA256 signature verification over payload
@@ -158,6 +170,8 @@ class OrbitalCryptoAuth @Inject constructor() {
             Log.w(TAG, "❌ SECURITY ALERT: Cryptographic signature mismatch! Message rejected.")
             return false
         }
+
+        seenNonces[nonce] = now
 
         return true
     }

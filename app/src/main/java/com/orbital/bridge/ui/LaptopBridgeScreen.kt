@@ -666,20 +666,21 @@ fun ManualPinView(
             onValueChange = onInputChange,
             placeholder = {
                 Text(
-                    text = "ORB-XXXX or 192.168.x.x:8765",
+                    text = "e.g. 192.168.1.5:8765 or ORB-5057",
                     color = Color(0xFF64748B),
-                    fontSize = 14.sp,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.fillMaxWidth()
+                    fontSize = 13.5.sp
                 )
             },
             textStyle = TextStyle(
                 color = Color.White,
                 fontSize = 15.sp,
                 fontWeight = FontWeight.SemiBold,
-                textAlign = TextAlign.Center
+                textAlign = TextAlign.Start
             ),
             singleLine = true,
+            leadingIcon = {
+                Text("🔑", fontSize = 16.sp, modifier = Modifier.padding(start = 6.dp))
+            },
             trailingIcon = {
                 TextButton(
                     onClick = {
@@ -688,9 +689,9 @@ fun ManualPinView(
                             onInputChange(clip.trim())
                         }
                     },
-                    contentPadding = PaddingValues(horizontal = 8.dp)
+                    contentPadding = PaddingValues(horizontal = 10.dp)
                 ) {
-                    Text("📋 Paste", color = Color(0xFF38BDF8), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    Text("📋 Paste", color = Color(0xFF38BDF8), fontSize = 12.sp, fontWeight = FontWeight.Bold)
                 }
             },
             colors = OutlinedTextFieldDefaults.colors(
