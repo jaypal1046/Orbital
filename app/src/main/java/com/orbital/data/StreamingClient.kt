@@ -182,24 +182,28 @@ class StreamingClient(
             val jsonResponse = JSONObject(data)
             if (jsonResponse.has("candidates")) {
                 // Gemini SSE structure
-                val candidates = jsonResponse.getJSONArray("candidates")
-                if (candidates.length() > 0) {
+                val candidates = jsonResponse.optJSONArray("candidates")
+                if (candidates != null && candidates.length() > 0) {
                     val firstCandidate = candidates.getJSONObject(0)
-                    val content = firstCandidate.optJSONObject("content")
-                        ?.optJSONArray("parts")
-                        ?.optJSONObject(0)
-                        ?.optString("text") ?: ""
-                    if (content.isNotBlank()) {
-                        onChunk(content)
+                    val parts = firstCandidate.optJSONObject("content")?.optJSONArray("parts")
+                    if (parts != null) {
+                        for (i in 0 until parts.length()) {
+                            val text = parts.optJSONObject(i)?.optString("text")
+                            if (!text.isNullOrBlank()) {
+                                onChunk(text)
+                            }
+                        }
                     }
                 }
             } else if (jsonResponse.has("choices")) {
-                // OpenAI SSE structure
-                val choices = jsonResponse.getJSONArray("choices")
-                if (choices.length() > 0) {
+                // OpenAI / Groq / Cerebras SSE structure
+                val choices = jsonResponse.optJSONArray("choices")
+                if (choices != null && choices.length() > 0) {
                     val firstChoice = choices.getJSONObject(0)
                     val deltaObj = firstChoice.optJSONObject("delta")
                     val content = deltaObj?.optString("content")?.takeIf { it.isNotBlank() }
+                        ?: deltaObj?.optString("text")?.takeIf { it.isNotBlank() }
+                        ?: firstChoice.optJSONObject("message")?.optString("content")?.takeIf { it.isNotBlank() }
                         ?: firstChoice.optString("text").takeIf { it.isNotBlank() }
                     if (!content.isNullOrBlank()) {
                         onChunk(content)
@@ -215,19 +219,29 @@ class StreamingClient(
         return JSONObject().apply {
             var systemInstructionText: String? = null
             val contentsArray = JSONArray()
+            var lastRole: String? = null
+            var lastPartsArray: JSONArray? = null
 
-            messages.forEach { msg ->
+            for (msg in messages) {
                 val role = msg["role"] as? String ?: "user"
                 val text = msg["content"] as? String
                     ?: (msg["parts"] as? List<Map<String, String>>)?.firstOrNull()?.get("text")
                     ?: ""
 
                 if (role.equals("system", ignoreCase = true)) {
-                    systemInstructionText = text
+                    systemInstructionText = if (systemInstructionText.isNullOrBlank()) text else "$systemInstructionText\n\n$text"
                 } else {
                     val mappedRole = if (role == "assistant" || role == "model") "model" else "user"
-                    val partsArray = JSONArray().put(JSONObject().put("text", text))
-                    contentsArray.put(JSONObject().put("role", mappedRole).put("parts", partsArray))
+                    val currentParts = lastPartsArray
+                    if (mappedRole == lastRole && currentParts != null) {
+                        // Append text to the previous turn to satisfy Gemini turn-alternation rule
+                        currentParts.put(JSONObject().put("text", text))
+                    } else {
+                        val partsArray = JSONArray().put(JSONObject().put("text", text.ifBlank { "..." }))
+                        contentsArray.put(JSONObject().put("role", mappedRole).put("parts", partsArray))
+                        lastRole = mappedRole
+                        lastPartsArray = partsArray
+                    }
                 }
             }
 

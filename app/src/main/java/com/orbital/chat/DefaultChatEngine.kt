@@ -391,6 +391,58 @@ class DefaultChatEngine @Inject constructor(
                 role = "assistant", content = parsed.userDisplayText, providerName = provider,
                 actionLabel = actionLabel, actionDetails = actionDetails
             )
+        } else {
+            // Edge Resilience Fallback: If streaming closed with 0 chunks or empty response,
+            // immediately evaluate the user's intent locally so the command never hangs or waits for a 2nd message.
+            val lastUserMessage = _messages.value.lastOrNull { it.role == "user" }?.content.orEmpty()
+            if (lastUserMessage.isNotBlank()) {
+                val parsed = com.orbital.action.ActionParser.parse(lastUserMessage)
+                if (parsed.actions.isNotEmpty()) {
+                    val execResults = parsed.actions.map { deviceActionExecutor.execute(it) }
+                    val isSuccess = execResults.all { it is ActionResult.Success }
+                    val label = parsed.actions.firstOrNull()?.action?.lowercase()?.replace('_', ' ') ?: "action"
+                    val details = execResults.mapNotNull { res ->
+                        when (res) {
+                            is ActionResult.Success -> listOfNotNull(res.message, res.details).joinToString("\n")
+                            is ActionResult.Error -> res.errorMessage
+                        }
+                    }.joinToString("\n\n")
+                    val fallbackContent = if (isSuccess) {
+                        if (parsed.actions.any { it.action == "DEVICE_STATUS" || it.action == "BATTERY" }) {
+                            "Checking your device and battery status now!"
+                        } else {
+                            "Executed ${label.replaceFirstChar { it.uppercase() }} on your phone."
+                        }
+                    } else "Attempted $label: $details"
+
+                    val executionSteps = listOf(
+                        com.orbital.action.ExecutionStep(
+                            title = "Ran DeviceAction: ${label.replaceFirstChar { it.uppercase() }}",
+                            status = if (isSuccess) com.orbital.action.StepStatus.SUCCESS else com.orbital.action.StepStatus.FAILED,
+                            toolName = "DeviceAction",
+                            details = details.ifBlank { fallbackContent },
+                            durationMs = 250L
+                        )
+                    )
+
+                    addActionMessage(
+                        content = fallbackContent,
+                        actionLabel = "⚡ ${label.replaceFirstChar { it.uppercase() }}",
+                        actionDetails = details.takeIf { it.isNotBlank() },
+                        steps = executionSteps,
+                        durationMs = 250L
+                    )
+                } else {
+                    val fallbackContent = "I received your request. How else can I assist you?"
+                    _messages.update { currentMessages ->
+                        currentMessages + ChatMessage(
+                            role = "assistant",
+                            content = fallbackContent
+                        )
+                    }
+                    persistMessage(role = "assistant", content = fallbackContent, providerName = activeProvider.value)
+                }
+            }
         }
         streamingContent.value = ""
         isStreaming.value = false

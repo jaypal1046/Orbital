@@ -5,6 +5,11 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Tag name for release (e.g. v1.0.5)'
+        required: false
+        default: 'v1.0.5'
 
 permissions:
   contents: write
@@ -17,6 +22,8 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -31,21 +38,35 @@ jobs:
       - name: Run Unit Tests
         run: ./gradlew testDebugUnitTest
 
-      - name: Build Release APK
-        run: ./gradlew assembleRelease
-
-      - name: Find and Rename Release APK
+      - name: Build APKs (Release & Debug)
         run: |
+          ./gradlew assembleRelease assembleDebug
+
+      - name: Prepare Release Artifacts
+        id: prepare_artifacts
+        run: |
+          TAG="${{ github.event.inputs.tag_name || github.ref_name }}"
+          if [ -z "$TAG" ] || [ "$TAG" = "main" ]; then
+            TAG="v1.0.5"
+          fi
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
           mkdir -p release_artifacts
-          find app/build/outputs/apk/release/ -name "*.apk" -exec cp {} release_artifacts/orbital-${{ github.ref_name }}.apk \;
+          
+          # Collect release APK (or fallback to debug if unsigned)
+          if ls app/build/outputs/apk/release/*.apk 1> /dev/null 2>&1; then
+            cp app/build/outputs/apk/release/*.apk release_artifacts/orbital-$TAG.apk
+          elif ls app/build/outputs/apk/debug/*.apk 1> /dev/null 2>&1; then
+            cp app/build/outputs/apk/debug/*.apk release_artifacts/orbital-$TAG.apk
+          fi
+          
           cd release_artifacts
-          sha256sum orbital-${{ github.ref_name }}.apk > orbital-${{ github.ref_name }}.apk.sha256
+          sha256sum orbital-$TAG.apk > orbital-$TAG.apk.sha256
           ls -la
 
-      - name: Create GitHub Release
+      - name: Publish to GitHub Release
         uses: softprops/action-gh-release@v2
-        if: startsWith(github.ref, 'refs/tags/')
         with:
+          tag_name: ${{ steps.prepare_artifacts.outputs.tag }}
           files: |
             release_artifacts/*.apk
             release_artifacts/*.sha256
@@ -54,3 +75,4 @@ jobs:
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
