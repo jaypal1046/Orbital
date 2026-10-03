@@ -154,16 +154,16 @@ fun InAppChatScreen(
             SideNavDrawer(
                 currentCharacterId = currentCharacterId,
                 sessions = sessions,
-                onSelectCharacter = { charId ->
+                onSelectCharacter = { charId: String ->
                     chatViewModel.switchCharacter(charId)
                 },
                 onNewChat = {
                     chatViewModel.startNewChat()
                     Toast.makeText(context, "Started fresh chat session", Toast.LENGTH_SHORT).show()
                 },
-                onSelectSession = chatViewModel::loadSession,
-                onRenameSession = chatViewModel::renameSession,
-                onShareChat = chatViewModel::shareCurrentChat,
+                onSelectSession = { sessionId: String -> chatViewModel.loadSession(sessionId) },
+                onRenameSession = { sessionId: String, newTitle: String -> chatViewModel.renameSession(sessionId, newTitle) },
+                onShareChat = { asExport: Boolean -> chatViewModel.shareCurrentChat(asExport) },
                 onOpenKeys = onOpenKeys,
                 onOpenCharacters = onOpenCharacters,
                 onOpenAutomations = onOpenAutomations,
@@ -173,7 +173,7 @@ fun InAppChatScreen(
                     feedbackInitialLog = null
                     showFeedbackDialog = true
                 },
-                onOpenLegal = { tab ->
+                onOpenLegal = { tab: LegalTab ->
                     showLegalScreen = true
                     legalTab = tab
                 },
@@ -206,7 +206,7 @@ fun InAppChatScreen(
                     onRoutingModeClick = { showRoutingSheet = true }
                 )
             },
-            containerColor = Color(0xFF0A0C14)
+            containerColor = OrbitalTokens.Background
         ) { innerPadding ->
             Column(
                 modifier = Modifier

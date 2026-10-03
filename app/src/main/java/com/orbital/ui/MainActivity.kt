@@ -9,9 +9,6 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.darkColorScheme
-import androidx.compose.ui.graphics.Color
 import com.orbital.data.SecureStorage
 import dagger.hilt.android.AndroidEntryPoint
 
@@ -87,17 +84,13 @@ class MainActivity : ComponentActivity() {
 
     private fun renderMainChat() {
         setContent {
-            MaterialTheme(
-                colorScheme = darkColorScheme(
-                    background = Color(0xFF0A0C14),
-                    surface = Color(0xFF131625),
-                    primary = Color(0xFF7C3AED)
-                )
-            ) {
+            OrbitalTheme {
                 ChatScreen(
                     chatViewModel = chatViewModel,
                     onOpenKeys = {
-                        val intent = Intent(this@MainActivity, SetupWizardActivity::class.java)
+                        val intent = Intent(this@MainActivity, SetupWizardActivity::class.java).apply {
+                            putExtra(SetupWizardActivity.EXTRA_OPEN_PROVIDERS, true)
+                        }
                         startActivity(intent)
                     },
                     onOpenCharacters = {

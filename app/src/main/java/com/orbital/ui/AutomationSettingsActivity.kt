@@ -41,13 +41,7 @@ class AutomationSettingsActivity : ComponentActivity() {
         powerAwareScheduler = PowerAwareScheduler(this)
 
         setContent {
-            MaterialTheme(
-                colorScheme = darkColorScheme(
-                    background = Color(0xFF0A0C14),
-                    surface = Color(0xFF131626),
-                    primary = Color(0xFF7C3AED)
-                )
-            ) {
+            OrbitalTheme {
                 AutomationSettingsScreen(
                     onBack = { finish() },
                     onSave = { enabled, startHour, workWifi, homeWifi ->
@@ -101,10 +95,10 @@ fun AutomationSettingsScreen(
                         )
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color(0xFF0F111A))
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = OrbitalTokens.Background)
             )
         },
-        containerColor = Color(0xFF0A0C14)
+        containerColor = OrbitalTokens.Background
     ) { padding ->
         val context = androidx.compose.ui.platform.LocalContext.current
         val secureStorage = remember { com.orbital.data.SecureStorage(context) }
@@ -122,7 +116,7 @@ fun AutomationSettingsScreen(
                 text = "ACTION EXECUTION MODE",
                 fontSize = 11.sp,
                 fontWeight = FontWeight.Bold,
-                color = Color(0xFFA78BFA),
+                color = OrbitalTokens.Primary,
                 letterSpacing = 1.sp,
                 modifier = Modifier.padding(bottom = 8.dp)
             )
@@ -208,11 +202,11 @@ fun AutomationSettingsScreen(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(16.dp),
                 colors = CardDefaults.cardColors(
-                    containerColor = if (isEnabled) Color(0xFF191D34) else Color(0xFF131626)
+                    containerColor = if (isEnabled) OrbitalTokens.SurfaceSelected else OrbitalTokens.Surface
                 ),
                 border = BorderStroke(
                     1.dp,
-                    if (isEnabled) Color(0xFF7C3AED).copy(alpha = 0.6f) else Color(0xFF222842)
+                    if (isEnabled) OrbitalTokens.Primary.copy(alpha = 0.6f) else OrbitalTokens.Border
                 )
             ) {
                 Row(
@@ -266,7 +260,7 @@ fun AutomationSettingsScreen(
                         onCheckedChange = { isEnabled = it },
                         colors = SwitchDefaults.colors(
                             checkedThumbColor = Color.White,
-                            checkedTrackColor = Color(0xFF7C3AED),
+                            checkedTrackColor = OrbitalTokens.Primary,
                             uncheckedThumbColor = Color(0xFF64748B),
                             uncheckedTrackColor = Color(0xFF1F2438)
                         )

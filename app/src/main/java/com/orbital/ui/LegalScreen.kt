@@ -68,10 +68,10 @@ fun LegalScreen(
             TopAppBar(
                 title = { Text(stringResource(R.string.title_privacy_policy), color = Color.White, fontWeight = FontWeight.Bold) },
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White) } },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color(0xFF0F111A))
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = OrbitalTokens.Background)
             )
         },
-        containerColor = Color(0xFF0A0C14)
+        containerColor = OrbitalTokens.Background
     ) { innerPadding ->
         Column(
             modifier = Modifier

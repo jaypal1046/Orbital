@@ -26,6 +26,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -48,7 +50,8 @@ fun KeyManagementScreen(
     secureStorage: SecureStorage,
     llmRepository: LlmRepository,
     onBack: () -> Unit,
-    onContinue: () -> Unit
+    onContinue: () -> Unit,
+    isOnboarding: Boolean = true
 ) {
     val context = LocalContext.current
     var currentTab by remember { mutableStateOf(DashboardTab.PROVIDERS) }
@@ -116,7 +119,7 @@ fun KeyManagementScreen(
                             color = Color.White
                         )
                         Text(
-                            text = "$configuredCount of $totalCount providers configured",
+                            text = if (isOnboarding) "Step 2 of 4 · Provider setup is optional" else "$configuredCount of $totalCount providers configured",
                             style = MaterialTheme.typography.bodySmall,
                             color = Color(0xFF94A3B8)
                         )
@@ -168,7 +171,7 @@ fun KeyManagementScreen(
                         .padding(horizontal = 16.dp, vertical = 12.dp)
                 ) {
                     Text(
-                        text = "💡 API keys are optional. Orbital includes a free Auto-Router and you can add or edit keys anytime in Settings.",
+                        text = "API keys stay encrypted on this device. Add only the providers you use; you can change them later.",
                         color = Color(0xFF94A3B8),
                         fontSize = 11.5.sp,
                         lineHeight = 15.sp,
@@ -184,7 +187,7 @@ fun KeyManagementScreen(
                             shape = RoundedCornerShape(12.dp),
                             border = BorderStroke(1.dp, Color(0xFF2E3856))
                         ) {
-                            Text("Skip for Now", color = Color(0xFFCBD5E1), fontSize = 13.sp)
+                            Text(if (isOnboarding) "Skip for now" else "Back", color = Color(0xFFCBD5E1), fontSize = 13.sp)
                         }
                         Button(
                             onClick = onContinue,
@@ -193,7 +196,7 @@ fun KeyManagementScreen(
                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF7C3AED))
                         ) {
                             Text(
-                                text = if (configuredCount > 0) "Continue ($configuredCount Active)" else "Continue (Free Auto-Router)",
+                                text = if (isOnboarding) "Continue" else "Done",
                                 color = Color.White,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 13.sp
@@ -339,7 +342,7 @@ fun KeyManagementScreen(
 
                             val currentScope = providerModelScopes[info.type]
 
-                            ProviderItemCard(
+                            ProviderConfigurationCard(
                                 info = info,
                                 apiKey = key,
                                 isEnabled = isEnabled,
@@ -353,18 +356,6 @@ fun KeyManagementScreen(
                                 onToggleEnabled = { enabled ->
                                     providerEnabledStates = providerEnabledStates + (info.type to enabled)
                                     secureStorage.saveProviderEnabled(info.type.name, enabled)
-                                },
-                                onKeyChanged = { newKey ->
-                                    providerKeys = providerKeys + (info.type to newKey)
-                                    secureStorage.saveProviderApiKey(info.type.name, newKey)
-                                    llmRepository.updateProviderKey(info.type, newKey)
-                                    if (newKey.isNotBlank()) {
-                                        llmRepository.discoverCatalogModels(info.type, newKey) { discoveredList ->
-                                            CoroutineScope(Dispatchers.Main).launch {
-                                                providerDiscoveredModels = providerDiscoveredModels + (info.type to discoveredList.map { it.modelId })
-                                            }
-                                        }
-                                    }
                                 },
                                 onSelectModel = { modelName ->
                                     providerSelectedModels = providerSelectedModels + (info.type to modelName)
@@ -388,13 +379,27 @@ fun KeyManagementScreen(
                                     val intent = Intent(Intent.ACTION_VIEW, Uri.parse(info.portalUrl))
                                     context.startActivity(intent)
                                 },
-                                onTestKey = {
-                                    llmRepository.testProvider(info.type, key) { success, error ->
+                                onRemoveKey = {
+                                    providerKeys = providerKeys + (info.type to "")
+                                    secureStorage.saveProviderApiKey(info.type.name, "")
+                                    llmRepository.updateProviderKey(info.type, "")
+                                    Toast.makeText(context, "${info.displayName}: key removed", Toast.LENGTH_SHORT).show()
+                                },
+                                onTestKey = { candidateKey ->
+                                    llmRepository.testProvider(info.type, candidateKey) { success, error ->
                                         CoroutineScope(Dispatchers.Main).launch {
                                             if (success) {
-                                                Toast.makeText(context, "${info.displayName}: Healthy & Connected!", Toast.LENGTH_SHORT).show()
+                                                providerKeys = providerKeys + (info.type to candidateKey)
+                                                secureStorage.saveProviderApiKey(info.type.name, candidateKey)
+                                                llmRepository.updateProviderKey(info.type, candidateKey)
+                                                llmRepository.discoverCatalogModels(info.type, candidateKey) { discovered ->
+                                                    CoroutineScope(Dispatchers.Main).launch {
+                                                        providerDiscoveredModels = providerDiscoveredModels + (info.type to discovered.map { it.modelId })
+                                                    }
+                                                }
+                                                Toast.makeText(context, "${info.displayName}: connected", Toast.LENGTH_SHORT).show()
                                             } else {
-                                                Toast.makeText(context, "${info.displayName}: Failed ($error)", Toast.LENGTH_LONG).show()
+                                                Toast.makeText(context, "${info.displayName}: connection failed${error?.let { " · $it" } ?: ""}", Toast.LENGTH_LONG).show()
                                             }
                                         }
                                     }
@@ -582,6 +587,135 @@ fun KeyManagementScreen(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun ProviderConfigurationCard(
+    info: ProviderInfo,
+    apiKey: String,
+    isEnabled: Boolean,
+    isExpanded: Boolean,
+    status: ProviderState,
+    selectedModel: String,
+    availableModels: List<String>,
+    isDiscoveringModels: Boolean,
+    modelScope: Set<String>?,
+    onEditModels: () -> Unit,
+    onToggleEnabled: (Boolean) -> Unit,
+    onSelectModel: (String) -> Unit,
+    onDiscoverModels: () -> Unit,
+    onToggleExpand: () -> Unit,
+    onOpenPortal: () -> Unit,
+    onRemoveKey: () -> Unit,
+    onTestKey: (String) -> Unit
+) {
+    var keyInput by remember(apiKey) { mutableStateOf(apiKey) }
+    var revealKey by remember { mutableStateOf(false) }
+    var confirmRemoval by remember { mutableStateOf(false) }
+    val configured = apiKey.isNotBlank()
+    val (statusLabel, statusColor) = when {
+        !isEnabled -> "Disabled" to OrbitalTokens.TextMuted
+        !configured -> "Not connected" to OrbitalTokens.TextMuted
+        status == ProviderState.IN_COOLDOWN -> "Rate limited" to OrbitalTokens.Warning
+        status == ProviderState.UNAVAILABLE -> "Needs attention" to OrbitalTokens.Error
+        else -> "Connected" to OrbitalTokens.Success
+    }
+
+    Card(
+        shape = OrbitalTokens.RadiusMedium,
+        colors = CardDefaults.cardColors(containerColor = OrbitalTokens.Surface),
+        border = BorderStroke(1.dp, if (isExpanded) OrbitalTokens.Primary.copy(alpha = .7f) else OrbitalTokens.Border),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(40.dp).clip(OrbitalTokens.RadiusSmall).background(if (configured) OrbitalTokens.SurfaceSelected else OrbitalTokens.SurfaceRaised), contentAlignment = Alignment.Center) {
+                    Text(info.displayName.take(1).uppercase(), style = MaterialTheme.typography.titleMedium, color = if (configured) OrbitalTokens.Primary else OrbitalTokens.TextSecondary)
+                }
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(info.displayName, style = MaterialTheme.typography.titleMedium)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(7.dp).clip(CircleShape).background(statusColor))
+                        Spacer(Modifier.width(6.dp))
+                        Text(statusLabel, style = MaterialTheme.typography.bodySmall, color = statusColor)
+                    }
+                }
+                Switch(
+                    checked = isEnabled,
+                    onCheckedChange = onToggleEnabled,
+                    enabled = configured,
+                    colors = SwitchDefaults.colors(checkedTrackColor = OrbitalTokens.Primary, checkedThumbColor = Color.White)
+                )
+            }
+            Spacer(Modifier.height(8.dp))
+            Text(info.quotaDescription, style = MaterialTheme.typography.bodySmall, color = OrbitalTokens.TextSecondary)
+            TextButton(onClick = onToggleExpand, contentPadding = PaddingValues(0.dp)) {
+                Text(if (isExpanded) "Hide setup" else if (configured) "Manage connection" else "Configure provider")
+            }
+
+            AnimatedVisibility(visible = isExpanded, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
+                Column(Modifier.padding(top = 8.dp)) {
+                    HorizontalDivider(color = OrbitalTokens.Border)
+                    Spacer(Modifier.height(16.dp))
+                    Text(if (configured) "Connection" else "1. Add an API key", style = MaterialTheme.typography.titleSmall)
+                    Spacer(Modifier.height(4.dp))
+                    Text("The key stays masked and is only saved after a successful connection test.", style = MaterialTheme.typography.bodySmall, color = OrbitalTokens.TextSecondary)
+                    Spacer(Modifier.height(10.dp))
+                    OutlinedTextField(
+                        value = keyInput,
+                        onValueChange = { keyInput = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        label = { Text("API key") },
+                        placeholder = { Text(info.keyPlaceholder) },
+                        visualTransformation = if (revealKey) VisualTransformation.None else PasswordVisualTransformation(),
+                        trailingIcon = {
+                            TextButton(onClick = { revealKey = !revealKey }) { Text(if (revealKey) "Hide" else "Show") }
+                        },
+                        shape = OrbitalTokens.RadiusSmall,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = OrbitalTokens.Primary, unfocusedBorderColor = OrbitalTokens.Border,
+                            focusedContainerColor = OrbitalTokens.SurfaceRaised, unfocusedContainerColor = OrbitalTokens.SurfaceRaised,
+                            focusedTextColor = OrbitalTokens.TextPrimary, unfocusedTextColor = OrbitalTokens.TextPrimary
+                        )
+                    )
+                    Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                        TextButton(onClick = onOpenPortal) { Text("Get a key") }
+                        Button(onClick = { onTestKey(keyInput.trim()) }, enabled = keyInput.isNotBlank(), shape = OrbitalTokens.RadiusSmall) { Text("Test connection") }
+                    }
+
+                    if (configured) {
+                        Spacer(Modifier.height(8.dp))
+                        Text("2. Choose a model", style = MaterialTheme.typography.titleSmall)
+                        Spacer(Modifier.height(6.dp))
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Text("$selectedModel selected", style = MaterialTheme.typography.bodySmall, color = OrbitalTokens.TextSecondary, modifier = Modifier.weight(1f))
+                            TextButton(onClick = onEditModels) { Text(if (modelScope == null) "Manage models" else "${modelScope.size} models") }
+                            TextButton(onClick = onDiscoverModels, enabled = !isDiscoveringModels) { Text(if (isDiscoveringModels) "Checking…" else "Refresh") }
+                        }
+                        val models = if (modelScope.isNullOrEmpty()) availableModels else availableModels.filter(modelScope::contains).ifEmpty { availableModels }
+                        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            models.forEach { model -> FilterChip(selected = model == selectedModel, onClick = { onSelectModel(model) }, label = { Text(model, maxLines = 1) }) }
+                        }
+                        Spacer(Modifier.height(12.dp))
+                        Text("3. Keep this provider ready", style = MaterialTheme.typography.titleSmall)
+                        Text("Orbital will use the selected model when this provider is enabled.", style = MaterialTheme.typography.bodySmall, color = OrbitalTokens.TextSecondary)
+                        TextButton(onClick = { confirmRemoval = true }, contentPadding = PaddingValues(0.dp)) { Text("Remove saved key", color = OrbitalTokens.Error) }
+                    }
+                }
+            }
+        }
+    }
+    if (confirmRemoval) {
+        AlertDialog(
+            onDismissRequest = { confirmRemoval = false },
+            title = { Text("Remove ${info.displayName} key?") },
+            text = { Text("This disconnects the provider from this device. You can add the key again later.") },
+            confirmButton = { TextButton(onClick = { onRemoveKey(); confirmRemoval = false }) { Text("Remove", color = OrbitalTokens.Error) } },
+            dismissButton = { TextButton(onClick = { confirmRemoval = false }) { Text("Cancel") } }
+        )
     }
 }
 

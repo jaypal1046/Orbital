@@ -53,6 +53,10 @@ enum class OnboardingStep {
 
 class SetupWizardActivity : ComponentActivity() {
 
+    companion object {
+        const val EXTRA_OPEN_PROVIDERS = "open_providers"
+    }
+
     private lateinit var secureStorage: SecureStorage
     private lateinit var llmRepository: LlmRepository
 
@@ -60,16 +64,20 @@ class SetupWizardActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         secureStorage = SecureStorage(this)
         llmRepository = LlmRepository(secureStorage)
+        val opensProviders = intent.getBooleanExtra(EXTRA_OPEN_PROVIDERS, false)
 
         setContent {
-            MaterialTheme {
+            OrbitalTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
-                    color = Color(0xFF090B13)
+                    color = OrbitalTokens.Background
                 ) {
                     OnboardingWizard(
                         secureStorage = secureStorage,
                         llmRepository = llmRepository,
+                        initialStep = if (opensProviders) OnboardingStep.MODELS_AND_KEYS else OnboardingStep.WELCOME,
+                        isOnboarding = !opensProviders,
+                        onClose = { finish() },
                         onComplete = { chosenChar ->
                             secureStorage.markSetupComplete()
                             secureStorage.saveSelectedCharacter(chosenChar)
@@ -91,9 +99,12 @@ class SetupWizardActivity : ComponentActivity() {
 fun OnboardingWizard(
     secureStorage: SecureStorage,
     llmRepository: LlmRepository,
+    initialStep: OnboardingStep = OnboardingStep.WELCOME,
+    isOnboarding: Boolean = true,
+    onClose: () -> Unit = {},
     onComplete: (String) -> Unit
 ) {
-    var currentStep by remember { mutableStateOf(OnboardingStep.WELCOME) }
+    var currentStep by remember(initialStep) { mutableStateOf(initialStep) }
     var selectedCharacter by remember { mutableStateOf(secureStorage.getSelectedCharacter() ?: "aether") }
     val context = LocalContext.current
 
@@ -120,8 +131,9 @@ fun OnboardingWizard(
                 KeyManagementScreen(
                     secureStorage = secureStorage,
                     llmRepository = llmRepository,
-                    onBack = { currentStep = OnboardingStep.WELCOME },
-                    onContinue = { currentStep = OnboardingStep.PERMISSIONS_AND_ACCESSIBILITY }
+                    isOnboarding = isOnboarding,
+                    onBack = { if (isOnboarding) currentStep = OnboardingStep.WELCOME else onClose() },
+                    onContinue = { if (isOnboarding) currentStep = OnboardingStep.PERMISSIONS_AND_ACCESSIBILITY else onClose() }
                 )
             }
             OnboardingStep.PERMISSIONS_AND_ACCESSIBILITY -> {

@@ -60,10 +60,10 @@ class CharacterSelectionActivity : ComponentActivity() {
         secureStorage = SecureStorage(this)
 
         setContent {
-            MaterialTheme {
+            OrbitalTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
-                    color = Color(0xFF0A0C14)
+                    color = OrbitalTokens.Background
                 ) {
                     val currentSelected = remember {
                         mutableStateOf(secureStorage.getSelectedCharacter() ?: "aether")
@@ -142,10 +142,10 @@ fun CharacterSelectionScreen(
                 title = {
                     Text("Choose Your AI Companion", fontWeight = FontWeight.Bold, color = Color.White)
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color(0xFF0F111A))
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = OrbitalTokens.Background)
             )
         },
-        containerColor = Color(0xFF0A0C14)
+        containerColor = OrbitalTokens.Background
     ) { padding ->
         Column(
             modifier = Modifier
@@ -216,9 +216,9 @@ fun CharacterSelectionScreen(
                             .clickable { onCharacterSelected(char) },
                         shape = RoundedCornerShape(14.dp),
                         colors = CardDefaults.cardColors(
-                            containerColor = if (isSelected) Color(0xFF231B45) else Color(0xFF131726)
+                            containerColor = if (isSelected) OrbitalTokens.SurfaceSelected else OrbitalTokens.Surface
                         ),
-                        border = if (isSelected) BorderStroke(1.5.dp, Color(0xFFA855F7)) else BorderStroke(1.dp, Color(0xFF1E2438))
+                        border = if (isSelected) BorderStroke(1.5.dp, OrbitalTokens.Primary) else BorderStroke(1.dp, OrbitalTokens.Border)
                     ) {
                         Row(
                             modifier = Modifier
