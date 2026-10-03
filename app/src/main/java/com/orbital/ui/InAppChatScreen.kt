@@ -671,10 +671,10 @@ fun InAppChatScreen(
                 Spacer(modifier = Modifier.height(16.dp))
 
                 listOf(
-                    "✉️ Open Gmail and summarize new emails",
-                    "▶️ Open YouTube and search Kotlin tutorials",
-                    "💬 Open WhatsApp and send a message",
-                    "⏱️ Set a 15 minute focus timer",
+                    "✦ Summarize current screen",
+                    "🔎 Search an installed app",
+                    "💬 Draft a message",
+                    "⏱️ Set a focus timer",
                     "🔋 Check battery health and system storage",
                     "🌐 Search web for latest tech headlines"
                 ).forEach { template ->
@@ -803,12 +803,12 @@ fun PreviewInAppChatScreenContent() {
         ) {
             MessageList(
                 messages = listOf(
-                    UiMessage(role = "user", content = "Open Gmail and check messages"),
+                    UiMessage(role = "user", content = "Summarize the current screen"),
                     UiMessage(
                         role = "assistant",
-                        content = "I've opened Gmail for you.",
+                        content = "I can summarize the current screen for you.",
                         providerName = "Groq",
-                        actionLabel = "⚡ Executed: Opened Gmail"
+                        actionLabel = "⚡ Executed: Screen summary"
                     )
                 ),
                 characterName = "Lumy",
@@ -824,7 +824,7 @@ fun PreviewInAppChatScreenContent() {
             )
 
             QuickSuggestionsBar(
-                quickSuggestions = listOf("✉️ Open Gmail", "▶️ Open YouTube"),
+                quickSuggestions = listOf("✦ Summarize current screen", "⚙️ Check device status"),
                 onSuggestionClick = {}
             )
 

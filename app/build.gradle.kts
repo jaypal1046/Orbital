@@ -81,6 +81,12 @@ android {
         compose = true
     }
 
+    testOptions {
+        unitTests.all {
+            it.maxParallelForks = 1
+        }
+    }
+
     composeOptions {
         kotlinCompilerExtensionVersion = "1.5.13"
     }
