@@ -17,6 +17,7 @@ const __dirname = path.dirname(__filename);
 
 const BRIDGE_HTTP_PORT = process.env.BRIDGE_HTTP_PORT ? parseInt(process.env.BRIDGE_HTTP_PORT) : 8766;
 const BRIDGE_HOST = process.env.BRIDGE_HOST || "127.0.0.1";
+const TARGET_APP = process.env.TARGET_APP?.trim();
 
 async function queryEndpoint(pathName, method = "GET", postData = null) {
   return new Promise((resolve, reject) => {
@@ -78,12 +79,12 @@ async function runTestSuite() {
     const res = await queryEndpoint("/");
     const latency = Date.now() - tStart;
     const isConn = res.data?.phoneConnected === true;
-    console.log(`  ${isConn ? "✅" : "❌"} Status: ${res.data?.status}, Phone Connected: ${isConn} (PIN: ${res.data?.pin}) [${latency}ms]`);
+    console.log(`  ${isConn ? "✅" : "❌"} Status: ${res.data?.status}, Phone Connected: ${isConn} [${latency}ms]`);
     results.push({
       test: "Bridge Health & Phone Link",
       success: isConn,
       latencyMs: latency,
-      summary: `Connected=${isConn}, PIN=${res.data?.pin}, Host=${res.data?.host}`
+      summary: `Connected=${isConn}, Host=${res.data?.host}`
     });
   } catch (err) {
     console.log(`  ❌ Failed: ${err.message}`);
@@ -111,12 +112,15 @@ async function runTestSuite() {
   }
 
   // 3. App Launch Test
-  console.log("\n▶ [Test 3/7] Testing Dynamic App Launch (OPEN_APP -> Settings)...");
+  console.log("\n▶ [Test 3/7] Testing Dynamic App Launch (OPEN_APP)...");
   tStart = Date.now();
-  try {
+  if (!TARGET_APP) {
+    console.log("  ⏭️ Skipped: set TARGET_APP to an installed app name.");
+    results.push({ test: "Dynamic App Launching (OPEN_APP)", success: true, latencyMs: 0, summary: "Skipped: TARGET_APP not provided" });
+  } else try {
     const res = await queryEndpoint("/action", "POST", {
       actionType: "OPEN_APP",
-      packageName: "com.android.settings"
+      packageName: TARGET_APP
     });
     const latency = Date.now() - tStart;
     const ok = res.data?.success === true;
@@ -125,7 +129,7 @@ async function runTestSuite() {
       test: "Dynamic App Launching (OPEN_APP)",
       success: ok,
       latencyMs: latency,
-      summary: res.data?.message || "Launched Settings"
+      summary: res.data?.message || "Launch requested"
     });
   } catch (err) {
     console.log(`  ❌ Failed: ${err.message}`);

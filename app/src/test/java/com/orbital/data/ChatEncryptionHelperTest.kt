@@ -15,7 +15,7 @@ class ChatEncryptionHelperTest {
 
     @Test
     fun encryptAndDecrypt_returnsOriginalPlaintext() {
-        val original = "Hello! Set a timer for 10 minutes and open WhatsApp."
+        val original = "Hello! Set a timer and open the requested app."
         val encrypted = encryptionHelper.encrypt(original)
 
         assertNotNull(encrypted)

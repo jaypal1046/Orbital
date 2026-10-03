@@ -72,7 +72,7 @@ open class AppCapabilityManager(private val context: Context) {
             seenPackages.add(pkg)
 
             val label = resolveInfo.loadLabel(pm).toString().trim()
-            val category = detectCategory(pkg, label, resolveInfo)
+            val category = detectCategory(resolveInfo)
             val capabilities = detectCapabilities(category)
             val actionHint = buildActionHint(label, category)
 
@@ -209,10 +209,7 @@ open class AppCapabilityManager(private val context: Context) {
         return dp[s1.length][s2.length]
     }
 
-    private fun detectCategory(pkg: String, label: String, resolveInfo: ResolveInfo): AppCategory {
-        val lowerPkg = pkg.lowercase()
-        val lowerLabel = label.lowercase()
-
+    private fun detectCategory(resolveInfo: ResolveInfo): AppCategory {
         // Check Android ApplicationInfo category if available
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val appCategory = resolveInfo.activityInfo.applicationInfo?.category
@@ -226,21 +223,7 @@ open class AppCapabilityManager(private val context: Context) {
             }
         }
 
-        return when {
-            lowerPkg.contains("chrome") || lowerPkg.contains("firefox") || lowerPkg.contains("browser") || lowerPkg.contains("opera") || lowerLabel.contains("browser") -> AppCategory.BROWSER
-            lowerPkg.contains("whatsapp") || lowerPkg.contains("telegram") || lowerPkg.contains("messenger") || lowerPkg.contains("messaging") || lowerPkg.contains("signal") || lowerLabel.contains("messages") -> AppCategory.MESSAGING
-            lowerPkg.contains("instagram") || lowerPkg.contains("twitter") || lowerPkg.contains("tiktok") || lowerPkg.contains("facebook") || lowerPkg.contains("reddit") || lowerPkg.contains("linkedin") -> AppCategory.SOCIAL
-            lowerPkg.contains("youtube") || lowerPkg.contains("netflix") || lowerPkg.contains("primevideo") || lowerPkg.contains("hotstar") || lowerPkg.contains("disney") || lowerPkg.contains("twitch") -> AppCategory.MEDIA
-            lowerPkg.contains("spotify") || lowerPkg.contains("music") || lowerPkg.contains("sound") || lowerPkg.contains("podcast") || lowerPkg.contains("deezer") -> AppCategory.MUSIC
-            lowerPkg.contains("maps") || lowerPkg.contains("waze") || lowerPkg.contains("uber") || lowerPkg.contains("ola") || lowerPkg.contains("transit") -> AppCategory.NAVIGATION
-            lowerPkg.contains("gmail") || lowerPkg.contains("mail") || lowerPkg.contains("outlook") || lowerPkg.contains("docs") || lowerPkg.contains("sheets") || lowerPkg.contains("notion") || lowerPkg.contains("notes") || lowerPkg.contains("drive") -> AppCategory.EMAIL
-            lowerPkg.contains("camera") || lowerPkg.contains("gallery") || lowerPkg.contains("photos") -> AppCategory.CAMERA
-            lowerPkg.contains("amazon") || lowerPkg.contains("flipkart") || lowerPkg.contains("ebay") || lowerPkg.contains("shop") -> AppCategory.SHOPPING
-            lowerPkg.contains("paytm") || lowerPkg.contains("gpay") || lowerPkg.contains("phonepe") || lowerPkg.contains("bank") || lowerPkg.contains("wallet") -> AppCategory.FINANCE
-            lowerPkg.contains("settings") || lowerPkg.contains("systemui") || lowerPkg.contains("launcher") || lowerPkg.contains("dialer") -> AppCategory.SYSTEM
-            lowerPkg.contains("calculator") || lowerPkg.contains("clock") || lowerPkg.contains("files") || lowerPkg.contains("calendar") || lowerPkg.contains("recorder") -> AppCategory.UTILITY
-            else -> AppCategory.GENERAL
-        }
+        return AppCategory.GENERAL
     }
 
     private fun detectCapabilities(category: AppCategory): List<String> {

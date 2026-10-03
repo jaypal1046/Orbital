@@ -61,10 +61,10 @@ fun QuickSuggestionsBar(
 fun PreviewQuickSuggestionsBar() {
     QuickSuggestionsBar(
         quickSuggestions = listOf(
-            "✉️ Open Gmail",
-            "▶️ Open YouTube",
-            "💬 Open WhatsApp",
-            "⏱️ Set 5m Timer"
+            "✦ Summarize current screen",
+            "⚙️ Check device status",
+            "🔎 Find an installed app",
+            "✓ Plan a task"
         ),
         onSuggestionClick = {}
     )

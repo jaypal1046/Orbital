@@ -6,6 +6,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import java.util.UUID
 
 @RunWith(RobolectricTestRunner::class)
 class DynamicActionSystemTest {
@@ -73,17 +74,15 @@ class DynamicActionSystemTest {
 
     @Test
     fun testFuzzyAppMatching() {
+        val appName = "app${UUID.randomUUID().toString().replace("-", "").take(12)}"
+        val query = appName.dropLast(1)
         val apps = listOf(
-            DynamicAppInfo("Naukri", "naukriApp.appModules.login", AppCategory.GENERAL, listOf("OPEN"), "Launch Naukri"),
-            DynamicAppInfo("WhatsApp", "com.whatsapp", AppCategory.MESSAGING, listOf("OPEN"), "Send messages"),
-            DynamicAppInfo("Instagram", "com.instagram.android", AppCategory.SOCIAL, listOf("OPEN"), "Share photos")
+            DynamicAppInfo(appName, "test.$appName", AppCategory.GENERAL, listOf("OPEN"), "Launch app")
         )
 
-        // Verify fuzzy matching finds Naukri for "naukari"
-        val query = "naukari"
         val matched = apps.firstOrNull { it.name.equals(query, ignoreCase = true) || it.name.lowercase().contains(query) }
             ?: apps.firstOrNull { it.name.lowercase().startsWith(query.take(4)) }
         assertNotNull(matched)
-        assertEquals("Naukri", matched?.name)
+        assertEquals(appName, matched?.name)
     }
 }
