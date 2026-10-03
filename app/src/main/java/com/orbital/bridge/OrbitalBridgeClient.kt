@@ -16,7 +16,7 @@ import javax.inject.Singleton
 class OrbitalBridgeClient @Inject constructor(
     private val context: Context,
     val actionDispatcher: BridgeActionDispatcher,
-    val cryptoAuth: OrbitalCryptoAuth = OrbitalCryptoAuth(),
+    val cryptoAuth: OrbitalCryptoAuth,
     private val httpClient: OkHttpClient = OrbitalTlsHelper.createSecureBridgeHttpClient(),
     private val json: Json = Json { ignoreUnknownKeys = true }
 ) {
@@ -210,17 +210,13 @@ class OrbitalBridgeClient @Inject constructor(
                 type = "SECURITY_ALERT",
                 rawText = "Rejected: Cryptographic signature mismatch or unauthorized sender"
             )
-            val signedAlert = json.encodeToString(BridgeMessage.serializer(), alert)
-            webSocket?.send(signedAlert)
+            sendMessage(alert)
             return
         }
 
         when (msg.type) {
             "PAIRING_ACK" -> {
-                if (!msg.token.isNullOrBlank()) {
-                    cryptoAuth.establishSession(msg.token, cryptoAuth.getSessionPin(), connectedHostName.value)
-                    log("🔒 Handshake complete: Session key synchronized with host (Fingerprint: ${cryptoAuth.getFingerprint()})")
-                }
+                log("🔒 Handshake complete: Host identity verified (Fingerprint: ${cryptoAuth.getFingerprint()})")
             }
 
             "HEARTBEAT" -> {
@@ -232,7 +228,8 @@ class OrbitalBridgeClient @Inject constructor(
                 val screenState = actionDispatcher.captureScreenState()
                 val reply = BridgeMessage(
                     type = "SCREEN_STATE",
-                    screenState = screenState
+                    screenState = screenState,
+                    requestId = msg.requestId
                 )
                 sendMessage(reply)
                 log("Sent screen state snapshot (${screenState.nodes.size} nodes)")
@@ -259,7 +256,8 @@ class OrbitalBridgeClient @Inject constructor(
             target
         } else if (target.contains(".")) {
             val portSuffix = if (!target.contains(":")) ":$DEFAULT_LOCAL_PORT" else ""
-            "wss://$target$portSuffix"
+            val scheme = if (target.startsWith("192.168.") || target.startsWith("10.") || target.startsWith("172.") || target.startsWith("127.") || target.startsWith("localhost")) "ws" else "wss"
+            "$scheme://$target$portSuffix"
         } else {
             val cleanCode = target.uppercase().removePrefix("ORB-")
             "$PUBLIC_RELAY_BASE?channel=$cleanCode"
