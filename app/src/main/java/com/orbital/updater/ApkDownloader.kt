@@ -30,7 +30,10 @@ class ApkDownloader(
             val destinationFile = File(updateDir, fileName)
             if (destinationFile.exists()) destinationFile.delete()
 
-            val request = Request.Builder().url(url).build()
+            val request = Request.Builder()
+                .url(url)
+                .header("User-Agent", "Orbital-Android/${context.packageName}")
+                .build()
             httpClient.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {
                     _downloadProgress.value = DownloadProgress.Failed("HTTP ${response.code}: Failed to download APK")

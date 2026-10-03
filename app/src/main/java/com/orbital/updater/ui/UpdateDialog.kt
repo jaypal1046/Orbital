@@ -141,11 +141,31 @@ fun UpdateDialog(
                         Spacer(modifier = Modifier.height(16.dp))
                     }
                     is DownloadProgress.Failed -> {
-                        Text(
-                            text = "❌ ${prog.errorMessage}",
-                            fontSize = 12.sp,
-                            color = Color(0xFFEF4444)
-                        )
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(
+                                text = "❌ ${prog.errorMessage}",
+                                fontSize = 12.sp,
+                                color = Color(0xFFEF4444)
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            OutlinedButton(
+                                onClick = {
+                                    val fallbackUrl = updateResult.standaloneApkUrl?.substringBeforeLast("/download/")
+                                        ?: "https://github.com/jaypal1046/Orbital/releases"
+                                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(fallbackUrl)).apply {
+                                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                                    }
+                                    context.startActivity(intent)
+                                },
+                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text("🌐 Open Releases in Browser", fontSize = 12.sp, color = Color.White)
+                            }
+                        }
                         Spacer(modifier = Modifier.height(16.dp))
                     }
                     else -> {}

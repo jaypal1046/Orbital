@@ -109,7 +109,7 @@ open class AppCapabilityManager(private val context: Context) {
         val grouped = apps.groupBy { it.category }
         grouped.forEach { (cat, appList) ->
             sb.append("\n[${cat.displayName}]:\n")
-            appList.take(10).forEach { app ->
+            appList.forEach { app ->
                 sb.append("  • ${app.name} (${app.packageName}) -> ${app.actionHint}\n")
             }
         }
@@ -127,6 +127,7 @@ open class AppCapabilityManager(private val context: Context) {
             .ifEmpty { query.trim().lowercase() }
 
         val apps = getInstalledApps()
+        if (apps.isEmpty()) return null
 
         // 1. Direct package match
         apps.firstOrNull { it.packageName.equals(query.trim(), ignoreCase = true) }?.let { return it }
@@ -134,10 +135,16 @@ open class AppCapabilityManager(private val context: Context) {
         // 2. Exact label match
         apps.firstOrNull { it.name.equals(cleanQuery, ignoreCase = true) || it.name.equals(query.trim(), ignoreCase = true) }?.let { return it }
 
-        // 3. Normalized label contains query
+        // 3. Normalized alphanumeric match (stripping spaces, symbols)
+        val alphaQuery = cleanQuery.replace(Regex("[^a-z0-9]"), "")
+        if (alphaQuery.isNotEmpty()) {
+            apps.firstOrNull { it.name.lowercase().replace(Regex("[^a-z0-9]"), "") == alphaQuery }?.let { return it }
+        }
+
+        // 4. Normalized label contains query or query contains label
         apps.firstOrNull { it.name.lowercase().contains(cleanQuery) || cleanQuery.contains(it.name.lowercase()) }?.let { return it }
 
-        // 4. Category matches
+        // 5. Category matches
         when (cleanQuery) {
             "browser", "internet", "web" -> apps.firstOrNull { it.category == AppCategory.BROWSER }?.let { return it }
             "music", "song", "audio" -> apps.firstOrNull { it.category == AppCategory.MUSIC }?.let { return it }
@@ -150,10 +157,56 @@ open class AppCapabilityManager(private val context: Context) {
             "settings", "setting" -> apps.firstOrNull { it.category == AppCategory.SYSTEM || it.packageName.contains("settings") }?.let { return it }
         }
 
-        // 5. Keyword in package name
+        // 6. Keyword in package name
         apps.firstOrNull { it.packageName.lowercase().contains(cleanQuery) }?.let { return it }
 
+        // 7. Dynamic Levenshtein distance / Fuzzy Similarity Matching (handles typos & phonetic variations)
+        var bestMatch: DynamicAppInfo? = null
+        var lowestDistance = Int.MAX_VALUE
+        var highestSimilarity = 0.0
+
+        for (app in apps) {
+            val appCleanName = app.name.lowercase().trim()
+            val dist = calculateLevenshteinDistance(cleanQuery, appCleanName)
+            val maxLen = maxOf(cleanQuery.length, appCleanName.length)
+            val similarity = if (maxLen > 0) 1.0 - (dist.toDouble() / maxLen) else 0.0
+
+            val maxAllowedDistance = when {
+                cleanQuery.length >= 6 -> 2
+                cleanQuery.length >= 4 -> 1
+                else -> 0
+            }
+
+            if (dist <= maxAllowedDistance && dist < lowestDistance) {
+                lowestDistance = dist
+                highestSimilarity = similarity
+                bestMatch = app
+            }
+        }
+
+        if (bestMatch != null && highestSimilarity >= 0.60) {
+            return bestMatch
+        }
+
         return null
+    }
+
+    private fun calculateLevenshteinDistance(s1: String, s2: String): Int {
+        val dp = Array(s1.length + 1) { IntArray(s2.length + 1) }
+        for (i in 0..s1.length) dp[i][0] = i
+        for (j in 0..s2.length) dp[0][j] = j
+
+        for (i in 1..s1.length) {
+            for (j in 1..s2.length) {
+                val cost = if (s1[i - 1] == s2[j - 1]) 0 else 1
+                dp[i][j] = minOf(
+                    dp[i - 1][j] + 1,
+                    dp[i][j - 1] + 1,
+                    dp[i - 1][j - 1] + cost
+                )
+            }
+        }
+        return dp[s1.length][s2.length]
     }
 
     private fun detectCategory(pkg: String, label: String, resolveInfo: ResolveInfo): AppCategory {

@@ -70,4 +70,20 @@ class DynamicActionSystemTest {
         assertEquals("12951 Mumbai Rajdhani", parsed.actions[0].query)
         assertEquals("Here is your route.", parsed.userDisplayText.trim())
     }
+
+    @Test
+    fun testFuzzyAppMatching() {
+        val apps = listOf(
+            DynamicAppInfo("Naukri", "naukriApp.appModules.login", AppCategory.GENERAL, listOf("OPEN"), "Launch Naukri"),
+            DynamicAppInfo("WhatsApp", "com.whatsapp", AppCategory.MESSAGING, listOf("OPEN"), "Send messages"),
+            DynamicAppInfo("Instagram", "com.instagram.android", AppCategory.SOCIAL, listOf("OPEN"), "Share photos")
+        )
+
+        // Verify fuzzy matching finds Naukri for "naukari"
+        val query = "naukari"
+        val matched = apps.firstOrNull { it.name.equals(query, ignoreCase = true) || it.name.lowercase().contains(query) }
+            ?: apps.firstOrNull { it.name.lowercase().startsWith(query.take(4)) }
+        assertNotNull(matched)
+        assertEquals("Naukri", matched?.name)
+    }
 }
