@@ -72,4 +72,20 @@ class OrbitalBridgeClientTest {
         assertThat(result.success).isTrue()
         assertThat(result.updatedScreenState).isNotNull()
     }
+
+    @Test
+    fun `action dispatcher handles TAKE_SCREENSHOT gracefully without service`() = runTest {
+        val action = ActionPayload(
+            actionId = "shot-1",
+            actionType = BridgeActionType.TAKE_SCREENSHOT
+        )
+        val result = actionDispatcher.dispatchAction(action)
+        assertThat(result.actionId).isEqualTo("shot-1")
+    }
+
+    @Test
+    fun `sendScreenshotToLaptop handles non-existent file gracefully`() {
+        val success = bridgeClient.sendScreenshotToLaptop("/non/existent/path.jpg")
+        assertThat(success).isFalse()
+    }
 }

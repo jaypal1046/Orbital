@@ -4,6 +4,7 @@ import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
 import android.graphics.Path
 import android.graphics.Rect
 import android.os.Build
@@ -12,9 +13,13 @@ import android.provider.Settings
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import java.io.File
+import java.io.FileOutputStream
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlin.coroutines.resume
 
 data class UIElement(
     val text: String,
@@ -382,6 +387,74 @@ class OrbitalAccessibilityService : AccessibilityService() {
             return dispatchGesture(gesture, null, null)
         }
         return false
+    }
+
+    suspend fun captureScreenshotAsync(): File? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                performGlobalAction(GLOBAL_ACTION_TAKE_SCREENSHOT)
+            }
+            return null
+        }
+
+        return suspendCancellableCoroutine { continuation ->
+            val executor = java.util.concurrent.Executors.newSingleThreadExecutor()
+            try {
+                takeScreenshot(
+                    android.view.Display.DEFAULT_DISPLAY,
+                    executor,
+                    object : TakeScreenshotCallback {
+                        override fun onSuccess(screenshotResult: ScreenshotResult) {
+                            try {
+                                val buffer = screenshotResult.hardwareBuffer
+                                val colorSpace = screenshotResult.colorSpace
+                                val hwBitmap = Bitmap.wrapHardwareBuffer(buffer, colorSpace)
+                                buffer.close()
+
+                                if (hwBitmap == null) {
+                                    if (continuation.isActive) continuation.resume(null)
+                                    return
+                                }
+
+                                val softwareBitmap = hwBitmap.copy(Bitmap.Config.ARGB_8888, false)
+                                hwBitmap.recycle()
+
+                                val dir = File(cacheDir, "screenshots").apply { mkdirs() }
+                                val oldFiles = dir.listFiles()?.sortedBy { it.lastModified() }
+                                if (oldFiles != null && oldFiles.size >= 10) {
+                                    oldFiles.take(oldFiles.size - 9).forEach { it.delete() }
+                                }
+
+                                val file = File(dir, "screenshot_${System.currentTimeMillis()}.jpg")
+                                val outputStream = FileOutputStream(file)
+                                softwareBitmap.compress(Bitmap.CompressFormat.JPEG, 88, outputStream)
+                                outputStream.flush()
+                                outputStream.close()
+                                softwareBitmap.recycle()
+
+                                Log.i(TAG, "Screenshot captured successfully: ${file.absolutePath}")
+                                if (continuation.isActive) continuation.resume(file)
+                            } catch (e: Exception) {
+                                Log.e(TAG, "Failed to process screenshot bitmap", e)
+                                if (continuation.isActive) continuation.resume(null)
+                            } finally {
+                                executor.shutdown()
+                            }
+                        }
+
+                        override fun onFailure(errorCode: Int) {
+                            Log.w(TAG, "takeScreenshot failed with error code: $errorCode")
+                            executor.shutdown()
+                            if (continuation.isActive) continuation.resume(null)
+                        }
+                    }
+                )
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to invoke takeScreenshot API", e)
+                executor.shutdown()
+                if (continuation.isActive) continuation.resume(null)
+            }
+        }
     }
 
     fun pressGlobalKey(key: String): Boolean {

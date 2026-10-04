@@ -126,6 +126,16 @@ Whenever the user asks you to perform an action, you MUST ALWAYS generate the ``
             return DeviceAction(action = "SET_TIMER", seconds = seconds, label = "Focus Timer")
         }
 
+        // Screenshot Intents (e.g. "take a screenshot", "capture screen", "screenshot")
+        if (clean.matches(Regex(".*\\b(take\\s*a?\\s*screenshot|capture\\s*(the)?\\s*screen|screenshot|screen\\s*capture|snap\\s*(the)?\\s*screen)\\b.*"))) {
+            return DeviceAction(action = "TAKE_SCREENSHOT")
+        }
+
+        // Screen Reading Intents (e.g. "read live screen", "read screen", "inspect screen", "scan screen")
+        if (clean.matches(Regex(".*\\b(read\\s*(live)?\\s*screen|inspect\\s*screen|scan\\s*screen|what('?s|\\s+is)\\s*on\\s*my\\s*screen)\\b.*"))) {
+            return DeviceAction(action = "READ_SCREEN")
+        }
+
         return null
     }
 

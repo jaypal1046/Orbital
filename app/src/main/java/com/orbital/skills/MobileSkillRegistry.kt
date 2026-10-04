@@ -124,4 +124,21 @@ class MobileSkillRegistry @Inject constructor() {
             if (it.id == skillId) it.copy(isEnabled = !it.isEnabled) else it
         }
     }
+
+    /**
+     * Injects or updates dynamic skills delivered via Instant OTA hot-patches.
+     */
+    fun injectOtaSkills(otaSkills: List<MobileSkill>) {
+        if (otaSkills.isEmpty()) return
+        val current = _skills.value.toMutableList()
+        otaSkills.forEach { otaSkill ->
+            val existingIdx = current.indexOfFirst { it.id == otaSkill.id }
+            if (existingIdx >= 0) {
+                current[existingIdx] = otaSkill
+            } else {
+                current.add(otaSkill)
+            }
+        }
+        _skills.value = current
+    }
 }

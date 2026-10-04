@@ -137,6 +137,11 @@ object ActionRegistry {
             exampleJson = """{"action": "READ_SCREEN"}"""
         ),
         ActionDefinition(
+            type = "TAKE_SCREENSHOT",
+            description = "Capture an instant high-resolution screenshot image of the active screen for visual analysis and sharing",
+            exampleJson = """{"action": "TAKE_SCREENSHOT"}"""
+        ),
+        ActionDefinition(
             type = "CLICK_ELEMENT",
             description = "Click or tap a specific button, tab, link, or item by its visible label on the active screen",
             requiredParams = listOf("target"),
@@ -179,6 +184,58 @@ object ActionRegistry {
             description = "Cancel an active background cron monitoring task by its task ID or query keyword",
             requiredParams = listOf("target"),
             exampleJson = """{"action": "CANCEL_MONITOR", "target": "train_12951"}"""
+        ),
+        ActionDefinition(
+            type = "READ_FILE",
+            description = "Read contents of any local file (text, code, JSON, Markdown, CSV, DOCX, PPTX, PDF) with line ranges and offsets",
+            requiredParams = listOf("path"),
+            optionalParams = listOf("start_line", "end_line"),
+            exampleJson = """{"action": "READ_FILE", "path": "/sdcard/Documents/notes.txt", "start_line": 1, "end_line": 50}"""
+        ),
+        ActionDefinition(
+            type = "WRITE_FILE",
+            description = "Create or write new content to a local file (text, JSON, markdown, code, CSV)",
+            requiredParams = listOf("path", "content"),
+            optionalParams = listOf("overwrite"),
+            exampleJson = """{"action": "WRITE_FILE", "path": "/sdcard/Documents/report.md", "content": "# Daily Summary\nAll tasks completed."}"""
+        ),
+        ActionDefinition(
+            type = "EDIT_FILE",
+            description = "Replace specific text or lines inside any file (text, code, markdown, Word docx, PowerPoint pptx)",
+            requiredParams = listOf("path", "target_content", "replacement_content"),
+            optionalParams = listOf("allow_multiple"),
+            exampleJson = """{"action": "EDIT_FILE", "path": "/sdcard/Documents/project.json", "target_content": "version: 1.0", "replacement_content": "version: 1.1"}"""
+        ),
+        ActionDefinition(
+            type = "SEARCH_FILE",
+            description = "Search for text or regex patterns inside a local file",
+            requiredParams = listOf("path", "query"),
+            optionalParams = listOf("is_regex"),
+            exampleJson = """{"action": "SEARCH_FILE", "path": "/sdcard/Download/server.log", "query": "ERROR"}"""
+        ),
+        ActionDefinition(
+            type = "EDIT_SPREADSHEET",
+            description = "Update specific cell value or append row in a CSV or Excel spreadsheet",
+            requiredParams = listOf("path"),
+            optionalParams = listOf("row", "col", "value", "row_data"),
+            exampleJson = """{"action": "EDIT_SPREADSHEET", "path": "/sdcard/Documents/data.csv", "row": 1, "col": 2, "value": "Approved"}"""
+        ),
+        ActionDefinition(
+            type = "SEARCH_DEVICE",
+            description = "Natural language semantic device search across installed apps, downloaded files, settings shortcuts, and hardware triggers",
+            requiredParams = listOf("query"),
+            optionalParams = listOf("category"),
+            exampleJson = """{"action": "SEARCH_DEVICE", "query": "calculator"}"""
+        ),
+        ActionDefinition(
+            type = "RUN_SMOKE_TEST",
+            description = "Run on-device autonomous smoke tests across all agent subsystems and generate health report",
+            exampleJson = """{"action": "RUN_SMOKE_TEST"}"""
+        ),
+        ActionDefinition(
+            type = "AUDIT_ACCESSIBILITY",
+            description = "Run WCAG accessibility and touch target size audit on current screen",
+            exampleJson = """{"action": "AUDIT_ACCESSIBILITY"}"""
         )
     )
 
