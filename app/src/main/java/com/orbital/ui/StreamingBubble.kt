@@ -87,13 +87,12 @@ fun StreamingBubble(
                 border = BorderStroke(1.dp, Color(0xFF282F48))
             ) {
                 Column(modifier = Modifier.padding(14.dp)) {
-                    Text(
-                        text = currentStreamContent,
-                        color = Color.White,
-                        fontSize = 14.5.sp,
-                        lineHeight = 21.sp
+                    FormattedMarkdownContent(
+                        content = currentStreamContent,
+                        textColor = Color.White
                     )
                 }
+
             }
         }
     }

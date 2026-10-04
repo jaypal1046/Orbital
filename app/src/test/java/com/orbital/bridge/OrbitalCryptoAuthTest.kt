@@ -19,8 +19,10 @@ class OrbitalCryptoAuthTest {
 
     @Before
     fun setUp() {
-        cryptoAuth = OrbitalCryptoAuth()
+        val secureStorage = org.mockito.Mockito.mock(com.orbital.data.SecureStorage::class.java)
+        cryptoAuth = OrbitalCryptoAuth(secureStorage)
     }
+
 
     private fun buildTestSignatureKey(action: ActionPayload): String {
         val stepsStr = action.batchSteps?.joinToString(";") { s ->
