@@ -79,12 +79,37 @@ class OrbitalAccessibilityService : AccessibilityService() {
         val lastScreenSnapshot: StateFlow<ScreenHierarchySnapshot?> = _lastScreenSnapshot.asStateFlow()
 
         fun isEnabled(context: Context): Boolean {
-            val serviceName = "${context.packageName}/${OrbitalAccessibilityService::class.java.canonicalName}"
-            val enabledServices = Settings.Secure.getString(
-                context.contentResolver,
-                Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
-            ) ?: return false
-            return enabledServices.contains(serviceName)
+            if (instance != null) return true
+
+            try {
+                val am = context.getSystemService(Context.ACCESSIBILITY_SERVICE) as? android.view.accessibility.AccessibilityManager
+                if (am != null) {
+                    val enabledList = am.getEnabledAccessibilityServiceList(android.accessibilityservice.AccessibilityServiceInfo.FEEDBACK_ALL_MASK)
+                    if (enabledList.any { it.resolveInfo?.serviceInfo?.packageName == context.packageName }) {
+                        return true
+                    }
+                }
+            } catch (_: Exception) {}
+
+            val rawSettings = try {
+                Settings.Secure.getString(
+                    context.contentResolver,
+                    Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
+                )
+            } catch (_: Exception) {
+                null
+            } ?: return false
+
+            val expectedCanonical = "${context.packageName}/${OrbitalAccessibilityService::class.java.canonicalName}"
+            val expectedName = "${context.packageName}/${OrbitalAccessibilityService::class.java.name}"
+            val expectedShort = "${context.packageName}/.automation.OrbitalAccessibilityService"
+            val simpleName = "${context.packageName}/OrbitalAccessibilityService"
+
+            return rawSettings.contains(expectedCanonical) ||
+                   rawSettings.contains(expectedName) ||
+                   rawSettings.contains(expectedShort) ||
+                   rawSettings.contains(simpleName) ||
+                   rawSettings.split(':').any { it.trim().startsWith("${context.packageName}/") }
         }
 
         fun openSettings(context: Context) {
@@ -92,6 +117,21 @@ class OrbitalAccessibilityService : AccessibilityService() {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK
             }
             context.startActivity(intent)
+        }
+    }
+
+    fun getRootNode(): AccessibilityNodeInfo? {
+        val activeRoot = rootInActiveWindow
+        if (activeRoot != null) return activeRoot
+        return try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                val windowList = windows
+                windowList?.firstOrNull { it.isFocused && it.root != null }?.root
+                    ?: windowList?.firstOrNull { it.type == android.view.accessibility.AccessibilityWindowInfo.TYPE_APPLICATION && it.root != null }?.root
+                    ?: windowList?.firstOrNull { it.root != null }?.root
+            } else null
+        } catch (_: Exception) {
+            null
         }
     }
 
@@ -133,7 +173,7 @@ class OrbitalAccessibilityService : AccessibilityService() {
     }
 
     fun captureScreenHierarchy(): ScreenHierarchySnapshot? {
-        val root = rootInActiveWindow ?: return null
+        val root = getRootNode() ?: return null
         val elements = mutableListOf<UIElement>()
         val currentAppPkg = _currentForegroundPackage.value.ifBlank { root.packageName?.toString() ?: packageName }
 
@@ -189,7 +229,7 @@ class OrbitalAccessibilityService : AccessibilityService() {
     }
 
     fun clickElementByText(query: String, exact: Boolean = false): Boolean {
-        val root = rootInActiveWindow ?: return false
+        val root = getRootNode() ?: return false
         val cleanQuery = query.lowercase().trim()
 
         val matchingNodes = root.findAccessibilityNodeInfosByText(cleanQuery)
@@ -216,7 +256,7 @@ class OrbitalAccessibilityService : AccessibilityService() {
     }
 
     fun clickElementById(viewId: String): Boolean {
-        val root = rootInActiveWindow ?: return false
+        val root = getRootNode() ?: return false
         val nodes = root.findAccessibilityNodeInfosByViewId(viewId)
         if (!nodes.isNullOrEmpty()) {
             for (node in nodes) {
@@ -245,7 +285,7 @@ class OrbitalAccessibilityService : AccessibilityService() {
     }
 
     fun inputText(text: String, targetHintOrLabel: String? = null): Boolean {
-        val root = rootInActiveWindow ?: return false
+        val root = getRootNode() ?: return false
 
         // 1. If target label provided, try finding target edit field
         if (!targetHintOrLabel.isNullOrBlank()) {
@@ -287,7 +327,7 @@ class OrbitalAccessibilityService : AccessibilityService() {
     }
 
     fun performScroll(forward: Boolean = true): Boolean {
-        val root = rootInActiveWindow ?: return false
+        val root = getRootNode() ?: return false
         val action = if (forward) AccessibilityNodeInfo.ACTION_SCROLL_FORWARD else AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD
         val success = findAndPerformAction(root, action)
         if (!success && Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
