@@ -36,4 +36,30 @@ object ForemanModule {
             tracker = tracker
         )
     }
+
+    @Provides
+    @Singleton
+    fun provideObstacleClearanceEngine(): com.orbital.automation.ObstacleClearanceEngine {
+        return com.orbital.automation.ObstacleClearanceEngine()
+    }
+
+    @Provides
+    @Singleton
+    fun provideStateVerificationEngine(): StateVerificationEngine {
+        return StateVerificationEngine()
+    }
+
+    @Provides
+    @Singleton
+    fun provideReActExecutor(
+        supervisor: ForemanSupervisor,
+        obstacleEngine: com.orbital.automation.ObstacleClearanceEngine,
+        verificationEngine: StateVerificationEngine
+    ): ReActExecutor {
+        return ReActExecutor(
+            supervisor = supervisor,
+            obstacleEngine = obstacleEngine,
+            verificationEngine = verificationEngine
+        )
+    }
 }

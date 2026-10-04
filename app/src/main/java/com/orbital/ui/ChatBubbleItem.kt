@@ -713,6 +713,91 @@ fun AntigravityExecutionTimeline(
                                             }
                                         }
                                     }
+
+                                    // Screenshot Quick Actions (Share & Copy)
+                                    val screenshotPath = remember(step.details) {
+                                        step.details?.let { d ->
+                                            val match = Regex("""(?:File:\s*([^\s\n\r]+)|file://([^\s\n\r\)]+)|(/\S+screenshot\S*\.jpg))""", RegexOption.IGNORE_CASE).find(d)
+                                            match?.let { m ->
+                                                m.groupValues[1].takeIf { it.isNotBlank() }
+                                                    ?: m.groupValues[2].takeIf { it.isNotBlank() }
+                                                    ?: m.groupValues[3].takeIf { it.isNotBlank() }
+                                            }
+                                        }
+                                    }
+
+                                    if (screenshotPath != null && java.io.File(screenshotPath).exists()) {
+                                        Spacer(modifier = Modifier.height(6.dp))
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            Surface(
+                                                shape = RoundedCornerShape(4.dp),
+                                                color = Color(0xFF0284C7).copy(alpha = 0.2f),
+                                                border = BorderStroke(1.dp, Color(0xFF0284C7)),
+                                                modifier = Modifier.clickable {
+                                                    try {
+                                                        val file = java.io.File(screenshotPath)
+                                                        val uri = androidx.core.content.FileProvider.getUriForFile(
+                                                            context,
+                                                            "${context.packageName}.files",
+                                                            file
+                                                        )
+                                                        val shareIntent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                                                            type = "image/jpeg"
+                                                            putExtra(android.content.Intent.EXTRA_STREAM, uri)
+                                                            addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                                        }
+                                                        val chooser = android.content.Intent.createChooser(shareIntent, "Share Screenshot").apply {
+                                                            addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                                                        }
+                                                        context.startActivity(chooser)
+                                                    } catch (e: Exception) {
+                                                        android.widget.Toast.makeText(context, "Could not share: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
+                                                    }
+                                                }
+                                            ) {
+                                                Row(
+                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                                ) {
+                                                    Text("📤", fontSize = 10.sp)
+                                                    Text(
+                                                        "Share Image",
+                                                        fontSize = 10.sp,
+                                                        fontWeight = FontWeight.SemiBold,
+                                                        color = Color(0xFF7DD3FC)
+                                                    )
+                                                }
+                                            }
+
+                                            Surface(
+                                                shape = RoundedCornerShape(4.dp),
+                                                color = Color(0xFF1E293B),
+                                                border = BorderStroke(1.dp, Color(0xFF334155)),
+                                                modifier = Modifier.clickable {
+                                                    clipboardManager.setText(androidx.compose.ui.text.AnnotatedString(screenshotPath))
+                                                    android.widget.Toast.makeText(context, "Copied path", android.widget.Toast.LENGTH_SHORT).show()
+                                                }
+                                            ) {
+                                                Row(
+                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                                ) {
+                                                    Text("📋", fontSize = 10.sp)
+                                                    Text(
+                                                        "Copy Path",
+                                                        fontSize = 10.sp,
+                                                        fontWeight = FontWeight.Medium,
+                                                        color = Color(0xFF94A3B8)
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }

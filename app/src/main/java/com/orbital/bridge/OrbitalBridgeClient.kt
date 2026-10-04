@@ -2,6 +2,7 @@ package com.orbital.bridge
 
 import android.content.Context
 import android.util.Log
+import com.orbital.automation.OrbitalAccessibilityService
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -248,6 +249,60 @@ class OrbitalBridgeClient @Inject constructor(
                     log("Action result sent: ${result.message} (${result.executionDurationMs}ms)")
                 }
             }
+
+            "SCREENSHOT_REQUEST", "TAKE_SCREENSHOT" -> {
+                log("Received screenshot request from Laptop AI")
+                val service = OrbitalAccessibilityService.instance
+                var file: java.io.File? = null
+                if (service != null && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                    file = service.captureScreenshotAsync()
+                }
+                if (file != null && file.exists()) {
+                    val bytes = file.readBytes()
+                    val base64 = android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
+                    val reply = BridgeMessage(
+                        type = "SCREENSHOT_RESPONSE",
+                        screenshotBase64 = base64,
+                        screenshotFilePath = file.absolutePath,
+                        requestId = msg.requestId,
+                        rawText = "Screenshot captured successfully (${file.length() / 1024} KB)"
+                    )
+                    sendMessage(reply)
+                    log("Sent screenshot to Laptop AI (${file.length() / 1024} KB)")
+                } else {
+                    val reply = BridgeMessage(
+                        type = "SCREENSHOT_RESPONSE",
+                        requestId = msg.requestId,
+                        rawText = "Failed to capture screenshot on device"
+                    )
+                    sendMessage(reply)
+                }
+            }
+        }
+    }
+
+    fun sendScreenshotToLaptop(filePath: String, note: String? = null): Boolean {
+        return try {
+            val file = java.io.File(filePath)
+            if (!file.exists()) {
+                log("❌ Screenshot file does not exist: $filePath")
+                return false
+            }
+
+            val bytes = file.readBytes()
+            val base64 = android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
+            val msg = BridgeMessage(
+                type = "SCREENSHOT_TRANSFER",
+                screenshotBase64 = base64,
+                screenshotFilePath = file.name,
+                rawText = note ?: "Screenshot transferred from Android companion (${file.length() / 1024} KB)"
+            )
+            sendMessage(msg)
+            log("📤 Transferred screenshot to Laptop AI (${file.length() / 1024} KB)")
+            true
+        } catch (e: Exception) {
+            log("❌ Failed to send screenshot to laptop: ${e.message}")
+            false
         }
     }
 

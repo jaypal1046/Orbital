@@ -28,7 +28,7 @@ sealed class ActionResult {
 
 @Serializable
 data class DeviceAction(
-    val action: String, // OPEN_APP, SEARCH_APP, SEARCH_WEB, OPEN_URL, SET_TIMER, OPEN_SETTING, DEVICE_STATUS, MAKE_CALL, SEND_SMS, NAVIGATE, PLAY_MUSIC, COMPOSE_EMAIL
+    val action: String, // OPEN_APP, SEARCH_APP, SEARCH_WEB, OPEN_URL, SET_TIMER, OPEN_SETTING, DEVICE_STATUS, MAKE_CALL, SEND_SMS, NAVIGATE, PLAY_MUSIC, COMPOSE_EMAIL, READ_FILE, WRITE_FILE, EDIT_FILE, SEARCH_FILE, EDIT_SPREADSHEET
     val target: String? = null,
     val query: String? = null,
     val url: String? = null,
@@ -45,7 +45,20 @@ data class DeviceAction(
     val minutes: Int? = null,
     val enabled: Boolean? = null,
     val ifBatteryBelow: Int? = null,
-    val repeatMinutes: Long? = null
+    val repeatMinutes: Long? = null,
+    val path: String? = null,
+    val startLine: Int? = null,
+    val endLine: Int? = null,
+    val content: String? = null,
+    val targetContent: String? = null,
+    val replacementContent: String? = null,
+    val allowMultiple: Boolean? = null,
+    val isRegex: Boolean? = null,
+    val row: Int? = null,
+    val col: Int? = null,
+    val value: String? = null,
+    val rowData: List<String>? = null,
+    val overwrite: Boolean? = null
 )
 
 open class DeviceActionExecutor(private val context: Context) {
@@ -65,7 +78,7 @@ open class DeviceActionExecutor(private val context: Context) {
     }
 
     open fun execute(action: DeviceAction): ActionResult {
-        Log.i(TAG, "Executing dynamic device action: ${action.action} on target: ${action.target ?: action.query ?: action.url}")
+        Log.i(TAG, "Executing dynamic device action: ${action.action} on target: ${action.target ?: action.query ?: action.url ?: action.path}")
         return try {
             action.ifBatteryBelow?.let { threshold ->
                 val battery = batteryPercent()
@@ -102,6 +115,7 @@ open class DeviceActionExecutor(private val context: Context) {
                     testAction = action.query
                 )
                 "READ_SCREEN", "INSPECT_SCREEN" -> readActiveScreen()
+                "TAKE_SCREENSHOT", "SCREENSHOT", "CAPTURE_SCREEN" -> takeScreenshot()
                 "CLICK_ELEMENT", "TAP", "CLICK" -> clickScreenElement(action.target ?: action.query ?: "")
                 "INPUT_TEXT", "TYPE_TEXT", "TYPE" -> inputScreenText(
                     text = action.query ?: action.message ?: "",
@@ -116,6 +130,37 @@ open class DeviceActionExecutor(private val context: Context) {
                     action.phoneNumber ?: action.recipient,
                     action.message ?: action.query ?: ""
                 )
+                "READ_FILE", "VIEW_FILE" -> readFile(
+                    filePath = action.path ?: action.target ?: "",
+                    startLine = action.startLine ?: 1,
+                    endLine = action.endLine ?: Int.MAX_VALUE
+                )
+                "WRITE_FILE", "CREATE_FILE" -> writeFile(
+                    filePath = action.path ?: action.target ?: "",
+                    content = action.content ?: action.message ?: action.query ?: "",
+                    overwrite = action.overwrite ?: true
+                )
+                "EDIT_FILE", "REPLACE_FILE_CONTENT" -> editFile(
+                    filePath = action.path ?: action.target ?: "",
+                    targetContent = action.targetContent ?: action.query ?: "",
+                    replacementContent = action.replacementContent ?: action.content ?: "",
+                    allowMultiple = action.allowMultiple ?: false
+                )
+                "SEARCH_FILE", "GREP_FILE" -> searchInFile(
+                    filePath = action.path ?: action.target ?: "",
+                    query = action.query ?: action.targetContent ?: "",
+                    isRegex = action.isRegex ?: false
+                )
+                "EDIT_SPREADSHEET", "EDIT_CSV" -> editSpreadsheet(
+                    filePath = action.path ?: action.target ?: "",
+                    row = action.row,
+                    col = action.col,
+                    value = action.value ?: action.query,
+                    rowData = action.rowData
+                )
+                "SEARCH_DEVICE", "SPOTLIGHT_SEARCH" -> searchDevice(action.query ?: action.target ?: "")
+                "RUN_SMOKE_TEST", "SMOKE_TEST" -> runSmokeTest()
+                "AUDIT_ACCESSIBILITY", "ACCESSIBILITY_AUDIT" -> auditAccessibility()
                 else -> ActionResult.Error("Unknown action type: ${action.action}")
             }
         } catch (e: Exception) {
@@ -912,6 +957,41 @@ open class DeviceActionExecutor(private val context: Context) {
         )
     }
 
+    fun takeScreenshot(): ActionResult {
+        val service = com.orbital.automation.OrbitalAccessibilityService.instance
+        if (service == null) {
+            val isEnabledInSettings = com.orbital.automation.OrbitalAccessibilityService.isEnabled(context)
+            return if (!isEnabledInSettings) {
+                ActionResult.Error("Accessibility service is disabled. Please enable 'Orbital' in Settings > Accessibility to capture screenshots.")
+            } else {
+                ActionResult.Error("Accessibility service is enabled in Settings, but not yet connected to the app process.")
+            }
+        }
+
+        var screenshotFile: java.io.File? = null
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+            kotlinx.coroutines.runBlocking {
+                screenshotFile = service.captureScreenshotAsync()
+            }
+        } else {
+            service.pressGlobalKey("TAKE_SCREENSHOT")
+        }
+
+        return if (screenshotFile != null && screenshotFile!!.exists()) {
+            val path = screenshotFile!!.absolutePath
+            val sizeKb = screenshotFile!!.length() / 1024
+            ActionResult.Success(
+                message = "Screenshot captured successfully (${sizeKb} KB)",
+                details = "• Status: Captured\n• File: $path\n• Size: ${sizeKb} KB\n\n![Screenshot](file://$path)"
+            )
+        } else {
+            ActionResult.Success(
+                message = "Triggered system screenshot capture",
+                details = "• Status: System screenshot triggered\n• Note: On Android 10 and below, system screenshot action was dispatched."
+            )
+        }
+    }
+
     fun clickScreenElement(targetTextOrId: String): ActionResult {
         val clean = targetTextOrId.trim()
         if (clean.isBlank()) return ActionResult.Error("Element label or text is required.")
@@ -1036,4 +1116,154 @@ open class DeviceActionExecutor(private val context: Context) {
             ActionResult.Error("Could not cancel monitor '${match.title}'.")
         }
     }
+
+    // ==========================================
+    // Universal File & Document Operations
+    // ==========================================
+
+    fun readFile(filePath: String, startLine: Int = 1, endLine: Int = Int.MAX_VALUE): ActionResult {
+        val cleanPath = filePath.trim()
+        if (cleanPath.isBlank()) return ActionResult.Error("File path is required.")
+        val file = resolveFile(cleanPath)
+
+        val category = com.orbital.file.UniversalFileEngine.detectCategory(cleanPath)
+        val result = when (category) {
+            com.orbital.file.UniversalFileEngine.FileCategory.SPREADSHEET_CSV -> com.orbital.file.UniversalFileEngine.readCsv(file)
+            com.orbital.file.UniversalFileEngine.FileCategory.WORD_DOCUMENT -> com.orbital.file.UniversalFileEngine.readDocxText(file)
+            com.orbital.file.UniversalFileEngine.FileCategory.POWERPOINT_PRESENTATION -> com.orbital.file.UniversalFileEngine.readPptxText(file)
+            com.orbital.file.UniversalFileEngine.FileCategory.PDF_DOCUMENT -> com.orbital.file.UniversalFileEngine.readPdfText(file)
+            else -> com.orbital.file.UniversalFileEngine.readTextFile(file, startLine, endLine)
+        }
+
+        return when (result) {
+            is com.orbital.file.FileOperationResult.Success -> ActionResult.Success(result.message, result.content)
+            is com.orbital.file.FileOperationResult.Error -> ActionResult.Error(result.errorMessage)
+        }
+    }
+
+    fun writeFile(filePath: String, content: String, overwrite: Boolean = true): ActionResult {
+        val cleanPath = filePath.trim()
+        if (cleanPath.isBlank()) return ActionResult.Error("File path is required.")
+        val file = resolveFile(cleanPath)
+        val result = com.orbital.file.UniversalFileEngine.writeTextFile(file, content, overwrite)
+        return when (result) {
+            is com.orbital.file.FileOperationResult.Success -> ActionResult.Success(result.message, result.content)
+            is com.orbital.file.FileOperationResult.Error -> ActionResult.Error(result.errorMessage)
+        }
+    }
+
+    fun editFile(filePath: String, targetContent: String, replacementContent: String, allowMultiple: Boolean = false): ActionResult {
+        val cleanPath = filePath.trim()
+        if (cleanPath.isBlank()) return ActionResult.Error("File path is required.")
+        val file = resolveFile(cleanPath)
+
+        val category = com.orbital.file.UniversalFileEngine.detectCategory(cleanPath)
+        val result = when (category) {
+            com.orbital.file.UniversalFileEngine.FileCategory.WORD_DOCUMENT -> com.orbital.file.UniversalFileEngine.editDocxText(file, targetContent, replacementContent)
+            com.orbital.file.UniversalFileEngine.FileCategory.POWERPOINT_PRESENTATION -> com.orbital.file.UniversalFileEngine.editPptxSlideText(file, 1, targetContent, replacementContent)
+            else -> com.orbital.file.UniversalFileEngine.replaceFileContent(file, targetContent, replacementContent, allowMultiple)
+        }
+
+        return when (result) {
+            is com.orbital.file.FileOperationResult.Success -> ActionResult.Success(result.message, result.content)
+            is com.orbital.file.FileOperationResult.Error -> ActionResult.Error(result.errorMessage)
+        }
+    }
+
+    fun searchInFile(filePath: String, query: String, isRegex: Boolean = false): ActionResult {
+        val cleanPath = filePath.trim()
+        if (cleanPath.isBlank()) return ActionResult.Error("File path is required.")
+        if (query.isBlank()) return ActionResult.Error("Search query is required.")
+        val file = resolveFile(cleanPath)
+
+        val result = com.orbital.file.UniversalFileEngine.searchFile(file, query, isRegex)
+        return when (result) {
+            is com.orbital.file.FileOperationResult.Success -> ActionResult.Success(result.message, result.content)
+            is com.orbital.file.FileOperationResult.Error -> ActionResult.Error(result.errorMessage)
+        }
+    }
+
+    fun editSpreadsheet(filePath: String, row: Int?, col: Int?, value: String?, rowData: List<String>?): ActionResult {
+        val cleanPath = filePath.trim()
+        if (cleanPath.isBlank()) return ActionResult.Error("File path is required.")
+        val file = resolveFile(cleanPath)
+
+        val result = if (rowData != null) {
+            com.orbital.file.UniversalFileEngine.appendCsvRow(file, rowData)
+        } else if (row != null && col != null && value != null) {
+            com.orbital.file.UniversalFileEngine.editCsvCell(file, row, col, value)
+        } else {
+            return ActionResult.Error("Specify either (row, col, value) to edit cell or rowData to append row.")
+        }
+
+        return when (result) {
+            is com.orbital.file.FileOperationResult.Success -> ActionResult.Success(result.message, result.content)
+            is com.orbital.file.FileOperationResult.Error -> ActionResult.Error(result.errorMessage)
+        }
+    }
+
+    private fun resolveFile(path: String): java.io.File {
+        val file = java.io.File(path)
+        return if (file.isAbsolute) {
+            file
+        } else {
+            java.io.File(context.filesDir, path)
+        }
+    }
+
+    fun searchDevice(query: String): ActionResult {
+        val trimmed = query.trim()
+        if (trimmed.isBlank()) return ActionResult.Error("Query is required for device search.")
+
+        val searchEngine = com.orbital.search.SemanticDeviceSearchEngine()
+        val installedApps = capabilityManager.getInstalledApps().map { app ->
+            com.orbital.search.SearchableItem(
+                id = app.packageName,
+                title = app.name,
+                subtitle = app.packageName,
+                category = com.orbital.search.SearchCategory.APP,
+                keywords = app.category.name.lowercase().split("_"),
+                actionPayload = app.packageName,
+                iconHint = "📱"
+            )
+        }
+        searchEngine.setIndex(installedApps)
+        val results = searchEngine.search(trimmed, maxResults = 5)
+
+        if (results.isEmpty()) {
+            return ActionResult.Success("No matching apps or resources found for '$trimmed'.", null)
+        }
+
+        val details = buildString {
+            append("Found ${results.size} matches for '$trimmed':\n")
+            results.forEachIndexed { idx, res ->
+                append("${idx + 1}. [${res.item.iconHint}] ${res.item.title} (${res.matchReason}, score: ${(res.relevanceScore * 100).toInt()}%)\n")
+            }
+        }
+        return ActionResult.Success("Found ${results.size} matches for '$trimmed'.", details)
+    }
+
+    fun runSmokeTest(): ActionResult {
+        val smokeRunner = com.orbital.automation.LiveDeviceSmokeRunner()
+        val report = smokeRunner.runSmokeSuite(reportOutputDir = context.getExternalFilesDir(null))
+        return ActionResult.Success(
+            "Smoke test complete: ${report.passedCount}/${report.totalTests} passed.",
+            report.toMarkdownReport()
+        )
+    }
+
+    fun auditAccessibility(): ActionResult {
+        val service = com.orbital.automation.OrbitalAccessibilityService.instance
+            ?: return ActionResult.Error("Orbital Accessibility Service is not active. Please enable it in Settings.")
+
+        val snapshot = service.captureScreenHierarchy()
+            ?: return ActionResult.Error("Could not inspect current screen hierarchy.")
+
+        val report = com.orbital.automation.AccessibilityAuditorEngine.auditScreen(snapshot)
+        return ActionResult.Success(
+            "Screen accessibility audit complete (Health Score: ${report.overallScore}/100)",
+            report.toMarkdownReport()
+        )
+    }
 }
+

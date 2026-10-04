@@ -44,4 +44,19 @@ class ActionParserTest {
         assertEquals("OPEN_APP", parsed.actions[0].action)
         assertEquals(target, parsed.actions[0].target)
     }
+
+    @Test
+    fun parsesScreenshotJsonAndNaturalIntent() {
+        val parsedJson = ActionParser.parse("""```action {"action":"TAKE_SCREENSHOT"} ```""")
+        assertEquals(1, parsedJson.actions.size)
+        assertEquals("TAKE_SCREENSHOT", parsedJson.actions[0].action)
+
+        val naturalIntent = ActionParser.parse("Please take a screenshot of my screen")
+        assertEquals(1, naturalIntent.actions.size)
+        assertEquals("TAKE_SCREENSHOT", naturalIntent.actions[0].action)
+
+        val readIntent = ActionParser.parse("Read live screen")
+        assertEquals(1, readIntent.actions.size)
+        assertEquals("READ_SCREEN", readIntent.actions[0].action)
+    }
 }

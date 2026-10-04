@@ -17,6 +17,7 @@ enum class BridgeActionType {
     OPEN_APP,
     PRESS_KEY,
     INSPECT_SCREEN,
+    TAKE_SCREENSHOT,
     DEVICE_ACTION,
     CUSTOM_PROMPT,
     EXECUTE_BATCH,
@@ -122,6 +123,8 @@ data class ActionResultPayload(
     val executionDurationMs: Long = 0L,
     val updatedScreenState: ScreenStatePayload? = null,
     val batchStepResults: List<BatchStepResult>? = null,
+    val screenshotBase64: String? = null,
+    val screenshotFilePath: String? = null,
     val sessionId: String? = null,
     val sessionTitle: String? = null,
     val sessionsList: List<SessionSummaryDto>? = null,
@@ -130,7 +133,7 @@ data class ActionResultPayload(
 
 @Serializable
 data class BridgeMessage(
-    val type: String, // "PAIRING", "HEARTBEAT", "INSPECT_SCREEN", "SCREEN_STATE", "EXECUTE_ACTION", "ACTION_RESULT", "SECURITY_ALERT"
+    val type: String, // "PAIRING", "HEARTBEAT", "INSPECT_SCREEN", "SCREEN_STATE", "EXECUTE_ACTION", "ACTION_RESULT", "SECURITY_ALERT", "SCREENSHOT_TRANSFER", "SCREENSHOT_REQUEST", "SCREENSHOT_RESPONSE"
     val channelCode: String? = null,
     val token: String? = null,
     val signature: String? = null,
@@ -138,6 +141,8 @@ data class BridgeMessage(
     val nonce: String? = null,
     val requestId: String? = null,
     val screenState: ScreenStatePayload? = null,
+    val screenshotBase64: String? = null,
+    val screenshotFilePath: String? = null,
     val action: ActionPayload? = null,
     val result: ActionResultPayload? = null,
     val rawText: String? = null,

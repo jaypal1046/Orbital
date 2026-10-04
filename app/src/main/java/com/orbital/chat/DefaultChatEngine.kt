@@ -37,8 +37,11 @@ class DefaultChatEngine @Inject constructor(
     private val foremanSupervisor: com.orbital.foreman.ForemanSupervisor? = null,
     private val documentPipeline: com.orbital.media.parser.HybridDocumentPipeline? = null,
     private val dynamicOtaConfigStore: com.orbital.updater.DynamicOtaConfigStore? = null,
-    private val skillRegistry: com.orbital.skills.MobileSkillRegistry? = null
+    private val skillRegistry: com.orbital.skills.MobileSkillRegistry? = null,
+    private val sessionEventLogger: com.orbital.session.SessionEventLogger? = null,
+    private val contextCompactionEngine: ContextCompactionEngine? = null
 ) : ChatEngine {
+    private val resolvedCompactionEngine = contextCompactionEngine ?: ContextCompactionEngine()
 
     private val _messages = MutableStateFlow<List<ChatMessage>>(emptyList())
     override val messages: StateFlow<List<ChatMessage>> = _messages.asStateFlow()
@@ -131,15 +134,44 @@ class DefaultChatEngine @Inject constructor(
             )
         }
 
-        // Persist encrypted user message to SQL database
+        // Persist encrypted user message to SQL database and JSONL transcript
         persistMessage(role = "user", content = message)
+        scope.launch(Dispatchers.IO) {
+            sessionEventLogger?.logEvent(
+                sessionId = currentSessionId,
+                type = com.orbital.session.SessionEventType.USER_INPUT,
+                source = "PHONE_UI",
+                summary = message
+            )
+        }
+
+        // Intercept and handle Mobile Slash Commands
+        val slashResult = SlashCommandRouter.route(message, context)
+        when (slashResult) {
+            is SlashCommandResult.HandledLocally -> {
+                _messages.update { currentMessages ->
+                    currentMessages + ChatMessage(role = "assistant", content = slashResult.responseMarkdown)
+                }
+                persistMessage(role = "assistant", content = slashResult.responseMarkdown)
+                isStreaming.value = false
+                return
+            }
+            is SlashCommandResult.PassThroughWithAugmentedPrompt -> {
+                // Pass-through with augmented prompt mode
+            }
+            SlashCommandResult.NotASlashCommand -> {
+                // Standard chat flow
+            }
+        }
+
+        val effectiveQuery = (slashResult as? SlashCommandResult.PassThroughWithAugmentedPrompt)?.augmentedPrompt ?: message
 
         val activeType = llmRepository.getCurrentProviderType() ?: ProviderType.GROQ
         activeProvider.value = activeType.name
 
         // Build history with executive system prompt and recalled long-term memories
         val memoryContext = try {
-            hindsightMemoryEngine?.buildPromptContext(query = message).orEmpty()
+            hindsightMemoryEngine?.buildPromptContext(query = effectiveQuery).orEmpty()
         } catch (_: Exception) { "" }
 
         val otaConfig = try {
@@ -170,9 +202,13 @@ class DefaultChatEngine @Inject constructor(
         val chatHistory = mutableListOf<ChatMessage>()
         chatHistory.add(ChatMessage(role = "system", content = finalSystemPrompt))
 
-        // Add last 10 messages from history for LLM context window
-        messages.value.takeLast(10).forEach { msg ->
-            chatHistory.add(ChatMessage(role = msg.role, content = msg.content))
+        // Context Compaction: Compact long conversations while preserving recent turns
+        val currentDialog = messages.value
+        val compaction = resolvedCompactionEngine.compact(currentDialog)
+        compaction.compactedMessages.forEach { msg ->
+            if (msg.role != "system") {
+                chatHistory.add(ChatMessage(role = msg.role, content = msg.content))
+            }
         }
 
         scope.launch {

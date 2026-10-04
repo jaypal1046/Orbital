@@ -19,9 +19,13 @@ class BridgeActionDispatcher @Inject constructor(
     private val context: Context,
     private val actionExecutor: DeviceActionExecutor,
     private val chatEngine: ChatEngine? = null,
-    private val chatHistoryRepository: ChatHistoryRepository? = null
+    private val chatHistoryRepository: ChatHistoryRepository? = null,
+    private val obstacleEngine: com.orbital.automation.ObstacleClearanceEngine? = null,
+    private val verificationEngine: com.orbital.foreman.StateVerificationEngine? = null
 ) {
     var activeChatEngine: ChatEngine? = chatEngine
+    private val resolvedObstacleEngine = obstacleEngine ?: com.orbital.automation.ObstacleClearanceEngine()
+    private val resolvedVerificationEngine = verificationEngine ?: com.orbital.foreman.StateVerificationEngine()
 
     companion object {
         private const val TAG = "BridgeActionDispatcher"
@@ -93,6 +97,22 @@ class BridgeActionDispatcher @Inject constructor(
                 true to "Screen inspected (${state.nodes.size} nodes in ${state.currentPackage})"
             }
 
+            BridgeActionType.TAKE_SCREENSHOT -> {
+                var success = false
+                var msg = "Failed to capture screenshot"
+                if (service != null && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                    val file = service.captureScreenshotAsync()
+                    if (file != null && file.exists()) {
+                        success = true
+                        msg = "Captured screenshot: ${file.name} (${file.length() / 1024} KB)"
+                    }
+                } else if (service != null) {
+                    success = service.pressGlobalKey("TAKE_SCREENSHOT")
+                    msg = "Dispatched system screenshot key"
+                }
+                success to msg
+            }
+
             BridgeActionType.CLICK_NODE -> {
                 val textQuery = targetText.orEmpty()
                 var success = false
@@ -102,6 +122,19 @@ class BridgeActionDispatcher @Inject constructor(
                     }
                     if (!success && textQuery.isNotBlank()) {
                         success = service.clickElementSmart(textQuery)
+                    }
+                    // Obstacle recovery attempt: if failed, check for blocking popup, dismiss, and retry
+                    if (!success) {
+                        val cleared = resolvedObstacleEngine.autoClearIfPresent(service)
+                        if (cleared) {
+                            kotlinx.coroutines.delay(250)
+                            if (!targetId.isNullOrBlank()) {
+                                success = service.clickElementById(targetId)
+                            }
+                            if (!success && textQuery.isNotBlank()) {
+                                success = service.clickElementSmart(textQuery)
+                            }
+                        }
                     }
                 }
                 success to (if (success) "Clicked target '$textQuery'" else "Element '$textQuery' not found on screen")
@@ -116,7 +149,14 @@ class BridgeActionDispatcher @Inject constructor(
 
             BridgeActionType.TYPE_TEXT -> {
                 val text = textToType.orEmpty()
-                val success = service?.inputText(text, targetText) ?: false
+                var success = service?.inputText(text, targetText) ?: false
+                if (!success && service != null) {
+                    val cleared = resolvedObstacleEngine.autoClearIfPresent(service)
+                    if (cleared) {
+                        kotlinx.coroutines.delay(250)
+                        success = service.inputText(text, targetText)
+                    }
+                }
                 success to (if (success) "Typed '$text'" else "Failed to type text into target field")
             }
 
@@ -300,14 +340,19 @@ class BridgeActionDispatcher @Inject constructor(
                         // Post-step assertion check if specified
                         if (finalOk && !step.assertionText.isNullOrBlank()) {
                             val assertionQuery = step.assertionText
-                            val currentState = captureScreenState()
-                            val found = currentState.nodes.any { node ->
-                                node.text?.contains(assertionQuery, ignoreCase = true) == true ||
-                                node.contentDescription?.contains(assertionQuery, ignoreCase = true) == true
+                            val snap = service?.captureScreenHierarchy()
+                            val criterion = when {
+                                assertionQuery.startsWith("absent:", ignoreCase = true) ->
+                                    com.orbital.foreman.StateVerificationCriterion.ElementAbsent(assertionQuery.substringAfter("absent:").trim())
+                                assertionQuery.startsWith("pkg:", ignoreCase = true) ->
+                                    com.orbital.foreman.StateVerificationCriterion.PackageMatches(assertionQuery.substringAfter("pkg:").trim())
+                                else ->
+                                    com.orbital.foreman.StateVerificationCriterion.ContainsText(assertionQuery)
                             }
-                            if (!found) {
+                            val verdict = resolvedVerificationEngine.verify(snap, criterion)
+                            if (!verdict.isVerified) {
                                 finalOk = false
-                                finalMsg = "Assertion failed: '$assertionQuery' not found on screen"
+                                finalMsg = "Assertion failed: ${verdict.reason}"
                             }
                         }
 
@@ -526,6 +571,32 @@ class BridgeActionDispatcher @Inject constructor(
                         updatedScreenState = state,
                         sessionId = targetSessionId,
                         sessionTitle = sessionTitle
+                    )
+                }
+
+                BridgeActionType.TAKE_SCREENSHOT -> {
+                    var file: java.io.File? = null
+                    if (service != null && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                        file = service.captureScreenshotAsync()
+                    } else if (service != null) {
+                        service.pressGlobalKey("TAKE_SCREENSHOT")
+                    }
+
+                    val success = file != null && file.exists()
+                    val base64 = if (success) {
+                        val bytes = file!!.readBytes()
+                        android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
+                    } else null
+
+                    val state = captureScreenState()
+                    ActionResultPayload(
+                        actionId = action.actionId,
+                        success = success,
+                        message = if (success) "Screenshot captured successfully (${file!!.length() / 1024} KB)" else "Failed to capture screenshot on device",
+                        screenshotBase64 = base64,
+                        screenshotFilePath = file?.absolutePath,
+                        executionDurationMs = System.currentTimeMillis() - startTime,
+                        updatedScreenState = state
                     )
                 }
 
