@@ -794,14 +794,17 @@ open class DeviceActionExecutor(private val context: Context) {
 
         var snapshot: com.orbital.automation.ScreenHierarchySnapshot? = null
         for (attempt in 1..5) {
-            try {
-                Thread.sleep(700)
-            } catch (_: InterruptedException) {}
+            if (android.os.Looper.myLooper() != android.os.Looper.getMainLooper()) {
+                try {
+                    Thread.sleep(400)
+                } catch (_: InterruptedException) {}
+            }
             snapshot = service.captureScreenHierarchy()
             if (snapshot != null && snapshot.elements.isNotEmpty()) {
                 break
             }
         }
+
 
         if (snapshot == null || snapshot.elements.isEmpty()) {
             return ActionResult.Success(
@@ -854,10 +857,13 @@ open class DeviceActionExecutor(private val context: Context) {
             if (clickResult) {
                 testSummary.append("⚡ Tested & Clicked primary control: '$targetButtonToClick' (OK)\n")
                 // Wait for resulting UI transition
-                try {
-                    Thread.sleep(900)
-                } catch (_: InterruptedException) {}
+                if (android.os.Looper.myLooper() != android.os.Looper.getMainLooper()) {
+                    try {
+                        Thread.sleep(450)
+                    } catch (_: InterruptedException) {}
+                }
                 val nextSnapshot = service.captureScreenHierarchy()
+
                 if (nextSnapshot != null) {
                     testSummary.append("• New screen state after tap: ${nextSnapshot.elements.size} elements loaded.\n")
                 }
@@ -881,12 +887,17 @@ open class DeviceActionExecutor(private val context: Context) {
 
     fun readActiveScreen(): ActionResult {
         val service = com.orbital.automation.OrbitalAccessibilityService.instance
-        if (service == null || !com.orbital.automation.OrbitalAccessibilityService.isEnabled(context)) {
-            return ActionResult.Error("Accessibility service is currently disabled. Enable it only if you want automated screen reading.")
+        if (service == null) {
+            val isEnabledInSettings = com.orbital.automation.OrbitalAccessibilityService.isEnabled(context)
+            return if (!isEnabledInSettings) {
+                ActionResult.Error("Accessibility service is disabled. Please enable 'Orbital' in Settings > Accessibility.")
+            } else {
+                ActionResult.Error("Accessibility service is enabled in Settings, but not yet connected to the app process. Please toggle Orbital in Accessibility Settings or restart the app.")
+            }
         }
 
         val snapshot = service.captureScreenHierarchy()
-            ?: return ActionResult.Error("Could not read current active window. The screen may be transitioning or protected.")
+            ?: return ActionResult.Error("Could not read current active window. The screen may be transitioning or protected (FLAG_SECURE).")
 
         val hasElements = snapshot.elements.any { it.text.isNotBlank() || !it.contentDescription.isNullOrBlank() }
         val msg = if (hasElements) {

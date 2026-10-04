@@ -62,7 +62,7 @@ class DefaultChatEngine @Inject constructor(
 
     init {
         // Restore the latest encrypted session and prune expired history.
-        scope.launch {
+        scope.launch(Dispatchers.IO) {
             chatHistoryRepository.pruneOlderThan30Days()
             refreshSessions()
             _sessions.value.firstOrNull()?.let { session ->
@@ -72,6 +72,7 @@ class DefaultChatEngine @Inject constructor(
             }
         }
     }
+
 
     override fun setCharacter(character: String) {
         currentCharacter = character
@@ -96,8 +97,9 @@ class DefaultChatEngine @Inject constructor(
             currentSessionTitle = existing.title
         }
         clearMessages()
-        scope.launch {
-            _messages.value = chatHistoryRepository.loadSession(sessionId)
+        scope.launch(Dispatchers.IO) {
+            val loaded = chatHistoryRepository.loadSession(sessionId)
+            _messages.value = loaded
             refreshSessions()
         }
     }
@@ -105,12 +107,13 @@ class DefaultChatEngine @Inject constructor(
     override fun renameSession(sessionId: String, title: String) {
         val cleanTitle = title.trim().take(60)
         if (cleanTitle.isBlank()) return
-        scope.launch {
+        scope.launch(Dispatchers.IO) {
             chatHistoryRepository.renameSession(sessionId, cleanTitle)
             if (sessionId == currentSessionId) currentSessionTitle = cleanTitle
             refreshSessions()
         }
     }
+
 
     override suspend fun sendMessage(message: String) {
         isStreaming.value = true
@@ -185,45 +188,51 @@ class DefaultChatEngine @Inject constructor(
                     }
                 },
                 onError = { error ->
-                    isStreaming.value = false
-                    val errText = error.message ?: "Request failed"
+                    scope.launch {
+                        isStreaming.value = false
+                        val errText = error.message ?: "Request failed"
 
-                    // Offline / Local Edge Action Execution Fallback
-                    val parsed = com.orbital.action.ActionParser.parse(message)
-                    if (parsed.actions.isNotEmpty()) {
-                        val execResults = parsed.actions.map { deviceActionExecutor.execute(it) }
-                        val isSuccess = execResults.all { it is com.orbital.action.ActionResult.Success }
-                        val label = parsed.actions.firstOrNull()?.action?.lowercase()?.replace('_', ' ') ?: "action"
-                        val details = execResults.mapNotNull { res ->
-                            when (res) {
-                                is com.orbital.action.ActionResult.Success -> listOfNotNull(res.message, res.details).joinToString("\n")
-                                is com.orbital.action.ActionResult.Error -> res.errorMessage
+                        // Offline / Local Edge Action Execution Fallback
+                        val parsed = com.orbital.action.ActionParser.parse(message)
+                        if (parsed.actions.isNotEmpty()) {
+                            val execResults = kotlinx.coroutines.withContext(Dispatchers.IO) {
+                                parsed.actions.map { deviceActionExecutor.execute(it) }
                             }
-                        }.joinToString("\n\n")
-                        val fallbackContent = if (isSuccess) {
-                            if (parsed.actions.any { it.action == "DEVICE_STATUS" || it.action == "BATTERY" }) {
-                                details
-                            } else {
-                                "Executed ${label.replaceFirstChar { it.uppercase() }} on your phone."
-                            }
-                        } else "Attempted $label: $details"
-                        addActionMessage(
-                            content = fallbackContent,
-                            actionLabel = "⚡ ${label.replaceFirstChar { it.uppercase() }}",
-                            actionDetails = details
-                        )
-                    } else {
-                        val errorContent = if (streamingContent.value.isNotBlank()) streamingContent.value else "⚠️ $errText"
-                        _messages.update { currentMessages ->
-                            currentMessages + ChatMessage(
-                                role = "assistant",
-                                content = errorContent
+                            val isSuccess = execResults.all { it is com.orbital.action.ActionResult.Success }
+
+                            val label = parsed.actions.firstOrNull()?.action?.lowercase()?.replace('_', ' ') ?: "action"
+                            val details = execResults.mapNotNull { res ->
+                                when (res) {
+                                    is com.orbital.action.ActionResult.Success -> listOfNotNull(res.message, res.details).joinToString("\n")
+                                    is com.orbital.action.ActionResult.Error -> res.errorMessage
+                                }
+                            }.joinToString("\n\n")
+                            val fallbackContent = if (isSuccess) {
+                                if (parsed.actions.any { it.action == "DEVICE_STATUS" || it.action == "BATTERY" }) {
+                                    details
+                                } else {
+                                    "Executed ${label.replaceFirstChar { it.uppercase() }} on your phone."
+                                }
+                            } else "Attempted $label: $details"
+                            addActionMessage(
+                                content = fallbackContent,
+                                actionLabel = "⚡ ${label.replaceFirstChar { it.uppercase() }}",
+                                actionDetails = details
                             )
+                        } else {
+                            val errorContent = if (streamingContent.value.isNotBlank()) streamingContent.value else "⚠️ $errText"
+                            _messages.update { currentMessages ->
+                                currentMessages + ChatMessage(
+                                    role = "assistant",
+                                    content = errorContent
+                                )
+                            }
+                            persistMessage(role = "assistant", content = errorContent, providerName = activeProvider.value)
                         }
-                        persistMessage(role = "assistant", content = errorContent, providerName = activeProvider.value)
+                        streamingContent.value = ""
                     }
-                    streamingContent.value = ""
                 }
+
             )
         }
     }
@@ -300,8 +309,12 @@ class DefaultChatEngine @Inject constructor(
 
                     val actionStartTime = System.currentTimeMillis()
                     com.orbital.ui.MascotEventBus.postEvent(com.orbital.ui.MascotEvent.ActionExecuting(action.action))
-                    when (val result = deviceActionExecutor.execute(action)) {
+                    val result = kotlinx.coroutines.withContext(Dispatchers.IO) {
+                        deviceActionExecutor.execute(action)
+                    }
+                    when (result) {
                         is ActionResult.Success -> {
+
                             val actionDuration = System.currentTimeMillis() - actionStartTime
                             results += "⚡ Executed: ${result.message}"
                             val resolvedDetails = result.details?.takeIf { it.isNotBlank() } ?: "• Status: Executed successfully\n• Message: ${result.message}"
@@ -355,11 +368,21 @@ class DefaultChatEngine @Inject constructor(
                                 } catch (_: Exception) {}
                             }
 
+                            val failureLog = buildString {
+                                append("• Status: Execution Failed\n")
+                                append("• Action: ${action.action}\n")
+                                append("• Error: ${result.errorMessage}")
+                                if (result.errorMessage.contains("Accessibility", ignoreCase = true)) {
+                                    append("\n• Required Setup: Enable Orbital in Android Settings > Accessibility > Installed Apps.")
+                                }
+                            }
+                            actionDetails = listOfNotNull(actionDetails, failureLog).joinToString("\n").takeIf { it.isNotBlank() }
+
                             executionSteps += com.orbital.action.ExecutionStep(
                                 title = "Failed: ${action.action.lowercase().replace('_', ' ')}",
                                 status = com.orbital.action.StepStatus.FAILED,
                                 toolName = "DeviceAction",
-                                details = result.errorMessage,
+                                details = failureLog,
                                 durationMs = actionDuration
                             )
                         }
@@ -398,7 +421,9 @@ class DefaultChatEngine @Inject constructor(
             if (lastUserMessage.isNotBlank()) {
                 val parsed = com.orbital.action.ActionParser.parse(lastUserMessage)
                 if (parsed.actions.isNotEmpty()) {
-                    val execResults = parsed.actions.map { deviceActionExecutor.execute(it) }
+                    val execResults = kotlinx.coroutines.withContext(Dispatchers.IO) {
+                        parsed.actions.map { deviceActionExecutor.execute(it) }
+                    }
                     val isSuccess = execResults.all { it is ActionResult.Success }
                     val label = parsed.actions.firstOrNull()?.action?.lowercase()?.replace('_', ' ') ?: "action"
                     val details = execResults.mapNotNull { res ->
@@ -454,9 +479,12 @@ class DefaultChatEngine @Inject constructor(
         scope.launch {
             val startTime = System.currentTimeMillis()
             com.orbital.ui.MascotEventBus.postEvent(com.orbital.ui.MascotEvent.ActionExecuting(action.action))
-            val result = deviceActionExecutor.execute(action)
+            val result = kotlinx.coroutines.withContext(Dispatchers.IO) {
+                deviceActionExecutor.execute(action)
+            }
             val duration = System.currentTimeMillis() - startTime
             val isSuccess = result is ActionResult.Success
+
             
             val (label, details) = when (result) {
                 is ActionResult.Success -> {
@@ -483,7 +511,7 @@ class DefaultChatEngine @Inject constructor(
                     title = "Ran DeviceAction: ${action.action.lowercase().replace('_', ' ')}${if (!action.target.isNullOrBlank()) " (${action.target})" else if (!action.query.isNullOrBlank()) " (${action.query})" else ""}",
                     status = if (isSuccess) com.orbital.action.StepStatus.SUCCESS else com.orbital.action.StepStatus.FAILED,
                     toolName = "DeviceAction",
-                    details = details ?: label,
+                    details = details,
                     durationMs = duration
                 )
             )
@@ -542,7 +570,7 @@ class DefaultChatEngine @Inject constructor(
         providerName: String? = null,
         actionLabel: String? = null,
         actionDetails: String? = null
-    ) = scope.launch {
+    ) = scope.launch(Dispatchers.IO) {
         chatHistoryRepository.saveMessage(
             role = role, content = content, providerName = providerName,
             actionLabel = actionLabel, actionDetails = actionDetails,
@@ -550,6 +578,7 @@ class DefaultChatEngine @Inject constructor(
         )
         refreshSessions()
     }
+
 
     private suspend fun refreshSessions() {
         _sessions.value = chatHistoryRepository.loadSessionSummaries()
