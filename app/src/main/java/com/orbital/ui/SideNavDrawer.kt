@@ -50,13 +50,17 @@ fun SideNavDrawer(
     }
 
     ModalDrawerSheet(
-        modifier = modifier.widthIn(max = 336.dp),
+        modifier = modifier
+            .widthIn(max = 336.dp)
+            .statusBarsPadding()
+            .navigationBarsPadding()
+            .imePadding(),
         drawerContainerColor = OrbitalTokens.Surface,
         drawerContentColor = OrbitalTokens.TextPrimary
     ) {
         Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
             Row(
-                modifier = Modifier.fillMaxWidth().padding(top = 20.dp, bottom = 16.dp),
+                modifier = Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 16.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Box(Modifier.size(36.dp).clip(OrbitalTokens.RadiusSmall).background(OrbitalTokens.Primary), contentAlignment = Alignment.Center) {
@@ -98,7 +102,7 @@ fun SideNavDrawer(
                 )
             )
 
-            Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(top = 20.dp)) {
+            Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(top = 16.dp)) {
                 DrawerSection("Chats")
                 if (matchingSessions.isEmpty()) {
                     Text(if (query.isBlank()) "Your recent chats will appear here." else "No chats match “$query”.", style = MaterialTheme.typography.bodySmall, color = OrbitalTokens.TextMuted, modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp))
@@ -129,8 +133,16 @@ fun SideNavDrawer(
             }
 
             HorizontalDivider(color = OrbitalTokens.Border)
-            Row(Modifier.fillMaxWidth().clickable { onOpenCharacters(); onCloseDrawer() }.padding(vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.size(32.dp).clip(CircleShape).background(OrbitalTokens.SurfaceSelected), contentAlignment = Alignment.Center) { Icon(Icons.Default.Face, null, tint = OrbitalTokens.Primary, modifier = Modifier.size(18.dp)) }
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clickable { onOpenCharacters(); onCloseDrawer() }
+                    .padding(vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(Modifier.size(34.dp).clip(CircleShape).background(OrbitalTokens.SurfaceSelected), contentAlignment = Alignment.Center) {
+                    Icon(Icons.Default.AutoAwesome, null, tint = OrbitalTokens.Primary, modifier = Modifier.size(18.dp))
+                }
                 Spacer(Modifier.width(10.dp))
                 Column(Modifier.weight(1f)) {
                     Text("Companion", style = MaterialTheme.typography.titleSmall)
@@ -173,7 +185,15 @@ private fun DrawerNavItem(icon: androidx.compose.ui.graphics.vector.ImageVector,
 @Composable
 private fun DrawerChatItem(session: ChatSessionSummary, onOpen: () -> Unit, onRename: () -> Unit) {
     Row(Modifier.fillMaxWidth().clip(OrbitalTokens.RadiusSmall).clickable(onClick = onOpen).padding(horizontal = 12.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
-        Icon(Icons.Default.Face, null, tint = OrbitalTokens.TextMuted, modifier = Modifier.size(18.dp))
+        Box(
+            modifier = Modifier
+                .size(28.dp)
+                .clip(CircleShape)
+                .background(OrbitalTokens.SurfaceRaised),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(Icons.Default.ChatBubbleOutline, null, tint = OrbitalTokens.TextSecondary, modifier = Modifier.size(15.dp))
+        }
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             Text(session.title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)

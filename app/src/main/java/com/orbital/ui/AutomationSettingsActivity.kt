@@ -42,20 +42,31 @@ class AutomationSettingsActivity : ComponentActivity() {
 
         setContent {
             OrbitalTheme {
-                AutomationSettingsScreen(
-                    onBack = { finish() },
-                    onSave = { enabled, startHour, workWifi, homeWifi ->
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS, Manifest.permission.ACCESS_FINE_LOCATION), 1)
-                        if (enabled) {
-                            powerAwareScheduler.scheduleDailyBriefing(startHour)
-                            powerAwareScheduler.saveWifiAutomations(workWifi, homeWifi)
-                            Toast.makeText(this, "Automation schedule updated!", Toast.LENGTH_SHORT).show()
-                        } else {
-                            Toast.makeText(this, "Automation disabled", Toast.LENGTH_SHORT).show()
+                Surface(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .statusBarsPadding()
+                        .navigationBarsPadding()
+                        .imePadding(),
+                    color = OrbitalTokens.Background
+                ) {
+                    AutomationSettingsScreen(
+                        onBack = { finish() },
+                        onSave = { enabled, startHour, workWifi, homeWifi ->
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                                requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS, Manifest.permission.ACCESS_FINE_LOCATION), 1)
+                            }
+                            if (enabled) {
+                                powerAwareScheduler.scheduleDailyBriefing(startHour)
+                                powerAwareScheduler.saveWifiAutomations(workWifi, homeWifi)
+                                Toast.makeText(this, "Automation schedule updated!", Toast.LENGTH_SHORT).show()
+                            } else {
+                                Toast.makeText(this, "Automation disabled", Toast.LENGTH_SHORT).show()
+                            }
+                            finish()
                         }
-                        finish()
-                    }
-                )
+                    )
+                }
             }
         }
     }

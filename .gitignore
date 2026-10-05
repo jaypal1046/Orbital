@@ -70,3 +70,12 @@ fastlane/report.xml
 fastlane/Preview.html
 fastlane/screenshots
 fastlane/test_output
+
+# Test artifacts & local keys
+*.png
+*.jpg
+*.jpeg
+*.webp
+.orbital_session_key
+tools/orbital-mcp/.orbital_session_key
+

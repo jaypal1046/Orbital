@@ -136,6 +136,49 @@ Whenever the user asks you to perform an action, you MUST ALWAYS generate the ``
             return DeviceAction(action = "READ_SCREEN")
         }
 
+        // Accessibility Audit Intents (e.g. "audit current screen accessibility", "accessibility audit")
+        if (clean.contains("audit") && (clean.contains("accessibility") || clean.contains("screen") || clean.contains("a11y"))) {
+            return DeviceAction(action = "AUDIT_ACCESSIBILITY")
+        }
+
+        // File Writing Intents (e.g. "create a text file called /sdcard/... with content: ...")
+        val createWriteMatch = Regex("(?:create|write)\\s+(?:a\\s+)?(?:text\\s+)?(?:file|csv|spreadsheet)(?:\\s+called|\\s+at)?\\s+([/\\w\\.\\-]+)\\s+(?:with\\s+content:?|content:?)\\s*[\"']?([\\s\\S]+?)[\"']?$", RegexOption.IGNORE_CASE).find(text.trim())
+        if (createWriteMatch != null) {
+            val path = createWriteMatch.groupValues[1]
+            val content = createWriteMatch.groupValues[2].removeSurrounding("\"").removeSurrounding("'")
+            return DeviceAction(action = "WRITE_FILE", path = path, content = content)
+        }
+
+        // File Reading Intents (e.g. "read the file /sdcard/Download/test.txt")
+        val readFileMatch = Regex("(?:read|view|open)\\s+(?:the\\s+)?file\\s+([/\\w\\.\\-]+)", RegexOption.IGNORE_CASE).find(text.trim())
+        if (readFileMatch != null) {
+            val path = readFileMatch.groupValues[1]
+            return DeviceAction(action = "READ_FILE", path = path)
+        }
+
+        // File Search Intents (e.g. "search for the word \"verified\" in /sdcard/Download/test.txt")
+        val searchFileMatch = Regex("(?:search|find)\\s+(?:for\\s+)?(?:the\\s+word\\s+)?[\"']?([\\w\\s]+?)[\"']?\\s+in\\s+([/\\w\\.\\-]+)", RegexOption.IGNORE_CASE).find(text.trim())
+        if (searchFileMatch != null) {
+            val word = searchFileMatch.groupValues[1].removeSurrounding("\"").removeSurrounding("'").trim()
+            val path = searchFileMatch.groupValues[2].trim()
+            return DeviceAction(action = "SEARCH_FILE", path = path, query = word)
+        }
+
+        // File Edit Intents (e.g. "edit the file ... by replacing \"foo\" with \"bar\"")
+        val editFileMatch = Regex("edit\\s+(?:the\\s+)?file\\s+([/\\w\\.\\-]+)\\s+by\\s+replacing\\s+[\"']?([\\s\\S]+?)[\"']?\\s+with\\s+[\"']?([\\s\\S]+?)[\"']?$", RegexOption.IGNORE_CASE).find(text.trim())
+        if (editFileMatch != null) {
+            val path = editFileMatch.groupValues[1]
+            val target = editFileMatch.groupValues[2].removeSurrounding("\"").removeSurrounding("'")
+            val replace = editFileMatch.groupValues[3].removeSurrounding("\"").removeSurrounding("'")
+            return DeviceAction(action = "EDIT_FILE", path = path, targetContent = target, replacementContent = replace)
+        }
+
+        // Device / App Spotlight Search (e.g. "find Calculator app", "find the file test.txt")
+        if (clean.startsWith("find ") || clean.startsWith("search for ")) {
+            val q = text.substringAfter("find ").substringAfter("search for ").trim()
+            return DeviceAction(action = "SEARCH_DEVICE", query = q)
+        }
+
         return null
     }
 
@@ -215,7 +258,32 @@ Whenever the user asks you to perform an action, you MUST ALWAYS generate the ``
             enabled = json.takeIf { it.has("enabled") }?.optBoolean("enabled"),
             ifBatteryBelow = json.optInt("if_battery_below", -1).takeIf { it in 1..100 }
                 ?: json.optInt("ifBatteryBelow", -1).takeIf { it in 1..100 },
-            repeatMinutes = repeat
+            repeatMinutes = repeat,
+            path = json.optString("path").takeIf { it.isNotBlank() }
+                ?: json.optString("filePath").takeIf { it.isNotBlank() }
+                ?: json.optString("file").takeIf { it.isNotBlank() },
+            startLine = json.optInt("startLine", -1).takeIf { it > 0 }
+                ?: json.optInt("start_line", -1).takeIf { it > 0 },
+            endLine = json.optInt("endLine", -1).takeIf { it > 0 }
+                ?: json.optInt("end_line", -1).takeIf { it > 0 },
+            content = json.optString("content").takeIf { it.isNotBlank() }
+                ?: json.optString("text").takeIf { it.isNotBlank() },
+            targetContent = json.optString("targetContent").takeIf { it.isNotBlank() }
+                ?: json.optString("target_content").takeIf { it.isNotBlank() }
+                ?: json.optString("find").takeIf { it.isNotBlank() },
+            replacementContent = json.optString("replacementContent").takeIf { it.isNotBlank() }
+                ?: json.optString("replacement_content").takeIf { it.isNotBlank() }
+                ?: json.optString("replaceWith").takeIf { it.isNotBlank() }
+                ?: json.optString("replacement").takeIf { it.isNotBlank() },
+            allowMultiple = json.takeIf { it.has("allowMultiple") }?.optBoolean("allowMultiple")
+                ?: json.takeIf { it.has("allow_multiple") }?.optBoolean("allow_multiple"),
+            isRegex = json.takeIf { it.has("isRegex") }?.optBoolean("isRegex")
+                ?: json.takeIf { it.has("is_regex") }?.optBoolean("is_regex"),
+            row = json.optInt("row", -1).takeIf { it >= 0 },
+            col = json.optInt("col", -1).takeIf { it >= 0 }
+                ?: json.optInt("column", -1).takeIf { it >= 0 },
+            value = json.optString("value").takeIf { it.isNotBlank() },
+            overwrite = json.takeIf { it.has("overwrite") }?.optBoolean("overwrite")
         )
     }
 }

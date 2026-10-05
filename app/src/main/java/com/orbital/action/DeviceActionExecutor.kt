@@ -681,25 +681,31 @@ open class DeviceActionExecutor(private val context: Context) {
         val cameraManager = context.getSystemService(CameraManager::class.java)
             ?: return ActionResult.Error("Camera service is unavailable")
 
-        val cameraId = try {
-            val list = cameraManager.cameraIdList
-            list.firstOrNull { id ->
-                try {
-                    cameraManager.getCameraCharacteristics(id).get(CameraCharacteristics.FLASH_INFO_AVAILABLE) == true
-                } catch (_: Exception) {
-                    false
-                }
-            } ?: if (list.isNotEmpty()) list[0] else "0"
-        } catch (_: Exception) {
-            "0"
+        val cameraIds = try {
+            cameraManager.cameraIdList.toList()
+        } catch (e: Exception) {
+            emptyList()
         }
 
-        return try {
-            cameraManager.setTorchMode(cameraId, enabled)
-            ActionResult.Success("Flashlight ${if (enabled) "on" else "off"}")
-        } catch (e: Exception) {
-            ActionResult.Error("Flashlight toggle failed: ${e.message ?: "Camera unavailable"}")
+        val candidates = (cameraIds + listOf("1", "2", "3", "4", "5", "0")).distinct()
+        if (candidates.isEmpty()) {
+            return ActionResult.Error("No camera hardware found on device")
         }
+
+        var lastError: String? = null
+        for (id in candidates) {
+            try {
+                android.util.Log.d("DeviceActionExecutor", "Attempting setTorchMode on camera ID: $id")
+                cameraManager.setTorchMode(id, enabled)
+                android.util.Log.d("DeviceActionExecutor", "Successfully setTorchMode on camera ID: $id")
+                return ActionResult.Success("Flashlight ${if (enabled) "on" else "off"}")
+            } catch (e: Exception) {
+                android.util.Log.w("DeviceActionExecutor", "Camera $id setTorchMode failed: ${e.message}")
+                lastError = "Camera $id: ${e.message}"
+            }
+        }
+
+        return ActionResult.Error("Flashlight toggle failed: ${lastError ?: "No flash-capable camera found"}")
     }
 
     fun setSoundMode(mode: String): ActionResult {
@@ -1227,7 +1233,25 @@ open class DeviceActionExecutor(private val context: Context) {
                 iconHint = "📱"
             )
         }
-        searchEngine.setIndex(installedApps)
+        val fileItems = try {
+            val downloadDir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
+            val files = downloadDir?.listFiles() ?: emptyArray()
+            files.map { f ->
+                com.orbital.search.SearchableItem(
+                    id = f.absolutePath,
+                    title = f.name,
+                    subtitle = f.absolutePath,
+                    category = com.orbital.search.SearchCategory.FILE,
+                    keywords = listOf("file", "download", f.extension.lowercase()),
+                    actionPayload = f.absolutePath,
+                    iconHint = "📄"
+                )
+            }
+        } catch (_: Exception) {
+            emptyList()
+        }
+        val allItems = installedApps + fileItems
+        searchEngine.setIndex(allItems)
         val results = searchEngine.search(trimmed, maxResults = 5)
 
         if (results.isEmpty()) {

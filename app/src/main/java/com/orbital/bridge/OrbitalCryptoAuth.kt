@@ -119,12 +119,13 @@ class OrbitalCryptoAuth @Inject constructor(
     fun verifyIncomingMessage(message: BridgeMessage): Boolean {
         val secret = activeSessionToken
 
-        // Pairing is only valid after the QR-provisioned session key is present.
-        if (message.type == "PAIRING" || message.type == "PAIRING_ACK") {
-            if (secret.isNullOrBlank() || message.token != secret) {
+        // Pairing ACK is valid if session is already established with matching token OR if transitioning to active session
+        if (message.type == "PAIRING_ACK") {
+            if (!secret.isNullOrBlank() && message.token != secret) {
                 Log.w(TAG, "❌ Rejected pairing message: session token mismatch.")
                 return false
             }
+            return true
         }
 
         if (secret.isNullOrBlank()) {

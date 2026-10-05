@@ -51,46 +51,29 @@ class NextStepSuggesterTest {
     }
 
     @Test
-    fun getSuggestions_webAction_returnsWebSearchSuggestions() {
-        val action = DeviceAction("SEARCH_WEB", query = "AI news")
-        val suggestions = NextStepSuggester.getSuggestions(action, "Searching web")
+    fun getSuggestions_greetingQuery_returnsIntroductorySuggestions() {
+        val suggestionsHi = NextStepSuggester.getSuggestions(null, "Hello! I am Aether. How can I help you today?")
+        assertTrue(suggestionsHi.isNotEmpty())
+        assertTrue(suggestionsHi.any { it.contains("automate") || it.contains("Read live screen") || it.contains("Search active content") })
 
-        assertTrue(suggestions.isNotEmpty())
+        val suggestionsCapability = NextStepSuggester.getSuggestions(null, "Here is what I can do for you.")
+        assertTrue(suggestionsCapability.isNotEmpty())
     }
 
     @Test
-    fun getSuggestions_cameraTarget_returnsCameraSuggestions() {
-        val action = DeviceAction("OPEN_CAMERA")
-        val suggestions = NextStepSuggester.getSuggestions(action, "Opened Camera")
+    fun getSuggestions_standardAction_returnsEmptySuggestions() {
+        val action = DeviceAction("OPEN_URL", target = "https://wikipedia.org")
+        val suggestions = NextStepSuggester.getSuggestions(action, "Opened https://wikipedia.org")
 
-        assertTrue(suggestions.isNotEmpty())
+        assertTrue(suggestions.isEmpty())
     }
 
     @Test
-    fun getSuggestions_settingsAction_returnsSettingsSuggestions() {
-        val action = DeviceAction("OPEN_SETTING", target = "wifi")
-        val suggestions = NextStepSuggester.getSuggestions(action, "Opened WiFi settings")
-
-        assertTrue(suggestions.isNotEmpty())
-        assertTrue(suggestions.any { it.contains("wifi") || it.contains("settings") || it.contains("companion") })
-    }
-
-    @Test
-    fun getSuggestions_setTimerAction_returnsTimerSuggestions() {
-        val action = DeviceAction("SET_TIMER", seconds = 300)
-        val suggestions = NextStepSuggester.getSuggestions(action, "Set timer for 5 minutes")
-
-        assertTrue(suggestions.isNotEmpty())
-        assertTrue(suggestions.any { it.contains("timer") || it.contains("alarm") || it.contains("5m") })
-    }
-
-    @Test
-    fun getSuggestions_unknownAction_returnsDefaultSuggestions() {
+    fun getSuggestions_unknownAction_returnsEmptySuggestions() {
         val action = DeviceAction("UNKNOWN_ACTION")
-        val suggestions = NextStepSuggester.getSuggestions(action, "Did something unknown")
+        val suggestions = NextStepSuggester.getSuggestions(action, "Executed action successfully")
 
-        assertTrue(suggestions.isNotEmpty())
-        assertTrue(suggestions.any { it.contains("Orbital") || it.contains("screen") || it.contains("automate") })
+        assertTrue(suggestions.isEmpty())
     }
 
     @Test

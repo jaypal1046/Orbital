@@ -9,6 +9,8 @@ import com.orbital.automation.OrbitalAccessibilityService
 import com.orbital.chat.ChatEngine
 import com.orbital.data.db.ChatHistoryRepository
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.util.UUID
 import javax.inject.Inject
@@ -26,6 +28,7 @@ class BridgeActionDispatcher @Inject constructor(
     var activeChatEngine: ChatEngine? = chatEngine
     private val resolvedObstacleEngine = obstacleEngine ?: com.orbital.automation.ObstacleClearanceEngine()
     private val resolvedVerificationEngine = verificationEngine ?: com.orbital.foreman.StateVerificationEngine()
+    private val actionMutex = Mutex()
 
     companion object {
         private const val TAG = "BridgeActionDispatcher"
@@ -242,28 +245,33 @@ class BridgeActionDispatcher @Inject constructor(
 
             BridgeActionType.CUSTOM_PROMPT -> {
                 val prompt = customPrompt ?: targetText.orEmpty()
-                val naturalAction = com.orbital.action.ActionParser.parseNaturalIntent(prompt)
-                if (naturalAction != null) {
-                    val result = actionExecutor.execute(naturalAction)
-                    val details = when (result) {
-                        is ActionResult.Success -> listOfNotNull(result.message, result.details).joinToString("\n")
-                        is ActionResult.Error -> result.errorMessage
-                    }
-                    (result is ActionResult.Success) to details
+                val slashResult = com.orbital.chat.SlashCommandRouter.route(prompt, context)
+                if (slashResult is com.orbital.chat.SlashCommandResult.HandledLocally) {
+                    true to slashResult.responseMarkdown
                 } else {
-                    val parsed = com.orbital.action.ActionParser.parse(prompt)
-                    if (parsed.actions.isNotEmpty()) {
-                        val results = parsed.actions.map { act -> actionExecutor.execute(act) }
-                        val allOk = results.all { it is ActionResult.Success }
-                        val out = results.joinToString("\n") { res ->
-                            when (res) {
-                                is ActionResult.Success -> listOfNotNull(res.message, res.details).joinToString("\n")
-                                is ActionResult.Error -> res.errorMessage
-                            }
+                    val naturalAction = com.orbital.action.ActionParser.parseNaturalIntent(prompt)
+                    if (naturalAction != null) {
+                        val result = actionExecutor.execute(naturalAction)
+                        val details = when (result) {
+                            is ActionResult.Success -> listOfNotNull(result.message, result.details).joinToString("\n")
+                            is ActionResult.Error -> result.errorMessage
                         }
-                        allOk to out
+                        (result is ActionResult.Success) to details
                     } else {
-                        true to "Processed task: $prompt"
+                        val parsed = com.orbital.action.ActionParser.parse(prompt)
+                        if (parsed.actions.isNotEmpty()) {
+                            val results = parsed.actions.map { act -> actionExecutor.execute(act) }
+                            val allOk = results.all { it is ActionResult.Success }
+                            val out = results.joinToString("\n") { res ->
+                                when (res) {
+                                    is ActionResult.Success -> listOfNotNull(res.message, res.details).joinToString("\n")
+                                    is ActionResult.Error -> res.errorMessage
+                                }
+                            }
+                            allOk to out
+                        } else {
+                            true to "Processed task: $prompt"
+                        }
                     }
                 }
             }
@@ -277,253 +285,234 @@ class BridgeActionDispatcher @Inject constructor(
     /**
      * Executes a received bridge action on the device with full state and session persistence.
      */
-    suspend fun dispatchAction(action: ActionPayload): ActionResultPayload = withContext(Dispatchers.Main) {
-        val startTime = System.currentTimeMillis()
-        val service = OrbitalAccessibilityService.instance
+    suspend fun dispatchAction(action: ActionPayload): ActionResultPayload = actionMutex.withLock {
+        withContext(Dispatchers.Main) {
+            val startTime = System.currentTimeMillis()
+            val service = OrbitalAccessibilityService.instance
 
-        try {
-            when (action.actionType) {
-                BridgeActionType.EXECUTE_BATCH -> {
-                    val steps = action.batchSteps.orEmpty()
-                    val results = mutableListOf<BatchStepResult>()
-                    var allSuccess = true
-                    val stopOnError = action.stopOnError
+            try {
+                when (action.actionType) {
+                    BridgeActionType.EXECUTE_BATCH -> {
+                        val steps = action.batchSteps.orEmpty()
+                        val results = mutableListOf<BatchStepResult>()
+                        var allSuccess = true
+                        val stopOnError = action.stopOnError
 
-                    val targetSessionId = action.sessionId ?: UUID.randomUUID().toString()
-                    val sessionTitle = action.sessionTitle ?: "🤖 Automation Plan (${steps.size} steps)"
+                        val targetSessionId = action.sessionId ?: UUID.randomUUID().toString()
+                        val sessionTitle = action.sessionTitle ?: "🤖 Automation Plan (${steps.size} steps)"
 
-                    // Save initial user intent into Room database
-                    if (action.createNewSession || action.sessionTitle != null) {
-                        chatHistoryRepository?.saveMessage(
-                            role = "user",
-                            content = "Execute automation plan:\n" + steps.mapIndexed { idx, s ->
-                                "${idx + 1}. ${s.actionType} ${s.targetText ?: s.packageName ?: s.deviceAction ?: s.keyCode ?: s.textToType ?: ""}"
-                            }.joinToString("\n"),
-                            sessionId = targetSessionId,
-                            sessionTitle = sessionTitle
-                        )
-                        val engine = activeChatEngine ?: chatEngine
-                        engine?.newSession(targetSessionId, sessionTitle)
-                        engine?.loadSession(targetSessionId)
-                    }
-
-                    for (step in steps) {
-                        val stepStart = System.currentTimeMillis()
-                        val (stepOk, stepMsg) = executeSingleStep(
-                            actionType = step.actionType,
-                            targetText = step.targetText,
-                            targetId = step.targetId,
-                            coordinates = step.coordinates,
-                            startCoordinates = step.startCoordinates,
-                            endCoordinates = step.endCoordinates,
-                            swipeDirection = step.swipeDirection,
-                            textToType = step.textToType,
-                            packageName = step.packageName,
-                            keyCode = step.keyCode,
-                            deviceAction = step.deviceAction,
-                            enabled = step.enabled,
-                            query = step.query,
-                            url = step.url,
-                            target = step.target,
-                            customPrompt = step.customPrompt,
-                            service = service
-                        )
-
-                        var finalOk = stepOk
-                        var finalMsg = stepMsg
-
-                        // Apply post-action delay before screen inspection/assertion to ensure UI settles
-                        if (step.delayAfterMs > 0) {
-                            kotlinx.coroutines.delay(step.delayAfterMs)
-                        }
-
-                        // Post-step assertion check if specified
-                        if (finalOk && !step.assertionText.isNullOrBlank()) {
-                            val assertionQuery = step.assertionText
-                            val snap = service?.captureScreenHierarchy()
-                            val criterion = when {
-                                assertionQuery.startsWith("absent:", ignoreCase = true) ->
-                                    com.orbital.foreman.StateVerificationCriterion.ElementAbsent(assertionQuery.substringAfter("absent:").trim())
-                                assertionQuery.startsWith("pkg:", ignoreCase = true) ->
-                                    com.orbital.foreman.StateVerificationCriterion.PackageMatches(assertionQuery.substringAfter("pkg:").trim())
-                                else ->
-                                    com.orbital.foreman.StateVerificationCriterion.ContainsText(assertionQuery)
-                            }
-                            val verdict = resolvedVerificationEngine.verify(snap, criterion)
-                            if (!verdict.isVerified) {
-                                finalOk = false
-                                finalMsg = "Assertion failed: ${verdict.reason}"
-                            }
-                        }
-
-                        val stepDuration = System.currentTimeMillis() - stepStart
-                        results.add(
-                            BatchStepResult(
-                                stepIndex = step.stepIndex,
-                                actionType = step.actionType,
-                                success = finalOk,
-                                message = finalMsg,
-                                durationMs = stepDuration
-                            )
-                        )
-
-                        if (!finalOk) {
-                            allSuccess = false
-                            if (stopOnError) {
-                                break
-                            }
-                        }
-                    }
-
-                    val state = captureScreenState()
-                    val summary = "Executed ${results.size}/${steps.size} steps. Success: $allSuccess"
-
-                    // Persist completion record to Room DB
-                    chatHistoryRepository?.saveMessage(
-                        role = "assistant",
-                        content = summary + "\n\n" + results.joinToString("\n") { r ->
-                            "${if (r.success) "✅" else "❌"} Step ${r.stepIndex + 1} (${r.actionType}): ${r.message} (${r.durationMs}ms)"
-                        },
-                        actionLabel = "🤖 Batch Plan (${results.count { it.success }}/${steps.size})",
-                        actionDetails = summary,
-                        sessionId = targetSessionId,
-                        sessionTitle = sessionTitle
-                    )
-
-                    ActionResultPayload(
-                        actionId = action.actionId,
-                        success = allSuccess,
-                        message = summary,
-                        aiResponse = summary,
-                        executionDurationMs = System.currentTimeMillis() - startTime,
-                        updatedScreenState = state,
-                        batchStepResults = results,
-                        sessionId = targetSessionId,
-                        sessionTitle = sessionTitle
-                    )
-                }
-
-                BridgeActionType.MANAGE_SESSION -> {
-                    val cmd = action.sessionCommand?.uppercase() ?: "LIST"
-                    when (cmd) {
-                        "LIST" -> {
-                            val summaries = chatHistoryRepository?.loadSessionSummaries() ?: emptyList()
-                            val dtos = summaries.map {
-                                SessionSummaryDto(
-                                    id = it.id,
-                                    title = it.title,
-                                    preview = it.preview,
-                                    updatedAt = it.updatedAt
-                                )
-                            }
-                            ActionResultPayload(
-                                actionId = action.actionId,
-                                success = true,
-                                message = "Retrieved ${dtos.size} chat sessions",
-                                sessionsList = dtos,
-                                executionDurationMs = System.currentTimeMillis() - startTime
-                            )
-                        }
-                        "NEW" -> {
-                            val newId = action.sessionId ?: UUID.randomUUID().toString()
-                            val title = action.sessionTitle ?: "New Task Session"
+                        // Save initial user intent into Room database
+                        if (action.createNewSession || action.sessionTitle != null) {
                             chatHistoryRepository?.saveMessage(
-                                role = "system",
-                                content = "Session initialized: $title",
-                                sessionId = newId,
-                                sessionTitle = title
+                                role = "user",
+                                content = "Execute automation plan:\n" + steps.mapIndexed { idx, s ->
+                                    "${idx + 1}. ${s.actionType} ${s.targetText ?: s.packageName ?: s.deviceAction ?: s.keyCode ?: s.textToType ?: ""}"
+                                }.joinToString("\n"),
+                                sessionId = targetSessionId,
+                                sessionTitle = sessionTitle
                             )
                             val engine = activeChatEngine ?: chatEngine
-                            engine?.newSession(newId, title)
-                            ActionResultPayload(
-                                actionId = action.actionId,
-                                success = true,
-                                message = "Created new chat session: $title",
-                                sessionId = newId,
-                                sessionTitle = title,
-                                executionDurationMs = System.currentTimeMillis() - startTime
-                            )
+                            engine?.newSession(targetSessionId, sessionTitle)
+                            engine?.loadSession(targetSessionId)
                         }
-                        "LOAD" -> {
-                            val targetId = action.sessionId.orEmpty()
-                            if (targetId.isNotBlank()) {
-                                val engine = activeChatEngine ?: chatEngine
-                                engine?.loadSession(targetId)
-                            }
-                            ActionResultPayload(
-                                actionId = action.actionId,
-                                success = targetId.isNotBlank(),
-                                message = "Loaded session $targetId",
-                                sessionId = targetId,
-                                executionDurationMs = System.currentTimeMillis() - startTime
-                            )
-                        }
-                        "RENAME" -> {
-                            val targetId = action.sessionId.orEmpty()
-                            val title = action.sessionTitle ?: "Untitled Session"
-                            if (targetId.isNotBlank()) {
-                                chatHistoryRepository?.renameSession(targetId, title)
-                                val engine = activeChatEngine ?: chatEngine
-                                engine?.renameSession(targetId, title)
-                            }
-                            ActionResultPayload(
-                                actionId = action.actionId,
-                                success = targetId.isNotBlank(),
-                                message = "Renamed session $targetId to '$title'",
-                                sessionId = targetId,
-                                sessionTitle = title,
-                                executionDurationMs = System.currentTimeMillis() - startTime
-                            )
-                        }
-                        else -> {
-                            ActionResultPayload(
-                                actionId = action.actionId,
-                                success = false,
-                                message = "Unknown session command: $cmd",
-                                executionDurationMs = System.currentTimeMillis() - startTime
-                            )
-                        }
-                    }
-                }
 
-                BridgeActionType.CUSTOM_PROMPT -> {
-                    val prompt = action.customPrompt ?: action.targetText.orEmpty()
-                    val targetSessionId = action.sessionId ?: UUID.randomUUID().toString()
-                    val sessionTitle = action.sessionTitle ?: prompt.take(50)
-                    var aiOutput = ""
-                    var success = false
+                        for (step in steps) {
+                            val stepStart = System.currentTimeMillis()
+                            val (stepOk, stepMsg) = executeSingleStep(
+                                actionType = step.actionType,
+                                targetText = step.targetText,
+                                targetId = step.targetId,
+                                coordinates = step.coordinates,
+                                startCoordinates = step.startCoordinates,
+                                endCoordinates = step.endCoordinates,
+                                swipeDirection = step.swipeDirection,
+                                textToType = step.textToType,
+                                packageName = step.packageName,
+                                keyCode = step.keyCode,
+                                deviceAction = step.deviceAction,
+                                enabled = step.enabled,
+                                query = step.query,
+                                url = step.url,
+                                target = step.target,
+                                customPrompt = step.customPrompt,
+                                service = service
+                            )
 
-                    // Bind session if requested
-                    if (action.createNewSession || action.sessionTitle != null) {
+                            var finalOk = stepOk
+                            var finalMsg = stepMsg
+
+                            // Apply post-action delay before screen inspection/assertion to ensure UI settles
+                            if (step.delayAfterMs > 0) {
+                                kotlinx.coroutines.delay(step.delayAfterMs)
+                            }
+
+                            // Post-step assertion check if specified
+                            if (finalOk && !step.assertionText.isNullOrBlank()) {
+                                val assertionQuery = step.assertionText
+                                val snap = service?.captureScreenHierarchy()
+                                val criterion = when {
+                                    assertionQuery.startsWith("absent:", ignoreCase = true) ->
+                                        com.orbital.foreman.StateVerificationCriterion.ElementAbsent(assertionQuery.substringAfter("absent:").trim())
+                                    assertionQuery.startsWith("pkg:", ignoreCase = true) ->
+                                        com.orbital.foreman.StateVerificationCriterion.PackageMatches(assertionQuery.substringAfter("pkg:").trim())
+                                    else ->
+                                        com.orbital.foreman.StateVerificationCriterion.ContainsText(assertionQuery)
+                                }
+                                val verdict = resolvedVerificationEngine.verify(snap, criterion)
+                                if (!verdict.isVerified) {
+                                    finalOk = false
+                                    finalMsg = "Assertion failed: ${verdict.reason}"
+                                }
+                            }
+
+                            val stepDuration = System.currentTimeMillis() - stepStart
+                            results.add(
+                                BatchStepResult(
+                                    stepIndex = step.stepIndex,
+                                    actionType = step.actionType,
+                                    success = finalOk,
+                                    message = finalMsg,
+                                    durationMs = stepDuration
+                                )
+                            )
+
+                            if (!finalOk) {
+                                allSuccess = false
+                                if (stopOnError) {
+                                    break
+                                }
+                            }
+                        }
+
+                        val state = captureScreenState()
+                        val summary = "Executed ${results.size}/${steps.size} steps. Success: $allSuccess"
+
+                        // Persist completion record to Room DB
                         chatHistoryRepository?.saveMessage(
-                            role = "user",
-                            content = prompt,
+                            role = "assistant",
+                            content = summary + "\n\n" + results.joinToString("\n") { r ->
+                                "${if (r.success) "✅" else "❌"} Step ${r.stepIndex + 1} (${r.actionType}): ${r.message} (${r.durationMs}ms)"
+                            },
+                            actionLabel = "🤖 Batch Plan (${results.count { it.success }}/${steps.size})",
+                            actionDetails = summary,
                             sessionId = targetSessionId,
                             sessionTitle = sessionTitle
                         )
+
                         val engine = activeChatEngine ?: chatEngine
-                        engine?.newSession(targetSessionId, sessionTitle)
                         engine?.loadSession(targetSessionId)
+
+                        ActionResultPayload(
+                            actionId = action.actionId,
+                            success = allSuccess,
+                            message = summary,
+                            aiResponse = summary,
+                            executionDurationMs = System.currentTimeMillis() - startTime,
+                            updatedScreenState = state,
+                            batchStepResults = results,
+                            sessionId = targetSessionId,
+                            sessionTitle = sessionTitle
+                        )
                     }
 
-                    // 1. Check for immediate natural device action intents (zero-latency edge execution)
-                    val naturalAction = com.orbital.action.ActionParser.parseNaturalIntent(prompt)
-                    if (naturalAction != null) {
-                        val result = actionExecutor.execute(naturalAction)
-                        success = result is ActionResult.Success
-                        val details = when (result) {
-                            is ActionResult.Success -> listOfNotNull(result.message, result.details).joinToString("\n")
-                            is ActionResult.Error -> result.errorMessage
+                    BridgeActionType.MANAGE_SESSION -> {
+                        val cmd = action.sessionCommand?.uppercase() ?: "LIST"
+                        when (cmd) {
+                            "LIST" -> {
+                                val summaries = chatHistoryRepository?.loadSessionSummaries() ?: emptyList()
+                                val dtos = summaries.map {
+                                    SessionSummaryDto(
+                                        id = it.id,
+                                        title = it.title,
+                                        preview = it.preview,
+                                        updatedAt = it.updatedAt
+                                    )
+                                }
+                                ActionResultPayload(
+                                    actionId = action.actionId,
+                                    success = true,
+                                    message = "Retrieved ${dtos.size} chat sessions",
+                                    sessionsList = dtos,
+                                    executionDurationMs = System.currentTimeMillis() - startTime
+                                )
+                            }
+                            "NEW" -> {
+                                val newId = action.sessionId ?: UUID.randomUUID().toString()
+                                val title = action.sessionTitle ?: "New Task Session"
+                                chatHistoryRepository?.saveMessage(
+                                    role = "system",
+                                    content = "Session initialized: $title",
+                                    sessionId = newId,
+                                    sessionTitle = title
+                                )
+                                val engine = activeChatEngine ?: chatEngine
+                                engine?.newSession(newId, title)
+                                ActionResultPayload(
+                                    actionId = action.actionId,
+                                    success = true,
+                                    message = "Created new chat session: $title",
+                                    sessionId = newId,
+                                    sessionTitle = title,
+                                    executionDurationMs = System.currentTimeMillis() - startTime
+                                )
+                            }
+                            "LOAD" -> {
+                                val targetId = action.sessionId.orEmpty()
+                                if (targetId.isNotBlank()) {
+                                    val engine = activeChatEngine ?: chatEngine
+                                    engine?.loadSession(targetId)
+                                }
+                                ActionResultPayload(
+                                    actionId = action.actionId,
+                                    success = targetId.isNotBlank(),
+                                    message = "Loaded session $targetId",
+                                    sessionId = targetId,
+                                    executionDurationMs = System.currentTimeMillis() - startTime
+                                )
+                            }
+                            "RENAME" -> {
+                                val targetId = action.sessionId.orEmpty()
+                                val title = action.sessionTitle ?: "Untitled Session"
+                                if (targetId.isNotBlank()) {
+                                    chatHistoryRepository?.renameSession(targetId, title)
+                                    val engine = activeChatEngine ?: chatEngine
+                                    engine?.renameSession(targetId, title)
+                                }
+                                ActionResultPayload(
+                                    actionId = action.actionId,
+                                    success = targetId.isNotBlank(),
+                                    message = "Renamed session $targetId to '$title'",
+                                    sessionId = targetId,
+                                    sessionTitle = title,
+                                    executionDurationMs = System.currentTimeMillis() - startTime
+                                )
+                            }
+                            else -> {
+                                ActionResultPayload(
+                                    actionId = action.actionId,
+                                    success = false,
+                                    message = "Unknown session command: $cmd",
+                                    executionDurationMs = System.currentTimeMillis() - startTime
+                                )
+                            }
                         }
-                        aiOutput = details
+                    }
+
+                    BridgeActionType.CUSTOM_PROMPT -> {
+                        val prompt = action.customPrompt ?: action.targetText.orEmpty()
+                        val targetSessionId = action.sessionId ?: UUID.randomUUID().toString()
+                        val sessionTitle = action.sessionTitle ?: prompt.take(50)
+                        var aiOutput = ""
+                        var success = false
+
                         val engine = activeChatEngine ?: chatEngine
-                        engine?.addActionMessage(
-                            content = details,
-                            actionLabel = "⚡ ${naturalAction.action.replace('_', ' ').lowercase().replaceFirstChar { it.uppercase() }}",
-                            actionDetails = details
-                        )
-                    } else {
-                        val engine = activeChatEngine ?: chatEngine
+
+                        // Bind session if requested
+                        if (action.createNewSession || action.sessionTitle != null) {
+                            engine?.newSession(targetSessionId, sessionTitle)
+                            engine?.loadSession(targetSessionId)
+                        }
+
                         if (engine != null && prompt.isNotBlank()) {
                             Log.i(TAG, "⚡ Delegating task to Phone AI (ChatEngine): $prompt")
                             val prevCount = engine.messages.value.size
@@ -544,35 +533,57 @@ class BridgeActionDispatcher @Inject constructor(
                                 ?: "Executed task: $prompt"
                             success = true
                         } else if (prompt.isNotBlank()) {
-                            val parsed = com.orbital.action.ActionParser.parse(prompt)
-                            if (parsed.actions.isNotEmpty()) {
-                                val results = parsed.actions.map { act -> actionExecutor.execute(act) }
-                                success = results.all { it is ActionResult.Success }
-                                aiOutput = results.joinToString("\n") { res ->
-                                    when (res) {
-                                        is ActionResult.Success -> listOfNotNull(res.message, res.details).joinToString("\n")
-                                        is ActionResult.Error -> res.errorMessage
-                                    }
+                            chatHistoryRepository?.saveMessage(
+                                role = "user",
+                                content = prompt,
+                                sessionId = targetSessionId,
+                                sessionTitle = sessionTitle
+                            )
+                            val naturalAction = com.orbital.action.ActionParser.parseNaturalIntent(prompt)
+                            if (naturalAction != null) {
+                                val result = actionExecutor.execute(naturalAction)
+                                success = result is ActionResult.Success
+                                val details = when (result) {
+                                    is ActionResult.Success -> listOfNotNull(result.message, result.details).joinToString("\n")
+                                    is ActionResult.Error -> result.errorMessage
                                 }
+                                aiOutput = details
                             } else {
-                                aiOutput = "Processed task: $prompt"
-                                success = true
+                                val parsed = com.orbital.action.ActionParser.parse(prompt)
+                                if (parsed.actions.isNotEmpty()) {
+                                    val results = parsed.actions.map { act -> actionExecutor.execute(act) }
+                                    success = results.all { it is ActionResult.Success }
+                                    aiOutput = results.joinToString("\n") { res ->
+                                        when (res) {
+                                            is ActionResult.Success -> listOfNotNull(res.message, res.details).joinToString("\n")
+                                            is ActionResult.Error -> res.errorMessage
+                                        }
+                                    }
+                                } else {
+                                    aiOutput = "Processed task: $prompt"
+                                    success = true
+                                }
                             }
+                            chatHistoryRepository?.saveMessage(
+                                role = "assistant",
+                                content = aiOutput,
+                                sessionId = targetSessionId,
+                                sessionTitle = sessionTitle
+                            )
                         }
-                    }
 
-                    val state = captureScreenState()
-                    ActionResultPayload(
-                        actionId = action.actionId,
-                        success = success,
-                        message = "Task executed by Phone AI companion: $aiOutput",
-                        aiResponse = aiOutput,
-                        executionDurationMs = System.currentTimeMillis() - startTime,
-                        updatedScreenState = state,
-                        sessionId = targetSessionId,
-                        sessionTitle = sessionTitle
-                    )
-                }
+                        val state = captureScreenState()
+                        ActionResultPayload(
+                            actionId = action.actionId,
+                            success = success,
+                            message = "Task executed by Phone AI companion: $aiOutput",
+                            aiResponse = aiOutput,
+                            executionDurationMs = System.currentTimeMillis() - startTime,
+                            updatedScreenState = state,
+                            sessionId = targetSessionId,
+                            sessionTitle = sessionTitle
+                        )
+                    }
 
                 BridgeActionType.TAKE_SCREENSHOT -> {
                     var file: java.io.File? = null
@@ -644,3 +655,6 @@ class BridgeActionDispatcher @Inject constructor(
         }
     }
 }
+}
+
+

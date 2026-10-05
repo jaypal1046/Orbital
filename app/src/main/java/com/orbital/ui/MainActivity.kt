@@ -79,7 +79,6 @@ class MainActivity : ComponentActivity() {
         } else {
             chatViewModel.refreshCharacter()
         }
-        chatViewModel.checkForUpdates(force = false)
     }
 
     private fun renderMainChat() {

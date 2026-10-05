@@ -66,9 +66,8 @@ class OrbitalDiscoveryService @Inject constructor(
         .build()
 
     fun startDiscovery() {
-        if (_isSearching.value) return
+        stopDiscovery()
         _isSearching.value = true
-        _discoveredLaptops.value = emptyList()
 
         // 1. Acquire Wi-Fi Multicast Lock for Android OS mDNS packet reception
         try {
@@ -187,6 +186,7 @@ class OrbitalDiscoveryService @Inject constructor(
                     }
                 }.awaitAll()
             }
+            _isSearching.value = false
         }
     }
 
