@@ -889,50 +889,10 @@ fun ActionOutcomeCard(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            lines.forEach { line ->
-                val cleanLine = line.removePrefix("•").trim()
-                if (cleanLine.contains(":") && !cleanLine.startsWith("http")) {
-                    val parts = cleanLine.split(":", limit = 2)
-                    val key = parts[0].trim()
-                    val value = parts.getOrNull(1)?.trim() ?: ""
-
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 3.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = key,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = Color(0xFF94A3B8)
-                        )
-                        Surface(
-                            color = Color(0xFF0B1120),
-                            shape = RoundedCornerShape(6.dp),
-                            border = BorderStroke(0.8.dp, Color(0xFF334155))
-                        ) {
-                            Text(
-                                text = value,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color(0xFFF1F5F9),
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-                            )
-                        }
-                    }
-                } else {
-                    Text(
-                        text = "• $cleanLine",
-                        fontSize = 12.5.sp,
-                        color = Color(0xFFE2E8F0),
-                        lineHeight = 17.sp,
-                        modifier = Modifier.padding(vertical = 2.dp)
-                    )
-                }
-            }
+            FormattedMarkdownContent(
+                content = actionDetails,
+                textColor = Color(0xFFE2E8F0)
+            )
         }
     }
 }

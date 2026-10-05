@@ -11,6 +11,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -65,6 +67,12 @@ fun LaptopBridgeScreen(
 
     LaunchedEffect(Unit) {
         discoveryService.startDiscovery()
+    }
+
+    LaunchedEffect(selectedTab) {
+        if (selectedTab == BridgeTab.NEARBY_DEVICES) {
+            discoveryService.startDiscovery()
+        }
     }
 
     DisposableEffect(Unit) {
@@ -232,6 +240,7 @@ fun LaptopBridgeScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
+                .imePadding()
         ) {
             // Connected Hero Status Card or Multi-tab Pairing Control
             if (connectionState == BridgeConnectionState.CONNECTED) {
@@ -282,9 +291,8 @@ fun LaptopBridgeScreen(
                                     )
                                 }
                                 Spacer(modifier = Modifier.height(4.dp))
-                                val fingerprint = bridgeClient.cryptoAuth.getFingerprint()
                                 Text(
-                                    text = if (fingerprint != "UNAUTHENTICATED") "Key: 0x$fingerprint" else "TLS Session Active",
+                                    text = "Secure Tunnel Active",
                                     fontSize = 11.sp,
                                     fontFamily = FontFamily.Monospace,
                                     color = Color(0xFF38BDF8)
@@ -439,8 +447,8 @@ fun LaptopBridgeScreen(
                 onClearLogs = { bridgeClient.clearLogs() },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(if (connectionState == BridgeConnectionState.CONNECTED) 360.dp else 180.dp)
-                    .padding(horizontal = 16.dp, vertical = 6.dp)
+                    .height(if (connectionState == BridgeConnectionState.CONNECTED) 360.dp else if (selectedTab == BridgeTab.MANUAL_PIN) 120.dp else 170.dp)
+                    .padding(horizontal = 16.dp, vertical = 4.dp)
             )
         }
     }
@@ -625,6 +633,7 @@ fun ManualPinView(
     onConnect: () -> Unit
 ) {
     val clipboardManager = LocalClipboardManager.current
+    val scrollState = rememberScrollState()
 
     Column(
         modifier = Modifier
@@ -632,41 +641,43 @@ fun ManualPinView(
             .clip(RoundedCornerShape(18.dp))
             .background(Color(0xFF101426))
             .border(1.dp, Color(0xFF1E293B), RoundedCornerShape(18.dp))
-            .padding(18.dp),
-        verticalArrangement = Arrangement.Center,
+            .verticalScroll(scrollState)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.Top,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
+        Spacer(modifier = Modifier.height(4.dp))
         Box(
             modifier = Modifier
-                .size(48.dp)
+                .size(40.dp)
                 .clip(CircleShape)
                 .background(Color(0xFF7C3AED).copy(alpha = 0.2f)),
             contentAlignment = Alignment.Center
         ) {
-            Text("⌨️", fontSize = 24.sp)
+            Text("⌨️", fontSize = 20.sp)
         }
-        Spacer(modifier = Modifier.height(10.dp))
+        Spacer(modifier = Modifier.height(6.dp))
         Text(
             text = "Enter Laptop PIN or Host IP",
             color = Color.White,
             fontWeight = FontWeight.Bold,
             fontSize = 15.sp
         )
-        Spacer(modifier = Modifier.height(4.dp))
+        Spacer(modifier = Modifier.height(2.dp))
         Text(
-            text = "Enter pairing PIN (e.g. 'ORB-5057') or host IP:port",
+            text = "Enter pairing PIN (e.g. 'ORB-1045') or host IP:port",
             color = Color(0xFF94A3B8),
             fontSize = 12.sp,
             textAlign = TextAlign.Center
         )
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(12.dp))
 
         OutlinedTextField(
             value = manualInput,
             onValueChange = onInputChange,
             placeholder = {
                 Text(
-                    text = "e.g. 192.168.1.5:8765 or ORB-5057",
+                    text = "e.g. 192.168.1.5:8765 or ORB-1045",
                     color = Color(0xFF64748B),
                     fontSize = 13.5.sp
                 )
@@ -704,10 +715,12 @@ fun ManualPinView(
                 cursorColor = Color(0xFF38BDF8)
             ),
             shape = RoundedCornerShape(12.dp),
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier
+                .fillMaxWidth()
+                .defaultMinSize(minHeight = 54.dp)
         )
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(12.dp))
 
         Button(
             onClick = onConnect,
@@ -723,6 +736,7 @@ fun ManualPinView(
         ) {
             Text("⚡ Connect to Bridge", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
         }
+        Spacer(modifier = Modifier.height(8.dp))
     }
 }
 

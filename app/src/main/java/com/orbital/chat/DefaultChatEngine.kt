@@ -166,6 +166,36 @@ class DefaultChatEngine @Inject constructor(
 
         val effectiveQuery = (slashResult as? SlashCommandResult.PassThroughWithAugmentedPrompt)?.augmentedPrompt ?: message
 
+        // 1. Check for immediate natural device action intents (zero-latency edge execution)
+        val naturalAction = ActionParser.parseNaturalIntent(effectiveQuery)
+        if (naturalAction != null) {
+            val result = kotlinx.coroutines.withContext(Dispatchers.IO) {
+                deviceActionExecutor.execute(naturalAction)
+            }
+            val label = "⚡ " + naturalAction.action.replace('_', ' ').lowercase().replaceFirstChar { it.uppercase() }
+            val fullContent = when (result) {
+                is ActionResult.Success -> result.details ?: result.message ?: "Action completed."
+                is ActionResult.Error -> result.errorMessage
+            }
+
+            _messages.update { currentMessages ->
+                currentMessages + ChatMessage(
+                    role = "assistant",
+                    content = fullContent,
+                    actionLabel = label,
+                    actionDetails = null
+                )
+            }
+            persistMessage(
+                role = "assistant",
+                content = fullContent,
+                actionLabel = label,
+                actionDetails = null
+            )
+            isStreaming.value = false
+            return
+        }
+
         val activeType = llmRepository.getCurrentProviderType() ?: ProviderType.GROQ
         activeProvider.value = activeType.name
 

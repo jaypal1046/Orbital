@@ -212,6 +212,7 @@ fun InAppChatScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(innerPadding)
+                    .imePadding()
             ) {
                 // Offline Warning Banner
                 androidx.compose.animation.AnimatedVisibility(

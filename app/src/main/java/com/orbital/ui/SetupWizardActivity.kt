@@ -69,7 +69,11 @@ class SetupWizardActivity : ComponentActivity() {
         setContent {
             OrbitalTheme {
                 Surface(
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .statusBarsPadding()
+                        .navigationBarsPadding()
+                        .imePadding(),
                     color = OrbitalTokens.Background
                 ) {
                     OnboardingWizard(

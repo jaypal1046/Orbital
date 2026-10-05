@@ -6,6 +6,34 @@ package com.orbital.action
  */
 object NextStepSuggester {
 
+    fun isGreetingOrCapabilityQuery(text: String): Boolean {
+        val lower = text.lowercase().trim()
+        val normalized = lower.replace(Regex("[^a-z0-9\\s]"), " ").trim()
+        val words = normalized.split("\\s+".toRegex()).filter { it.isNotBlank() }
+
+        val greetingWords = setOf("hi", "hello", "hey", "hola", "greetings", "yo", "sup", "help", "start")
+        if (words.any { it in greetingWords } && words.size <= 4) return true
+
+        return lower.contains("what can you do") ||
+                lower.contains("what do you do") ||
+                lower.contains("how can you help") ||
+                lower.contains("how do you work") ||
+                lower.contains("who are you") ||
+                lower.contains("what are your capabilities") ||
+                lower.contains("what can i do") ||
+                lower.contains("what i can do") ||
+                lower.contains("what i do") ||
+                lower.contains("features") ||
+                lower.contains("capabilities") ||
+                lower.contains("help me") ||
+                lower.contains("i am aether") ||
+                lower.contains("i'm aether") ||
+                lower.contains("i am orbital") ||
+                lower.contains("i'm orbital") ||
+                lower.contains("how may i help") ||
+                lower.contains("how can i assist")
+    }
+
     fun getSuggestions(action: DeviceAction?, responseText: String = ""): List<String> {
         val lowerResponse = responseText.lowercase()
         val query = action?.query?.trim()
@@ -25,7 +53,7 @@ object NextStepSuggester {
                 lowerResponse.contains("empty")
 
         // 1. Dynamic Recovery Options for Failures / Empty results
-        if (isFailureOrEmpty) {
+        if (isFailureOrEmpty && action != null) {
             val recoveryList = mutableListOf<String>()
             recoveryList.add("📋 Re-scan active screen")
             if (query.isNotBlank()) {
@@ -58,66 +86,36 @@ object NextStepSuggester {
                     suggestions.add("⏱️ Check active timers and alarms")
                 }
                 suggestions.add("⏰ Set another alarm or timer")
-                suggestions.add("🏠 Return to companion")
-            }
-
-            actionType in listOf("OPEN_SETTING", "SETTINGS") -> {
-                if (target.isNotBlank()) {
-                    suggestions.add("⚙️ Toggle $target settings")
-                    suggestions.add("📋 Inspect $target screen")
-                } else {
-                    suggestions.add("⚙️ Check device settings")
-                }
-                suggestions.add("🏠 Return to companion")
             }
 
             actionType in listOf("COMPOSE_EMAIL", "EMAIL", "SEND_EMAIL") -> {
                 suggestions.add(if (query.isNotBlank()) "✉️ Compose email about \"$query\"" else "✉️ Compose new email")
                 suggestions.add("📥 Search unread messages and emails")
-                suggestions.add("📋 Read screen to summarize email")
             }
 
             actionType in listOf("SEND_SMS", "SMS", "SEND_MESSAGE") -> {
                 suggestions.add("💬 Send another message")
                 suggestions.add("📞 Make a quick call")
-                suggestions.add("🏠 Return to companion")
             }
 
             actionType in listOf("PLAY_MUSIC", "PLAY_MEDIA", "PLAY") -> {
                 suggestions.add(if (query.isNotBlank()) "🎵 Play \"$query\"" else "🎵 Play media")
                 suggestions.add("🎧 Open Liked Songs and playlists")
-                suggestions.add("📻 Continue playing music")
             }
 
             actionType in listOf("NAVIGATE", "DIRECTIONS", "MAPS") -> {
                 suggestions.add(if (query.isNotBlank()) "🧭 Navigate to \"$query\"" else "🧭 Start navigation")
                 suggestions.add("🚗 Check live traffic along route")
-                suggestions.add("⛽ Find places along route")
             }
 
-            target.isNotBlank() && query.isNotBlank() -> {
-                suggestions.add("📋 Read live results in $target")
-                suggestions.add("🔍 Continue search for \"$query\"")
-                suggestions.add("📤 Share details from $target")
-                suggestions.add("🏠 Return to companion")
-            }
-
-            target.isNotBlank() -> {
-                suggestions.add("📋 Read active screen in $target")
-                suggestions.add("⚡ Interact with elements in $target")
-                suggestions.add("🏠 Return to companion")
-            }
-
-            query.isNotBlank() -> {
-                suggestions.add("📋 Inspect live screen for \"$query\"")
-                suggestions.add("🌐 Search \"$query\" online")
-                suggestions.add("🔄 Refine query for \"$query\"")
+            isGreetingOrCapabilityQuery(responseText) || isGreetingOrCapabilityQuery(query) -> {
+                suggestions.add("✨ What can we automate next?")
+                suggestions.add("📋 Read live screen")
+                suggestions.add("🔍 Search active content")
             }
 
             else -> {
-                suggestions.add("📋 Read live screen")
-                suggestions.add("🔍 Search active content")
-                suggestions.add("✨ What can we automate next?")
+                // Do not show intrusive generic options for standard queries / actions
             }
         }
 

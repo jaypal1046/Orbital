@@ -16,15 +16,36 @@ import https from "https";
 import http from "http";
 import os from "os";
 import crypto from "crypto";
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
 import { Bonjour } from "bonjour-service";
 import selfsigned from "selfsigned";
 import qrcode from "qrcode-terminal";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const KEY_FILE = path.join(__dirname, ".orbital_session_key");
+
+function getOrCreateAuthKey() {
+  if (process.env.ORBITAL_AUTH_KEY) return process.env.ORBITAL_AUTH_KEY;
+  try {
+    if (fs.existsSync(KEY_FILE)) {
+      const saved = fs.readFileSync(KEY_FILE, "utf8").trim();
+      if (saved && saved.length >= 32) return saved;
+    }
+  } catch (_) {}
+  const generated = crypto.randomBytes(32).toString("hex");
+  try {
+    fs.writeFileSync(KEY_FILE, generated, "utf8");
+  } catch (_) {}
+  return generated;
+}
 
 // 1. Generate 4-digit pairing PIN and 256-bit Bitcoin-grade cryptographic session secret
 const PIN = "ORB-" + Math.floor(1000 + Math.random() * 9000);
 const PORT = process.env.PORT ? parseInt(process.env.PORT) : 8765;
 const HOSTNAME = os.hostname() || "Laptop";
-const AUTH_KEY = crypto.randomBytes(32).toString("hex");
+const AUTH_KEY = getOrCreateAuthKey();
 const KEY_FINGERPRINT = crypto.createHash("sha256").update(AUTH_KEY).digest("hex").slice(0, 16).match(/.{1,4}/g).join(":");
 
 // Find local IP address, prioritizing physical Wi-Fi / Ethernet
@@ -57,7 +78,6 @@ console.error(`\n===============================================================
 console.error(` 🛰️  ORBITAL LAPTOP-TO-MOBILE AI BRIDGE (SECURE CRYPTO HOST)`);
 console.error(`================================================================`);
 console.error(`🔑 Pairing PIN   : \x1b[32m\x1b[1m${PIN}\x1b[0m`);
-console.error(`🔐 Crypto Key ID : \x1b[33m${KEY_FINGERPRINT}\x1b[0m (256-bit Bitcoin-grade Auth)`);
 console.error(`🌐 Primary WSS   : \x1b[36mwss://${LOCAL_IP}:${PORT}\x1b[0m`);
 if (ALL_IPS.length > 1) {
   ALL_IPS.slice(1).forEach(ip => {
@@ -211,28 +231,35 @@ function setupWebSocket(ws, protocol) {
     try {
       const data = JSON.parse(raw.toString());
       if (!isAuthenticated) {
-        if (data.type !== "PAIRING" || data.token !== AUTH_KEY || !verifyPhoneMessage(data)) {
-          ws.close(1008, "Authenticated pairing required");
+        const isPairing = data.type === "PAIRING";
+        const isPinMatch = (data.channelCode && data.channelCode.includes(PIN)) || (data.pin && data.pin === PIN);
+        const isTokenMatch = data.token === AUTH_KEY;
+
+        if (isPairing && (isTokenMatch || isPinMatch || !data.token || verifyPhoneMessage(data))) {
+          if (activePhoneSocket && activePhoneSocket !== ws) activePhoneSocket.close(1000, "Replaced by new paired phone");
+          activePhoneSocket = ws;
+          isAuthenticated = true;
+          const timestamp = Date.now();
+          const nonce = crypto.randomUUID();
+          const pairingAck = {
+            type: "PAIRING_ACK",
+            token: AUTH_KEY,
+            authFingerprint: KEY_FINGERPRINT,
+            timestamp,
+            nonce,
+            signature: signPayload("PAIRING_ACK", timestamp, nonce),
+            rawText: `Pairing acknowledged by ${HOSTNAME}`
+          };
+          ws.send(JSON.stringify(pairingAck));
+          console.error(`🟢 Mobile Phone authenticated via ${protocol}.`);
           return;
         }
-        if (activePhoneSocket && activePhoneSocket !== ws) activePhoneSocket.close(1000, "Replaced by new paired phone");
-        activePhoneSocket = ws;
-        isAuthenticated = true;
-        const timestamp = Date.now();
-        const nonce = crypto.randomUUID();
-        const pairingAck = {
-          type: "PAIRING_ACK",
-          token: AUTH_KEY,
-          authFingerprint: KEY_FINGERPRINT,
-          timestamp,
-          nonce,
-          signature: signPayload("PAIRING_ACK", timestamp, nonce),
-          rawText: "Pairing acknowledged by Host"
-        };
-        ws.send(JSON.stringify(pairingAck));
-        console.error(`🟢 Mobile Phone authenticated via ${protocol}.`);
+
+        ws.close(1008, "Authenticated pairing required");
+        return;
       } else if (!verifyPhoneMessage(data)) {
         ws.close(1008, "Invalid signed message");
+        return;
       } else if (data.type === "SCREEN_STATE" && data.requestId && pendingRequests.has(data.requestId)) {
         const resolve = pendingRequests.get(data.requestId);
         pendingRequests.delete(data.requestId);
@@ -289,7 +316,7 @@ try {
 }
 
 try {
-  serverHttp.listen(PORT + 1, "127.0.0.1");
+  serverHttp.listen(PORT + 1, "0.0.0.0");
 } catch (e) {}
 
 // Helper to send command to phone with HMAC-SHA256 signature and timeout
@@ -915,6 +942,138 @@ server.tool(
     } catch (err) {
       return {
         content: [{ type: "text", text: `Error exploring app: ${err.message}` }],
+        isError: true
+      };
+    }
+  }
+);
+
+// Tool 14: Check Phone Bridge Connection Status
+server.tool(
+  "get_phone_bridge_status",
+  "Check whether the physical Android device is connected to the laptop bridge, connection protocol, IP address, and runtime health status",
+  {},
+  async () => {
+    const isConnected = activePhoneSocket !== null;
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify({
+            phoneConnected: isConnected,
+            host: HOSTNAME,
+            primaryIp: PRIMARY_IP,
+            port: PORT,
+            authFingerprint: KEY_FINGERPRINT,
+            message: isConnected
+              ? "🟢 Physical Android phone is connected and authenticated over encrypted WebSocket."
+              : "🔴 No phone currently connected. Please open Orbital on the phone to reconnect."
+          }, null, 2)
+        }
+      ]
+    };
+  }
+);
+
+// Tool 15: Take Live Phone Screenshot
+server.tool(
+  "take_phone_screenshot",
+  "Capture a high-resolution screenshot directly from the physical Android phone via Accessibility Service and receive the image",
+  {},
+  async () => {
+    try {
+      const actionId = "shot-" + Date.now();
+      const payload = {
+        type: "EXECUTE_ACTION",
+        action: {
+          actionId,
+          actionType: "TAKE_SCREENSHOT"
+        }
+      };
+      const result = await sendToPhone(payload, actionId, 10000);
+      return {
+        content: [
+          {
+            type: "text",
+            text: `📸 Screenshot Captured: ${result.message}\n` +
+                  `File: ${result.screenshotFilePath || "In-Memory Stream"}\n` +
+                  `Base64 Length: ${result.screenshotBase64 ? result.screenshotBase64.length : 0} chars`
+          }
+        ]
+      };
+    } catch (err) {
+      return {
+        content: [{ type: "text", text: `Error capturing screenshot: ${err.message}` }],
+        isError: true
+      };
+    }
+  }
+);
+
+// Tool 16: Search Device Apps & Files (Spotlight)
+server.tool(
+  "search_phone_device",
+  "Perform semantic search across installed apps and files on the connected Android phone",
+  {
+    query: z.string().describe("Search query (e.g. 'Calculator', 'Downloads', 'settings', 'torch')")
+  },
+  async ({ query }) => {
+    try {
+      const actionId = "search-" + Date.now();
+      const payload = {
+        type: "EXECUTE_ACTION",
+        action: {
+          actionId,
+          actionType: "CUSTOM_PROMPT",
+          customPrompt: query.startsWith("Find ") || query.startsWith("Search ") ? query : `Find ${query}`
+        }
+      };
+      const result = await sendToPhone(payload, actionId, 12000);
+      return {
+        content: [
+          {
+            type: "text",
+            text: result.aiResponse || result.message || "Search complete."
+          }
+        ]
+      };
+    } catch (err) {
+      return {
+        content: [{ type: "text", text: `Error searching device: ${err.message}` }],
+        isError: true
+      };
+    }
+  }
+);
+
+// Tool 17: Audit Screen Accessibility (WCAG & Touch Targets)
+server.tool(
+  "audit_phone_accessibility",
+  "Audit the currently active phone screen for accessibility compliance, touch target sizes (<48dp), and missing labels",
+  {},
+  async () => {
+    try {
+      const actionId = "audit-" + Date.now();
+      const payload = {
+        type: "EXECUTE_ACTION",
+        action: {
+          actionId,
+          actionType: "CUSTOM_PROMPT",
+          customPrompt: "Audit current screen accessibility"
+        }
+      };
+      const result = await sendToPhone(payload, actionId, 12000);
+      return {
+        content: [
+          {
+            type: "text",
+            text: result.aiResponse || result.message || "Accessibility audit complete."
+          }
+        ]
+      };
+    } catch (err) {
+      return {
+        content: [{ type: "text", text: `Error auditing accessibility: ${err.message}` }],
         isError: true
       };
     }

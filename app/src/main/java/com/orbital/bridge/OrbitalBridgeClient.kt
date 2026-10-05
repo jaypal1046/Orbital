@@ -116,6 +116,11 @@ class OrbitalBridgeClient @Inject constructor(
         val cleanTarget = target.trim()
         if (cleanTarget.isBlank()) return
 
+        if (cleanTarget.startsWith("orbital://")) {
+            connectFromQr(cleanTarget)
+            return
+        }
+
         disconnect()
         _connectionState.value = BridgeConnectionState.CONNECTING
         _activeChannelCode.value = cleanTarget
@@ -217,6 +222,9 @@ class OrbitalBridgeClient @Inject constructor(
 
         when (msg.type) {
             "PAIRING_ACK" -> {
+                if (!msg.token.isNullOrBlank() && !cryptoAuth.isSessionActive()) {
+                    cryptoAuth.establishSession(msg.token, hostName = msg.rawText ?: "Authorized Laptop")
+                }
                 log("🔒 Handshake complete: Host identity verified (Fingerprint: ${cryptoAuth.getFingerprint()})")
             }
 
@@ -311,8 +319,7 @@ class OrbitalBridgeClient @Inject constructor(
             target
         } else if (target.contains(".")) {
             val portSuffix = if (!target.contains(":")) ":$DEFAULT_LOCAL_PORT" else ""
-            val scheme = if (target.startsWith("192.168.") || target.startsWith("10.") || target.startsWith("172.") || target.startsWith("127.") || target.startsWith("localhost")) "ws" else "wss"
-            "$scheme://$target$portSuffix"
+            "wss://$target$portSuffix"
         } else {
             val cleanCode = target.uppercase().removePrefix("ORB-")
             "$PUBLIC_RELAY_BASE?channel=$cleanCode"

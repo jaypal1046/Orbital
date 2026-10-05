@@ -62,7 +62,10 @@ class CharacterSelectionActivity : ComponentActivity() {
         setContent {
             OrbitalTheme {
                 Surface(
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .statusBarsPadding()
+                        .navigationBarsPadding(),
                     color = OrbitalTokens.Background
                 ) {
                     val currentSelected = remember {

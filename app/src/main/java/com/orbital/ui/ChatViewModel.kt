@@ -175,9 +175,9 @@ class ChatViewModel @Inject constructor(
                     if (lastAssistant != null) {
                         val lastAction = lastAssistant.content?.let { ActionParser.parse(it).actions.firstOrNull() }
                         val suggestions = NextStepSuggester.getSuggestions(lastAction, lastAssistant.content ?: "")
-                        if (suggestions.isNotEmpty()) {
-                            _quickSuggestions.update { suggestions }
-                        }
+                        _quickSuggestions.update { suggestions }
+                    } else {
+                        _quickSuggestions.update { emptyList() }
                     }
                 }
             }
