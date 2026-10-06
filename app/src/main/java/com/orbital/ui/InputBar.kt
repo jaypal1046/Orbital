@@ -48,6 +48,14 @@ import com.orbital.data.RoutingMode
 import com.orbital.media.AttachedMedia
 import androidx.compose.material.icons.filled.Close
 
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.filled.ContentPaste
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
+
 @Composable
 fun InputBar(
     inputText: String,
@@ -64,11 +72,15 @@ fun InputBar(
     onRemoveAttachment: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
+    val clipboardManager = LocalClipboardManager.current
+    val clipboardText = clipboardManager.getText()?.text?.trim()
+
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .background(Color(0xFF0A0C14))
-            .padding(horizontal = 14.dp, vertical = 8.dp)
+            .background(OrbitalTokens.Background)
+            .navigationBarsPadding()
+            .padding(horizontal = 14.dp, vertical = 6.dp)
     ) {
         // Modern Floating Card Surface
         Surface(
@@ -136,7 +148,7 @@ fun InputBar(
                     }
                 }
 
-                // Top: Clean Multiline Text Input Field
+                // Top: Clean Multiline Text Input Field with IME Send Action
                 BasicTextField(
                     value = inputText,
                     onValueChange = onInputChange,
@@ -151,6 +163,17 @@ fun InputBar(
                     ),
                     cursorBrush = SolidColor(Color(0xFFA78BFA)),
                     maxLines = 5,
+                    keyboardOptions = KeyboardOptions(
+                        capitalization = KeyboardCapitalization.Sentences,
+                        imeAction = ImeAction.Send
+                    ),
+                    keyboardActions = KeyboardActions(
+                        onSend = {
+                            if (inputText.isNotBlank() && !isStreaming) {
+                                onSendClick()
+                            }
+                        }
+                    ),
                     decorationBox = { innerTextField ->
                         Box(modifier = Modifier.fillMaxWidth()) {
                             if (inputText.isEmpty()) {
@@ -166,7 +189,7 @@ fun InputBar(
                     }
                 )
 
-                // Bottom Action Toolbar (Tools +, Model Chip, Mic / Send)
+                // Bottom Action Toolbar (Tools +, Model Chip, Mic / Send / Quick Paste)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
@@ -237,6 +260,34 @@ fun InputBar(
                                 tint = Color(0xFF64748B),
                                 modifier = Modifier.size(14.dp)
                             )
+                        }
+
+                        // Quick Paste Pill if clipboard has non-empty text and input is blank
+                        if (inputText.isBlank() && !clipboardText.isNullOrBlank()) {
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(18.dp))
+                                    .background(Color(0xFF1E293B))
+                                    .border(1.dp, Color(0xFF38BDF8).copy(alpha = 0.4f), RoundedCornerShape(18.dp))
+                                    .clickable { onInputChange(clipboardText) }
+                                    .padding(horizontal = 8.dp, vertical = 6.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.ContentPaste,
+                                    contentDescription = "Paste from clipboard",
+                                    tint = Color(0xFF38BDF8),
+                                    modifier = Modifier.size(12.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = "Paste",
+                                    fontSize = 11.5.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = Color(0xFF38BDF8)
+                                )
+                            }
                         }
                     }
 

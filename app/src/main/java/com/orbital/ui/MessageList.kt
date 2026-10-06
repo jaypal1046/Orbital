@@ -106,14 +106,14 @@ fun MessageList(
                 // Glowing Companion Avatar Aura
                 Box(
                     modifier = Modifier
-                        .size(92.dp)
+                        .size(96.dp)
                         .scale(pulseScale)
                         .clip(CircleShape)
                         .background(
                             Brush.radialGradient(
                                 listOf(
                                     character.gradientColors.firstOrNull()?.copy(alpha = 0.45f) ?: Color(0xFF7C3AED),
-                                    Color(0xFF1E1B4B).copy(alpha = 0.15f),
+                                    Color(0xFF1E1B4B).copy(alpha = 0.2f),
                                     Color.Transparent
                                 )
                             )
@@ -136,7 +136,7 @@ fun MessageList(
                     )
                 }
 
-                Spacer(modifier = Modifier.height(20.dp))
+                Spacer(modifier = Modifier.height(18.dp))
 
                 Text(
                     text = "How can I help you today?",
@@ -155,40 +155,94 @@ fun MessageList(
                     textAlign = TextAlign.Center
                 )
 
-                Spacer(modifier = Modifier.height(28.dp))
+                Spacer(modifier = Modifier.height(24.dp))
 
-                // Elegant Inspiration Starter Prompts
-                val starterPrompts = listOf(
-                    "✉️  Summarize my recent unread emails",
-                    "🔎  Search an installed app",
-                    "🔋  Check device battery & storage health",
-                    "🌐  What are the top AI breakthroughs today?"
+                // Elegant Inspiration Starter Cards
+                val starterItems = listOf(
+                    StarterPromptItem(
+                        iconEmoji = "✉️",
+                        title = "Summarize my unread emails",
+                        subtitle = "Scan recent inbox messages and highlight key action items",
+                        prompt = "Summarize my recent unread emails",
+                        accentColor = Color(0xFF38BDF8)
+                    ),
+                    StarterPromptItem(
+                        iconEmoji = "🔍",
+                        title = "Search an installed app",
+                        subtitle = "Find and launch apps or inspect live package features",
+                        prompt = "Search for an installed app on my device",
+                        accentColor = Color(0xFF34D399)
+                    ),
+                    StarterPromptItem(
+                        iconEmoji = "🔋",
+                        title = "Check battery & storage health",
+                        subtitle = "Diagnose system battery stats, thermals, and available storage",
+                        prompt = "Check device battery and storage health",
+                        accentColor = Color(0xFFFBBF24)
+                    ),
+                    StarterPromptItem(
+                        iconEmoji = "🌐",
+                        title = "Top AI breakthroughs today",
+                        subtitle = "Discover latest research, releases, and developer tools",
+                        prompt = "What are the top AI breakthroughs today?",
+                        accentColor = Color(0xFFA78BFA)
+                    )
                 )
 
                 Column(
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    starterPrompts.forEach { prompt ->
+                    starterItems.forEach { item ->
                         Surface(
                             shape = RoundedCornerShape(16.dp),
                             color = Color(0xFF131728),
                             border = BorderStroke(1.dp, Color(0xFF232B45)),
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clickable { onSuggestionClick(prompt.substring(3).trim()) }
+                                .clickable { onSuggestionClick(item.prompt) }
                         ) {
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(horizontal = 16.dp, vertical = 13.dp),
+                                    .padding(horizontal = 14.dp, vertical = 12.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(item.accentColor.copy(alpha = 0.15f))
+                                        .border(1.dp, item.accentColor.copy(alpha = 0.35f), RoundedCornerShape(10.dp)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(text = item.iconEmoji, fontSize = 17.sp)
+                                }
+
+                                Spacer(modifier = Modifier.width(12.dp))
+
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = item.title,
+                                        fontSize = 13.5.sp,
+                                        color = Color.White,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                    Text(
+                                        text = item.subtitle,
+                                        fontSize = 11.sp,
+                                        color = Color(0xFF94A3B8),
+                                        lineHeight = 15.sp
+                                    )
+                                }
+
+                                Spacer(modifier = Modifier.width(8.dp))
+
                                 Text(
-                                    text = prompt,
-                                    fontSize = 13.5.sp,
-                                    color = Color(0xFFE2E8F0),
-                                    fontWeight = FontWeight.Medium
+                                    text = "→",
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = item.accentColor
                                 )
                             }
                         }
@@ -286,3 +340,12 @@ fun PreviewMessageList() {
         onAddStepToInput = {}
     )
 }
+
+data class StarterPromptItem(
+    val iconEmoji: String,
+    val title: String,
+    val subtitle: String,
+    val prompt: String,
+    val accentColor: Color
+)
+

@@ -91,6 +91,15 @@ android {
         kotlinCompilerExtensionVersion = "1.5.13"
     }
 
+    packaging {
+        resources {
+            excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        }
+        jniLibs {
+            useLegacyPackaging = false
+        }
+    }
+
     // Hilt
     kapt {
         correctErrorTypes = true

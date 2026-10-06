@@ -293,7 +293,11 @@ fun InAppChatScreen(
                         showFeedbackDialog = true
                     },
                     onSuggestionClick = { suggestion ->
-                        chatViewModel.onSuggestionClick(suggestion)
+                        if (messages.isEmpty()) {
+                            chatViewModel.sendMessage(suggestion)
+                        } else {
+                            chatViewModel.onSuggestionClick(suggestion)
+                        }
                     },
                     onAddStepToInput = { step ->
                         chatViewModel.onAddStepToInput(step)
