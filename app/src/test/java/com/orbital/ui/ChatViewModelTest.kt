@@ -215,8 +215,6 @@ class ChatViewModelTest {
             deviceActionExecutor = fakeDeviceActionExecutor,
             secureStorage = fakeSecureStorage,
             gitHubUpdateEngine = null,
-            apkDownloader = null,
-            apkInstaller = null,
             orbitalBridgeClient = null,
             orbitalDiscoveryService = null,
             networkMonitorInstance = null

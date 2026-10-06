@@ -165,6 +165,96 @@ fun OnboardingWizard(
 }
 
 @Composable
+fun OnboardingStepProgressHeader(
+    currentStepIndex: Int,
+    totalSteps: Int = 4,
+    title: String,
+    subtitle: String,
+    onBack: (() -> Unit)? = null,
+    actions: @Composable RowScope.() -> Unit = {}
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+    ) {
+        // Step progress pill bar
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            for (step in 1..totalSteps) {
+                val isCompleted = step < currentStepIndex
+                val isCurrent = step == currentStepIndex
+                val color = when {
+                    isCompleted -> Color(0xFF10B981)
+                    isCurrent -> Color(0xFF8B5CF6)
+                    else -> Color(0xFF1E2540)
+                }
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(4.dp)
+                        .clip(RoundedCornerShape(2.dp))
+                        .background(color)
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            if (onBack != null) {
+                IconButton(
+                    onClick = onBack,
+                    modifier = Modifier.size(36.dp)
+                ) {
+                    Icon(
+                        Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Back",
+                        tint = Color.White,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(8.dp))
+            }
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "STEP $currentStepIndex OF $totalSteps",
+                    fontSize = 10.5.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFFA78BFA),
+                    letterSpacing = 1.sp
+                )
+                Text(
+                    text = title,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
+                if (subtitle.isNotBlank()) {
+                    Text(
+                        text = subtitle,
+                        fontSize = 12.sp,
+                        color = Color(0xFF94A3B8),
+                        lineHeight = 16.sp
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.width(6.dp))
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                content = actions
+            )
+        }
+    }
+}
+
+@Composable
 fun WelcomeStepScreen(onNext: () -> Unit) {
     Column(
         modifier = Modifier
@@ -176,14 +266,14 @@ fun WelcomeStepScreen(onNext: () -> Unit) {
         // Top Brand Header
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.padding(top = 32.dp)
+            modifier = Modifier.padding(top = 28.dp)
         ) {
             Box(
                 modifier = Modifier
-                    .size(92.dp)
+                    .size(96.dp)
                     .clip(CircleShape)
                     .background(Color(0xFF13172A))
-                    .border(2.dp, Color(0xFF38BDF8).copy(alpha = 0.6f), CircleShape)
+                    .border(2.dp, Color(0xFF8B5CF6).copy(alpha = 0.8f), CircleShape)
                     .padding(8.dp),
                 contentAlignment = Alignment.Center
             ) {
@@ -195,7 +285,7 @@ fun WelcomeStepScreen(onNext: () -> Unit) {
                         .clip(CircleShape)
                 )
             }
-            Spacer(modifier = Modifier.height(20.dp))
+            Spacer(modifier = Modifier.height(18.dp))
             Text(
                 text = "Welcome to Orbital",
                 color = Color.White,
@@ -206,30 +296,30 @@ fun WelcomeStepScreen(onNext: () -> Unit) {
             Text(
                 text = "Autonomous AI Companion & Mobile Automation Engine",
                 color = Color(0xFF94A3B8),
-                fontSize = 14.sp,
+                fontSize = 13.5.sp,
                 textAlign = TextAlign.Center
             )
         }
 
-        // Value Cards
+        // Feature Highlights
         Column(
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
             modifier = Modifier.fillMaxWidth()
         ) {
             OnboardingFeatureCard(
                 icon = "🔒",
                 title = "Local-First & Private",
-                desc = "No tracking servers. Your API keys are encrypted with hardware-backed Keystores."
+                desc = "No telemetry or middleman servers. Keys encrypted directly on hardware."
             )
             OnboardingFeatureCard(
                 icon = "🤖",
                 title = "Autonomous Device Automation",
-                desc = "Navigates apps, clicks controls, and performs tasks hands-free via on-device AI."
+                desc = "Navigates apps, taps buttons, and completes workflows hands-free."
             )
             OnboardingFeatureCard(
                 icon = "🛰️",
                 title = "Laptop AI Bridge (MCP)",
-                desc = "Connect wirelessly to Antigravity, Claude Code, or Cursor for development testing."
+                desc = "Connect wirelessly to Antigravity, Claude Code, or Cursor for live testing."
             )
         }
 
@@ -240,9 +330,9 @@ fun WelcomeStepScreen(onNext: () -> Unit) {
             shape = RoundedCornerShape(16.dp),
             modifier = Modifier
                 .fillMaxWidth()
-                .height(56.dp)
+                .height(54.dp)
         ) {
-            Text("Get Started", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.White)
+            Text("Get Started", fontSize = 15.5.sp, fontWeight = FontWeight.Bold, color = Color.White)
             Spacer(modifier = Modifier.width(8.dp))
             Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, tint = Color.White)
         }
@@ -277,27 +367,19 @@ fun PermissionsAndAccessibilityStepScreen(
 
     Scaffold(
         topBar = {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                IconButton(onClick = onBack) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
-                }
-                Spacer(modifier = Modifier.width(8.dp))
-                Column {
-                    Text("Step 3 of 4", fontSize = 11.sp, color = Color(0xFF7C3AED), fontWeight = FontWeight.Bold)
-                    Text("Automation & Permissions", fontSize = 16.sp, color = Color.White, fontWeight = FontWeight.Bold)
-                }
-            }
+            OnboardingStepProgressHeader(
+                currentStepIndex = 3,
+                title = "Automation Powers",
+                subtitle = "Optional permissions for hands-free device navigation & mascot overlay",
+                onBack = onBack
+            )
         },
         containerColor = Color(0xFF090B13),
         bottomBar = {
             Surface(
                 color = Color(0xFF0F1322),
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
+                border = BorderStroke(1.dp, Color(0xFF1E243D))
             ) {
                 Row(
                     modifier = Modifier
@@ -329,18 +411,11 @@ fun PermissionsAndAccessibilityStepScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .padding(horizontal = 20.dp)
+                .padding(horizontal = 16.dp)
                 .verticalScroll(scrollState),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            Text(
-                text = "Permissions are optional. Orbital works for chat and AI answers out of the box, while automation and overlay enable full hands-free actions.",
-                color = Color(0xFF94A3B8),
-                fontSize = 12.5.sp,
-                lineHeight = 17.sp
-            )
-
-            // Accessibility Card (Prominent Disclosure & Step-by-Step Guide)
+            // Accessibility Card
             Surface(
                 color = Color(0xFF12162A),
                 shape = RoundedCornerShape(18.dp),
@@ -350,7 +425,7 @@ fun PermissionsAndAccessibilityStepScreen(
                 ),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Column(modifier = Modifier.padding(18.dp)) {
+                Column(modifier = Modifier.padding(16.dp)) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -413,35 +488,18 @@ fun PermissionsAndAccessibilityStepScreen(
                     ) {
                         Column(
                             modifier = Modifier.padding(12.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
                             Text(
                                 text = "📋 How to Enable:",
                                 color = Color(0xFFA78BFA),
-                                fontSize = 12.sp,
+                                fontSize = 11.5.sp,
                                 fontWeight = FontWeight.Bold
                             )
-                            Text("1. Tap 'Enable Accessibility in Settings' below.", color = Color(0xFFCBD5E1), fontSize = 11.5.sp)
-                            Text("2. Look under 'Vision', 'Interaction', or 'Downloaded apps' tab.", color = Color(0xFFCBD5E1), fontSize = 11.5.sp)
-                            Text("3. Tap 'Orbital' (or Screen Automation) and switch it ON.", color = Color(0xFFCBD5E1), fontSize = 11.5.sp)
+                            Text("1. Tap button below to open Accessibility settings.", color = Color(0xFFCBD5E1), fontSize = 11.sp)
+                            Text("2. Look under 'Downloaded apps' or 'Installed services'.", color = Color(0xFFCBD5E1), fontSize = 11.sp)
+                            Text("3. Tap 'Orbital' and toggle ON.", color = Color(0xFFCBD5E1), fontSize = 11.sp)
                         }
-                    }
-
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    // Screen data disclosure
-                    Surface(
-                        color = Color(0xFF0A1F18),
-                        shape = RoundedCornerShape(10.dp),
-                        border = BorderStroke(1.dp, Color(0xFF059669).copy(alpha = 0.3f)),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text(
-                            text = "🛡️ Screen text can go to your selected AI provider for screen analysis, or to your paired laptop through Laptop Bridge inspection. Avoid sensitive screens during automation.",
-                            color = Color(0xFFA7F3D0),
-                            fontSize = 11.sp,
-                            modifier = Modifier.padding(10.dp)
-                        )
                     }
 
                     Spacer(modifier = Modifier.height(12.dp))
@@ -454,7 +512,7 @@ fun PermissionsAndAccessibilityStepScreen(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text(
-                            text = if (isAccessibilityActive) "✅ Accessibility Is Active (Open Settings)" else "⚙️ Enable Accessibility in Settings",
+                            text = if (isAccessibilityActive) "✅ Accessibility Active (Open Settings)" else "⚙️ Enable Accessibility in Settings",
                             fontSize = 12.5.sp,
                             fontWeight = FontWeight.Bold,
                             color = Color.White
@@ -472,19 +530,19 @@ fun PermissionsAndAccessibilityStepScreen(
                         ) {
                             Column(modifier = Modifier.padding(10.dp)) {
                                 Text(
-                                    text = "🔒 Is the toggle grayed out? (Restricted Setting)",
+                                    text = "🔒 Toggle grayed out? (Restricted Setting)",
                                     color = Color(0xFFF59E0B),
                                     fontSize = 11.5.sp,
                                     fontWeight = FontWeight.Bold
                                 )
-                                Spacer(modifier = Modifier.height(4.dp))
+                                Spacer(modifier = Modifier.height(3.dp))
                                 Text(
-                                    text = "Sideloaded apps in Android 13+ require unlocking: Open App Info → tap (⋮) top-right → tap 'Allow restricted settings'.",
+                                    text = "Open App Info → tap (⋮) top-right → tap 'Allow restricted settings'.",
                                     color = Color(0xFFCBD5E1),
                                     fontSize = 11.sp,
                                     lineHeight = 15.sp
                                 )
-                                Spacer(modifier = Modifier.height(8.dp))
+                                Spacer(modifier = Modifier.height(6.dp))
                                 OutlinedButton(
                                     onClick = {
                                         val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
@@ -514,7 +572,7 @@ fun PermissionsAndAccessibilityStepScreen(
                 ),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Column(modifier = Modifier.padding(18.dp)) {
+                Column(modifier = Modifier.padding(16.dp)) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -596,27 +654,19 @@ fun CharacterSelectionStepScreen(
 ) {
     Scaffold(
         topBar = {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                IconButton(onClick = onBack) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
-                }
-                Spacer(modifier = Modifier.width(8.dp))
-                Column {
-                    Text("Step 4 of 4", fontSize = 11.sp, color = Color(0xFF7C3AED), fontWeight = FontWeight.Bold)
-                    Text("Choose Companion", fontSize = 16.sp, color = Color.White, fontWeight = FontWeight.Bold)
-                }
-            }
+            OnboardingStepProgressHeader(
+                currentStepIndex = 4,
+                title = "Choose Companion Mascot",
+                subtitle = "Select your active AI persona and on-screen mascot personality",
+                onBack = onBack
+            )
         },
         containerColor = Color(0xFF090B13),
         bottomBar = {
             Surface(
                 color = Color(0xFF0F1322),
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
+                border = BorderStroke(1.dp, Color(0xFF1E243D))
             ) {
                 Button(
                     onClick = onFinish,
@@ -636,20 +686,14 @@ fun CharacterSelectionStepScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .padding(horizontal = 20.dp),
+                .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            Text(
-                text = "Select your active AI companion mascot personality:",
-                color = Color(0xFF94A3B8),
-                fontSize = 13.sp
-            )
-
             CharacterChoiceCard(
                 id = "aether",
                 name = "Aether",
                 title = "The Celestial Overseer",
-                desc = "Analytical, precise, and executive. Ideal for device automation and coding.",
+                desc = "Analytical, precise, and executive. Ideal for device automation, coding, and system control.",
                 isSelected = selectedCharacter == "aether",
                 onClick = { onSelect("aether") }
             )
@@ -658,7 +702,7 @@ fun CharacterSelectionStepScreen(
                 id = "lumy",
                 name = "Lumy",
                 title = "The Luminous Guide",
-                desc = "Friendly, creative, and proactive companion with expressive emotional states.",
+                desc = "Friendly, creative, and proactive companion with expressive emotional animations.",
                 isSelected = selectedCharacter == "lumy",
                 onClick = { onSelect("lumy") }
             )
@@ -667,7 +711,7 @@ fun CharacterSelectionStepScreen(
                 id = "volo",
                 name = "Volo",
                 title = "The Dynamic Tactician",
-                desc = "High-energy, fast responses, tailored for rapid workflows and notifications.",
+                desc = "High-energy, fast responses, tailored for rapid workflows, tasks, and notifications.",
                 isSelected = selectedCharacter == "volo",
                 onClick = { onSelect("volo") }
             )
@@ -702,27 +746,26 @@ fun CharacterChoiceCard(
             val spriteRes = MascotSpriteHelper.getSprite(id, MascotState.IDLE)
             Box(
                 modifier = Modifier
-                    .size(48.dp)
+                    .size(52.dp)
                     .clip(CircleShape)
                     .background(if (isSelected) Color(0xFF7C3AED).copy(alpha = 0.3f) else Color(0xFF1E2540))
                     .border(
                         1.dp,
                         if (isSelected) Color(0xFF8B5CF6) else Color(0xFF333E63),
                         CircleShape
-                    )
-                    .padding(4.dp),
+                    ),
                 contentAlignment = Alignment.Center
             ) {
                 Image(
                     painter = painterResource(id = spriteRes),
                     contentDescription = name,
-                    modifier = Modifier.fillMaxSize()
+                    modifier = Modifier.fillMaxSize().padding(4.dp)
                 )
             }
             Spacer(modifier = Modifier.width(14.dp))
             Column(modifier = Modifier.weight(1f)) {
-                Text(name, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                Text(title, color = Color(0xFF38BDF8), fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                Text(name, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.5.sp)
+                Text(title, color = Color(0xFF38BDF8), fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold)
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(desc, color = Color(0xFF94A3B8), fontSize = 11.5.sp, lineHeight = 15.sp)
             }
@@ -731,7 +774,7 @@ fun CharacterChoiceCard(
                     Icons.Default.CheckCircle,
                     contentDescription = "Selected",
                     tint = Color(0xFF8B5CF6),
-                    modifier = Modifier.size(22.dp)
+                    modifier = Modifier.size(24.dp)
                 )
             }
         }

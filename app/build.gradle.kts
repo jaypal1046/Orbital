@@ -141,6 +141,7 @@ dependencies {
     implementation(libs.mlkit.barcode.scanning)
     implementation(libs.coil.compose)
     implementation(libs.play.app.update)
+    implementation(libs.androidx.browser)
 
 
     // Hilt

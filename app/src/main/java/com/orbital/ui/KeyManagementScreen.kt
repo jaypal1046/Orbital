@@ -1,8 +1,12 @@
 package com.orbital.ui
 
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -26,11 +30,14 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import com.orbital.data.*
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -84,11 +91,126 @@ fun KeyManagementScreen(
         )
     }
     var editingModelsProvider by remember { mutableStateOf<ProviderInfo?>(null) }
+    var webViewPortalProvider by remember { mutableStateOf<ProviderInfo?>(null) }
+    var exportingProvider by remember { mutableStateOf<ProviderInfo?>(null) }
+    var importingPackageJson by remember { mutableStateOf<String?>(null) }
+    var pendingChromeProvider by remember { mutableStateOf<ProviderInfo?>(null) }
+    var chromeCapturedToken by remember { mutableStateOf<String?>(null) }
+    var isTestingCapturedToken by remember { mutableStateOf(false) }
+    var selectedTargetProvider by remember(pendingChromeProvider) { mutableStateOf(pendingChromeProvider) }
     var discoveringMap by remember { mutableStateOf(mapOf<ProviderType, Boolean>()) }
     var isCheckingAll by remember { mutableStateOf(false) }
 
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val coroutineScope = rememberCoroutineScope()
+    val currentPendingProvider by rememberUpdatedState(pendingChromeProvider)
+    val currentProviderKeys by rememberUpdatedState(providerKeys)
+    val currentExpandedProvider by rememberUpdatedState(expandedProvider)
+
+    fun checkAndCaptureClipboard(isExplicitAction: Boolean = false) {
+        try {
+            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: return
+            if (clipboard.hasPrimaryClip()) {
+                val clipData = clipboard.primaryClip
+                if (clipData != null && clipData.itemCount > 0) {
+                    val raw = clipData.getItemAt(0)?.text?.toString()
+                    if (!raw.isNullOrBlank()) {
+                        val text = raw.trim().removeSurrounding("\"", "\"").removeSurrounding("'", "'").trim()
+                        
+                        // Check if text is an .orbtoken JSON package
+                        if (text.startsWith("{") && (text.contains("\"lockType\"") || text.contains("\"version\"") || text.contains("\"encryptedPayload\""))) {
+                            importingPackageJson = text
+                            Toast.makeText(context, "📦 Detected .orbtoken package from clipboard!", Toast.LENGTH_SHORT).show()
+                            return
+                        }
+                        
+                        if (text.length in 8..500) {
+                            val alreadyConfigured = currentProviderKeys.values.any { it == text }
+                            if (!alreadyConfigured || isExplicitAction) {
+                                val target: ProviderInfo? = currentPendingProvider
+                                    ?: currentExpandedProvider?.let { expType -> ProviderRegistry.allProviders.find { it.type == expType } }
+                                    ?: ProviderRegistry.allProviders.find { info ->
+                                        when (info.type) {
+                                            ProviderType.GEMINI -> text.startsWith("AIzaSy")
+                                            ProviderType.GROQ -> text.startsWith("gsk_")
+                                            ProviderType.OPENROUTER -> text.startsWith("sk-or-")
+                                            ProviderType.GITHUB_MODELS -> text.startsWith("ghp_") || text.startsWith("github_pat_")
+                                            ProviderType.MISTRAL -> text.length == 32 && text.all { it.isLetterOrDigit() }
+                                            ProviderType.CEREBRAS -> text.startsWith("csk-")
+                                            ProviderType.COHERE -> text.length in 36..44
+                                            ProviderType.HUGGINGFACE -> text.startsWith("hf_")
+                                            else -> false
+                                        }
+                                    }
+                                    ?: ProviderRegistry.allProviders.firstOrNull()
+
+                                if (target != null) {
+                                    val currentKey = currentProviderKeys[target.type] ?: ""
+                                    if (text != currentKey || isExplicitAction) {
+                                        pendingChromeProvider = target
+                                        selectedTargetProvider = target
+                                        chromeCapturedToken = text
+                                        return
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            if (isExplicitAction) {
+                Toast.makeText(context, "No API key found in clipboard", Toast.LENGTH_SHORT).show()
+            }
+        } catch (e: Exception) {
+            if (isExplicitAction) {
+                Toast.makeText(context, "Could not access clipboard: ${e.message}", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    DisposableEffect(lifecycleOwner) {
+        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        val clipListener = ClipboardManager.OnPrimaryClipChangedListener {
+            checkAndCaptureClipboard(isExplicitAction = false)
+        }
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                coroutineScope.launch {
+                    checkAndCaptureClipboard(isExplicitAction = false)
+                    kotlinx.coroutines.delay(350)
+                    checkAndCaptureClipboard(isExplicitAction = false)
+                    kotlinx.coroutines.delay(700)
+                    checkAndCaptureClipboard(isExplicitAction = false)
+                }
+            }
+        }
+        clipboard.addPrimaryClipChangedListener(clipListener)
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            clipboard.removePrimaryClipChangedListener(clipListener)
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+
+    val filePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            try {
+                context.contentResolver.openInputStream(uri)?.use { stream ->
+                    val content = stream.bufferedReader().readText()
+                    importingPackageJson = content
+                }
+            } catch (e: Exception) {
+                Toast.makeText(context, "Error opening file: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
     val configuredCount = providerKeys.count { it.value.isNotBlank() }
     val totalCount = ProviderRegistry.allProviders.size
+
+    var showAllInOnboarding by remember { mutableStateOf(false) }
 
     val filteredProviders = ProviderRegistry.allProviders.filter { info ->
         val key = providerKeys[info.type] ?: ""
@@ -109,54 +231,146 @@ fun KeyManagementScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        Text(
-                            text = "Keys & Providers",
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White
-                        )
-                        Text(
-                            text = if (isOnboarding) "Step 2 of 4 · Provider setup is optional" else "$configuredCount of $totalCount providers configured",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = Color(0xFF94A3B8)
-                        )
-                    }
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
-                    }
-                },
-                actions = {
-                    TextButton(
-                        onClick = {
-                            isCheckingAll = true
-                            CoroutineScope(Dispatchers.IO).launch {
-                                ProviderRegistry.allProviders.forEach { p ->
-                                    val key = providerKeys[p.type] ?: ""
-                                    if (key.isNotBlank()) {
-                                        llmRepository.testProvider(p.type, key)
+            if (isOnboarding) {
+                OnboardingStepProgressHeader(
+                    currentStepIndex = 2,
+                    totalSteps = 4,
+                    title = "Choose AI Brain",
+                    subtitle = "Connect a free LLM provider to power Orbital. Free tiers included.",
+                    onBack = onBack,
+                    actions = {
+                        // Action 1: Paste from Clipboard
+                        IconButton(
+                            onClick = { checkAndCaptureClipboard(isExplicitAction = true) },
+                            modifier = Modifier.size(34.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.ContentPaste,
+                                contentDescription = "Paste from Clipboard",
+                                tint = Color(0xFF38BDF8),
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                        // Action 2: Import .orbtoken File
+                        IconButton(
+                            onClick = { filePickerLauncher.launch(arrayOf("*/*")) },
+                            modifier = Modifier.size(34.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.FileUpload,
+                                contentDescription = "Import .orbtoken",
+                                tint = Color(0xFF34D399),
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                        // Action 3: Export / Download .orbtoken (if keys exist)
+                        if (configuredCount > 0) {
+                            IconButton(
+                                onClick = {
+                                    val firstConfigured = ProviderRegistry.allProviders.firstOrNull { (providerKeys[it.type] ?: "").isNotBlank() }
+                                    if (firstConfigured != null) {
+                                        exportingProvider = firstConfigured
                                     }
-                                }
-                                CoroutineScope(Dispatchers.Main).launch {
-                                    isCheckingAll = false
-                                    Toast.makeText(context, "Provider health check completed!", Toast.LENGTH_SHORT).show()
-                                }
+                                },
+                                modifier = Modifier.size(34.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.FileDownload,
+                                    contentDescription = "Export .orbtoken",
+                                    tint = Color(0xFFA78BFA),
+                                    modifier = Modifier.size(18.dp)
+                                )
                             }
                         }
-                    ) {
-                        if (isCheckingAll) {
-                            CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color(0xFF8B5CF6))
-                        } else {
-                            Text("Check all", color = Color(0xFF8B5CF6), fontWeight = FontWeight.SemiBold)
-                        }
                     }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color(0xFF0F111A))
-            )
+                )
+            } else {
+                TopAppBar(
+                    title = {
+                        Column {
+                            Text(
+                                text = "Keys & Providers",
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                            Text(
+                                text = "$configuredCount of $totalCount providers configured",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color(0xFF94A3B8)
+                            )
+                        }
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = onBack) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
+                        }
+                    },
+                    actions = {
+                        // Action 1: Paste from Clipboard
+                        IconButton(
+                            onClick = { checkAndCaptureClipboard(isExplicitAction = true) }
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.ContentPaste,
+                                contentDescription = "Paste from Clipboard",
+                                tint = Color(0xFF38BDF8)
+                            )
+                        }
+                        // Action 2: Import .orbtoken File
+                        IconButton(
+                            onClick = { filePickerLauncher.launch(arrayOf("*/*")) }
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.FileUpload,
+                                contentDescription = "Import .orbtoken",
+                                tint = Color(0xFF34D399)
+                            )
+                        }
+                        // Action 3: Export / Download .orbtoken (if keys exist)
+                        if (configuredCount > 0) {
+                            IconButton(
+                                onClick = {
+                                    val firstConfigured = ProviderRegistry.allProviders.firstOrNull { (providerKeys[it.type] ?: "").isNotBlank() }
+                                    if (firstConfigured != null) {
+                                        exportingProvider = firstConfigured
+                                    }
+                                }
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.FileDownload,
+                                    contentDescription = "Export .orbtoken",
+                                    tint = Color(0xFFA78BFA)
+                                )
+                            }
+                        }
+                        TextButton(
+                            onClick = {
+                                isCheckingAll = true
+                                CoroutineScope(Dispatchers.IO).launch {
+                                    ProviderRegistry.allProviders.forEach { p ->
+                                        val key = providerKeys[p.type] ?: ""
+                                        if (key.isNotBlank()) {
+                                            llmRepository.testProvider(p.type, key)
+                                        }
+                                    }
+                                    CoroutineScope(Dispatchers.Main).launch {
+                                        isCheckingAll = false
+                                        Toast.makeText(context, "Provider health check completed!", Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            }
+                        ) {
+                            if (isCheckingAll) {
+                                CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color(0xFF8B5CF6))
+                            } else {
+                                Text("Check all", color = Color(0xFF8B5CF6), fontWeight = FontWeight.SemiBold)
+                            }
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(containerColor = Color(0xFF0F111A))
+                )
+            }
         },
         bottomBar = {
             Surface(
@@ -170,13 +384,6 @@ fun KeyManagementScreen(
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp, vertical = 12.dp)
                 ) {
-                    Text(
-                        text = "API keys stay encrypted on this device. Add only the providers you use; you can change them later.",
-                        color = Color(0xFF94A3B8),
-                        fontSize = 11.5.sp,
-                        lineHeight = 15.sp,
-                        modifier = Modifier.padding(bottom = 8.dp)
-                    )
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -191,15 +398,19 @@ fun KeyManagementScreen(
                         }
                         Button(
                             onClick = onContinue,
-                            modifier = Modifier.weight(1.3f).height(48.dp),
+                            modifier = Modifier.weight(1.4f).height(48.dp),
                             shape = RoundedCornerShape(12.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF7C3AED))
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (configuredCount > 0) Color(0xFF10B981) else Color(0xFF7C3AED)
+                            )
                         ) {
                             Text(
-                                text = if (isOnboarding) "Continue" else "Done",
-                                color = Color.White,
+                                text = if (isOnboarding) {
+                                    if (configuredCount > 0) "Continue ($configuredCount Ready) →" else "Continue →"
+                                } else "Done",
+                                color = if (configuredCount > 0 && isOnboarding) Color.Black else Color.White,
                                 fontWeight = FontWeight.Bold,
-                                fontSize = 13.sp
+                                fontSize = 13.5.sp
                             )
                         }
                     }
@@ -214,124 +425,207 @@ fun KeyManagementScreen(
                 .padding(innerPadding)
                 .padding(horizontal = 16.dp)
         ) {
-            // Top Tab Navigation Bar
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 8.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(Color(0xFF141829))
-                    .border(1.dp, Color(0xFF222842), RoundedCornerShape(12.dp))
-                    .padding(3.dp)
-            ) {
-                DashboardTab.values().forEach { tab ->
-                    val isSelected = currentTab == tab
-                    val label = when (tab) {
-                        DashboardTab.PROVIDERS -> "Keys"
-                        DashboardTab.MODELS_QUOTA -> "Quotas"
-                        DashboardTab.QUOTA_SIGNALS -> "Signals"
-                        DashboardTab.AUTO_ROUTER -> "Router"
-                    }
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(if (isSelected) Color(0xFF7C3AED) else Color.Transparent)
-                            .clickable { currentTab = tab }
-                            .padding(vertical = 7.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
+            if (isOnboarding) {
+                // Onboarding Hero Card & Quick Actions
+                Surface(
+                    color = Color(0xFF121629),
+                    shape = RoundedCornerShape(14.dp),
+                    border = BorderStroke(1.dp, Color(0xFF242C4C)),
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp)
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("⚡", fontSize = 18.sp)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Free Tiers & 1-Tap Chrome Login",
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.5.sp
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = label,
-                            color = if (isSelected) Color.White else Color(0xFF94A3B8),
+                            text = "Tap 'Chrome Login' to use your existing Google AI Studio or GitHub account. Copy your key and Orbital connects automatically.",
+                            color = Color(0xFF94A3B8),
                             fontSize = 11.5.sp,
-                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                            lineHeight = 15.sp
                         )
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(6.dp))
-
-            when (currentTab) {
-                DashboardTab.PROVIDERS -> {
-                    // Search Bar
-                    OutlinedTextField(
-                        value = searchQuery,
-                        onValueChange = { searchQuery = it },
-                        placeholder = { Text("Search providers or models...", color = Color(0xFF64748B), fontSize = 13.sp) },
-                        leadingIcon = {
-                            Icon(Icons.Default.Search, contentDescription = "Search", tint = Color(0xFF64748B), modifier = Modifier.size(18.dp))
-                        },
-                        trailingIcon = {
-                            if (searchQuery.isNotBlank()) {
-                                IconButton(onClick = { searchQuery = "" }, modifier = Modifier.size(20.dp)) {
-                                    Icon(Icons.Default.Close, contentDescription = "Clear", tint = Color(0xFF94A3B8), modifier = Modifier.size(14.dp))
-                                }
-                            }
-                        },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(48.dp),
-                        singleLine = true,
-                        shape = RoundedCornerShape(12.dp),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = Color(0xFF7C3AED),
-                            unfocusedBorderColor = Color(0xFF222842),
-                            focusedContainerColor = Color(0xFF131625),
-                            unfocusedContainerColor = Color(0xFF131625),
-                            focusedTextColor = Color.White,
-                            unfocusedTextColor = Color.White
-                        )
-                    )
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    // Compact Filter Chips Row
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        ProviderFilter.values().forEach { filter ->
-                            val isSelected = selectedFilter == filter
-                            val label = when (filter) {
-                                ProviderFilter.ALL -> "All ($totalCount)"
-                                ProviderFilter.HEALTHY -> "Ready ($configuredCount)"
-                                ProviderFilter.ISSUES -> "Issues"
-                                ProviderFilter.DISABLED -> "Disabled"
-                            }
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(if (isSelected) Color(0xFF7C3AED) else Color(0xFF161928))
-                                    .border(
-                                        1.dp,
-                                        if (isSelected) Color(0xFFA78BFA) else Color(0xFF242B45),
-                                        RoundedCornerShape(8.dp)
-                                    )
-                                    .clickable { selectedFilter = filter }
-                                    .padding(horizontal = 10.dp, vertical = 5.dp)
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            OutlinedButton(
+                                onClick = { checkAndCaptureClipboard(isExplicitAction = true) },
+                                shape = RoundedCornerShape(8.dp),
+                                border = BorderStroke(1.dp, Color(0xFF38BDF8).copy(alpha = 0.5f)),
+                                modifier = Modifier.weight(1f),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
                             ) {
-                                Text(
-                                    text = label,
-                                    color = if (isSelected) Color.White else Color(0xFF94A3B8),
-                                    fontSize = 11.5.sp,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
-                                )
+                                Icon(Icons.Default.ContentPaste, contentDescription = null, tint = Color(0xFF38BDF8), modifier = Modifier.size(14.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Paste Key", fontSize = 11.5.sp, color = Color(0xFF38BDF8))
+                            }
+                            OutlinedButton(
+                                onClick = { filePickerLauncher.launch(arrayOf("*/*")) },
+                                shape = RoundedCornerShape(8.dp),
+                                border = BorderStroke(1.dp, Color(0xFF10B981).copy(alpha = 0.5f)),
+                                modifier = Modifier.weight(1f),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
+                            ) {
+                                Icon(Icons.Default.FileUpload, contentDescription = null, tint = Color(0xFF10B981), modifier = Modifier.size(14.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Import File", fontSize = 11.5.sp, color = Color(0xFF10B981))
+                            }
+                            if (configuredCount > 0) {
+                                OutlinedButton(
+                                    onClick = {
+                                        val first = ProviderRegistry.allProviders.firstOrNull { (providerKeys[it.type] ?: "").isNotBlank() }
+                                        if (first != null) exportingProvider = first
+                                    },
+                                    shape = RoundedCornerShape(8.dp),
+                                    border = BorderStroke(1.dp, Color(0xFFA78BFA).copy(alpha = 0.5f)),
+                                    modifier = Modifier.weight(1f),
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
+                                ) {
+                                    Icon(Icons.Default.FileDownload, contentDescription = null, tint = Color(0xFFA78BFA), modifier = Modifier.size(14.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Export", fontSize = 11.5.sp, color = Color(0xFFA78BFA))
+                                }
                             }
                         }
                     }
+                }
+            } else {
+                // Top Tab Navigation Bar in Settings Mode
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 8.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Color(0xFF141829))
+                        .border(1.dp, Color(0xFF222842), RoundedCornerShape(12.dp))
+                        .padding(3.dp)
+                ) {
+                    DashboardTab.values().forEach { tab ->
+                        val isSelected = currentTab == tab
+                        val label = when (tab) {
+                            DashboardTab.PROVIDERS -> "Keys"
+                            DashboardTab.MODELS_QUOTA -> "Quotas"
+                            DashboardTab.QUOTA_SIGNALS -> "Signals"
+                            DashboardTab.AUTO_ROUTER -> "Router"
+                        }
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(if (isSelected) Color(0xFF7C3AED) else Color.Transparent)
+                                .clickable { currentTab = tab }
+                                .padding(vertical = 7.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = label,
+                                color = if (isSelected) Color.White else Color(0xFF94A3B8),
+                                fontSize = 11.5.sp,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                            )
+                        }
+                    }
+                }
 
-                    Spacer(modifier = Modifier.height(10.dp))
+                Spacer(modifier = Modifier.height(6.dp))
+            }
+
+            when (if (isOnboarding) DashboardTab.PROVIDERS else currentTab) {
+                DashboardTab.PROVIDERS -> {
+                    if (!isOnboarding || showAllInOnboarding) {
+                        // Search Bar
+                        OutlinedTextField(
+                            value = searchQuery,
+                            onValueChange = { searchQuery = it },
+                            placeholder = { Text("Search providers or models...", color = Color(0xFF64748B), fontSize = 13.sp) },
+                            leadingIcon = {
+                                Icon(Icons.Default.Search, contentDescription = "Search", tint = Color(0xFF64748B), modifier = Modifier.size(18.dp))
+                            },
+                            trailingIcon = {
+                                if (searchQuery.isNotBlank()) {
+                                    IconButton(onClick = { searchQuery = "" }, modifier = Modifier.size(20.dp)) {
+                                        Icon(Icons.Default.Close, contentDescription = "Clear", tint = Color(0xFF94A3B8), modifier = Modifier.size(14.dp))
+                                    }
+                                }
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(48.dp),
+                            singleLine = true,
+                            shape = RoundedCornerShape(12.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = Color(0xFF7C3AED),
+                                unfocusedBorderColor = Color(0xFF222842),
+                                focusedContainerColor = Color(0xFF131625),
+                                unfocusedContainerColor = Color(0xFF131625),
+                                focusedTextColor = Color.White,
+                                unfocusedTextColor = Color.White
+                            )
+                        )
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        // Compact Filter Chips Row
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            ProviderFilter.values().forEach { filter ->
+                                val isSelected = selectedFilter == filter
+                                val label = when (filter) {
+                                    ProviderFilter.ALL -> "All ($totalCount)"
+                                    ProviderFilter.HEALTHY -> "Ready ($configuredCount)"
+                                    ProviderFilter.ISSUES -> "Issues"
+                                    ProviderFilter.DISABLED -> "Disabled"
+                                }
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(if (isSelected) Color(0xFF7C3AED) else Color(0xFF161928))
+                                        .border(
+                                            1.dp,
+                                            if (isSelected) Color(0xFFA78BFA) else Color(0xFF242B45),
+                                            RoundedCornerShape(8.dp)
+                                        )
+                                        .clickable { selectedFilter = filter }
+                                        .padding(horizontal = 10.dp, vertical = 5.dp)
+                                ) {
+                                    Text(
+                                        text = label,
+                                        color = if (isSelected) Color.White else Color(0xFF94A3B8),
+                                        fontSize = 11.5.sp,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                    )
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(10.dp))
+                    }
+
+                    val displayProviders = if (isOnboarding && !showAllInOnboarding) {
+                        val topTypes = listOf(ProviderType.GEMINI, ProviderType.GROQ, ProviderType.GITHUB_MODELS, ProviderType.OPENROUTER)
+                        ProviderRegistry.allProviders.filter { p -> topTypes.contains(p.type) || (providerKeys[p.type] ?: "").isNotBlank() }
+                    } else {
+                        filteredProviders
+                    }
 
                     // Provider List
                     LazyColumn(
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                         modifier = Modifier.fillMaxSize()
                     ) {
-                        items(filteredProviders) { info ->
+                        items(displayProviders) { info ->
                             val key = providerKeys[info.type] ?: ""
                             val isEnabled = providerEnabledStates[info.type] ?: true
                             val isExpanded = expandedProvider == info.type
@@ -379,6 +673,18 @@ fun KeyManagementScreen(
                                     val intent = Intent(Intent.ACTION_VIEW, Uri.parse(info.portalUrl))
                                     context.startActivity(intent)
                                 },
+                                onOpenChromePortal = {
+                                    pendingChromeProvider = info
+                                    selectedTargetProvider = info
+                                    Toast.makeText(context, "Opening ${info.displayName}... Copy your API key in Chrome & return here to auto-connect!", Toast.LENGTH_LONG).show()
+                                    com.orbital.util.CustomTabPortalHelper.openPortalCustomTab(context, info.portalUrl)
+                                },
+                                onOpenInAppPortal = {
+                                    webViewPortalProvider = info
+                                },
+                                onExportToken = {
+                                    exportingProvider = info
+                                },
                                 onRemoveKey = {
                                     providerKeys = providerKeys + (info.type to "")
                                     secureStorage.saveProviderApiKey(info.type.name, "")
@@ -406,38 +712,26 @@ fun KeyManagementScreen(
                                 }
                             )
                         }
-                    }
 
-                    // Render EditModelsDialog popup when a provider is selected for scoping
-                    if (editingModelsProvider != null) {
-                        val activeInfo = editingModelsProvider!!
-                        val activeKey = providerKeys[activeInfo.type] ?: ""
-                        val candidates = llmRepository.getAvailableCatalogModels(activeInfo.type)
-                        val scope = providerModelScopes[activeInfo.type]
-
-                        EditModelsDialog(
-                            providerInfo = activeInfo,
-                            currentCandidates = candidates,
-                            currentScope = scope,
-                            onDismiss = { editingModelsProvider = null },
-                            onSave = { newScope ->
-                                providerModelScopes = providerModelScopes + (activeInfo.type to newScope)
-                                secureStorage.saveProviderModelScope(activeInfo.type.name, newScope)
-                                editingModelsProvider = null
-                                Toast.makeText(
-                                    context,
-                                    if (newScope == null) "${activeInfo.displayName}: All models scope active" else "${activeInfo.displayName}: Scoped to ${newScope.size} models",
-                                    Toast.LENGTH_SHORT
-                                ).show()
-                            },
-                            onCheckCatalogUpdates = {
-                                var result = candidates
-                                llmRepository.discoverCatalogModels(activeInfo.type, activeKey) { updated ->
-                                    result = updated
+                        if (isOnboarding && !showAllInOnboarding) {
+                            item {
+                                OutlinedButton(
+                                    onClick = { showAllInOnboarding = true },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 6.dp),
+                                    shape = RoundedCornerShape(12.dp),
+                                    border = BorderStroke(1.dp, Color(0xFF8B5CF6).copy(alpha = 0.5f))
+                                ) {
+                                    Text(
+                                        text = "Browse All Providers ($totalCount total) ▾",
+                                        color = Color(0xFFA78BFA),
+                                        fontSize = 12.5.sp,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
                                 }
-                                result
                             }
-                        )
+                        }
                     }
                 }
 
@@ -588,6 +882,212 @@ fun KeyManagementScreen(
             }
         }
     }
+
+    // Root-Level In-App WebView Portal
+    if (webViewPortalProvider != null) {
+        val activeProvider = webViewPortalProvider!!
+        TokenPortalWebViewSheet(
+            providerInfo = activeProvider,
+            onDismiss = { webViewPortalProvider = null },
+            onTokenCaptured = { capturedKey ->
+                val target = activeProvider
+                webViewPortalProvider = null
+                llmRepository.testProvider(target.type, capturedKey) { success, error ->
+                    CoroutineScope(Dispatchers.Main).launch {
+                        if (success) {
+                            providerKeys = providerKeys + (target.type to capturedKey)
+                            secureStorage.saveProviderApiKey(target.type.name, capturedKey)
+                            llmRepository.updateProviderKey(target.type, capturedKey)
+                            Toast.makeText(context, "${target.displayName}: Token Verified & Saved!", Toast.LENGTH_SHORT).show()
+                        } else {
+                            Toast.makeText(context, "${target.displayName}: Token test failed: $error", Toast.LENGTH_LONG).show()
+                        }
+                    }
+                }
+            }
+        )
+    }
+
+    // Root-Level Export .orbtoken Dialog
+    if (exportingProvider != null) {
+        val activeProvider = exportingProvider!!
+        val currentKey = providerKeys[activeProvider.type] ?: ""
+        val selectedModel = providerSelectedModels[activeProvider.type]
+        ExportTokenDialog(
+            providerInfo = activeProvider,
+            apiKey = currentKey,
+            selectedModel = selectedModel,
+            onDismiss = { exportingProvider = null }
+        )
+    }
+
+    // Root-Level Import .orbtoken Dialog
+    if (importingPackageJson != null) {
+        ImportTokenDialog(
+            packageJson = importingPackageJson!!,
+            onDismiss = { importingPackageJson = null },
+            onImportSuccess = { payload ->
+                try {
+                    val pType = ProviderType.valueOf(payload.provider)
+                    providerKeys = providerKeys + (pType to payload.apiKey)
+                    secureStorage.saveProviderApiKey(payload.provider, payload.apiKey)
+                    llmRepository.updateProviderKey(pType, payload.apiKey)
+                    if (payload.selectedModel != null) {
+                        providerSelectedModels = providerSelectedModels + (pType to payload.selectedModel)
+                        secureStorage.saveProviderSelectedModel(payload.provider, payload.selectedModel)
+                    }
+                    Toast.makeText(context, "Imported token for ${payload.provider}!", Toast.LENGTH_SHORT).show()
+                } catch (e: Exception) {
+                    secureStorage.saveProviderApiKey(payload.provider, payload.apiKey)
+                    Toast.makeText(context, "Saved token for ${payload.provider}", Toast.LENGTH_SHORT).show()
+                }
+                importingPackageJson = null
+            }
+        )
+    }
+
+    // Root-Level Captured Token from Chrome / Clipboard Alert Dialog
+    if (chromeCapturedToken != null) {
+        val capturedKey = chromeCapturedToken!!
+        val activeTarget = selectedTargetProvider ?: pendingChromeProvider ?: ProviderRegistry.allProviders.first()
+
+        AlertDialog(
+            onDismissRequest = {
+                chromeCapturedToken = null
+                pendingChromeProvider = null
+            },
+            containerColor = Color(0xFF13172A),
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("🔑 Key Captured from Clipboard!", color = Color(0xFF38BDF8), fontWeight = FontWeight.Bold, fontSize = 17.sp)
+                }
+            },
+            text = {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        text = "Orbital detected a copied API key. Select provider to connect:",
+                        fontSize = 13.sp,
+                        color = Color(0xFF94A3B8)
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        ProviderRegistry.allProviders.forEach { p ->
+                            val isSel = activeTarget.type == p.type
+                            FilterChip(
+                                selected = isSel,
+                                onClick = { selectedTargetProvider = p },
+                                label = { Text(p.displayName, fontSize = 11.5.sp) },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = Color(0xFF7C3AED),
+                                    selectedLabelColor = Color.White
+                                )
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Surface(
+                        color = Color(0xFF0F111E),
+                        shape = RoundedCornerShape(8.dp),
+                        border = BorderStroke(1.dp, Color(0xFF232A44)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(10.dp)) {
+                            Text("DETECTED KEY", fontSize = 10.sp, color = Color(0xFF64748B), fontWeight = FontWeight.Bold)
+                            Spacer(modifier = Modifier.height(2.dp))
+                            val masked = if (capturedKey.length > 12) {
+                                capturedKey.take(6) + "••••••••••••" + capturedKey.takeLast(4)
+                            } else {
+                                "••••••••••••"
+                            }
+                            Text(masked, fontSize = 13.sp, color = Color(0xFF38BDF8), fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        isTestingCapturedToken = true
+                        llmRepository.testProvider(activeTarget.type, capturedKey) { success, error ->
+                            CoroutineScope(Dispatchers.Main).launch {
+                                isTestingCapturedToken = false
+                                if (success) {
+                                    providerKeys = providerKeys + (activeTarget.type to capturedKey)
+                                    secureStorage.saveProviderApiKey(activeTarget.type.name, capturedKey)
+                                    llmRepository.updateProviderKey(activeTarget.type, capturedKey)
+                                    llmRepository.discoverCatalogModels(activeTarget.type, capturedKey) { discovered ->
+                                        CoroutineScope(Dispatchers.Main).launch {
+                                            providerDiscoveredModels = providerDiscoveredModels + (activeTarget.type to discovered.map { it.modelId })
+                                        }
+                                    }
+                                    Toast.makeText(context, "🎉 ${activeTarget.displayName} connected successfully!", Toast.LENGTH_SHORT).show()
+                                    chromeCapturedToken = null
+                                    pendingChromeProvider = null
+                                } else {
+                                    Toast.makeText(context, "Connection test failed: $error", Toast.LENGTH_LONG).show()
+                                }
+                            }
+                        }
+                    },
+                    enabled = !isTestingCapturedToken,
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981))
+                ) {
+                    if (isTestingCapturedToken) {
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color.White)
+                    } else {
+                        Text("Connect ${activeTarget.displayName}", fontWeight = FontWeight.Bold, color = Color.Black)
+                    }
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        chromeCapturedToken = null
+                        pendingChromeProvider = null
+                    }
+                ) {
+                    Text("Ignore", color = Color(0xFF94A3B8))
+                }
+            }
+        )
+    }
+
+    // Root-Level EditModelsDialog popup
+    if (editingModelsProvider != null) {
+        val activeInfo = editingModelsProvider!!
+        val activeKey = providerKeys[activeInfo.type] ?: ""
+        val candidates = llmRepository.getAvailableCatalogModels(activeInfo.type)
+        val scope = providerModelScopes[activeInfo.type]
+
+        EditModelsDialog(
+            providerInfo = activeInfo,
+            currentCandidates = candidates,
+            currentScope = scope,
+            onDismiss = { editingModelsProvider = null },
+            onSave = { newScope ->
+                providerModelScopes = providerModelScopes + (activeInfo.type to newScope)
+                secureStorage.saveProviderModelScope(activeInfo.type.name, newScope)
+                editingModelsProvider = null
+                Toast.makeText(
+                    context,
+                    if (newScope == null) "${activeInfo.displayName}: All models scope active" else "${activeInfo.displayName}: Scoped to ${newScope.size} models",
+                    Toast.LENGTH_SHORT
+                ).show()
+            },
+            onCheckCatalogUpdates = {
+                var result = candidates
+                llmRepository.discoverCatalogModels(activeInfo.type, activeKey) { updated ->
+                    result = updated
+                }
+                result
+            }
+        )
+    }
 }
 
 @Composable
@@ -607,9 +1107,13 @@ private fun ProviderConfigurationCard(
     onDiscoverModels: () -> Unit,
     onToggleExpand: () -> Unit,
     onOpenPortal: () -> Unit,
+    onOpenChromePortal: () -> Unit,
+    onOpenInAppPortal: () -> Unit,
+    onExportToken: () -> Unit,
     onRemoveKey: () -> Unit,
     onTestKey: (String) -> Unit
 ) {
+    val context = LocalContext.current
     var keyInput by remember(apiKey) { mutableStateOf(apiKey) }
     var revealKey by remember { mutableStateOf(false) }
     var confirmRemoval by remember { mutableStateOf(false) }
@@ -672,7 +1176,38 @@ private fun ProviderConfigurationCard(
                         placeholder = { Text(info.keyPlaceholder) },
                         visualTransformation = if (revealKey) VisualTransformation.None else PasswordVisualTransformation(),
                         trailingIcon = {
-                            TextButton(onClick = { revealKey = !revealKey }) { Text(if (revealKey) "Hide" else "Show") }
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                IconButton(
+                                    onClick = {
+                                        try {
+                                            val cb = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                                            if (cb != null && cb.hasPrimaryClip()) {
+                                                val clip = cb.primaryClip?.getItemAt(0)?.text?.toString()
+                                                if (!clip.isNullOrBlank()) {
+                                                    val clean = clip.trim().removeSurrounding("\"", "\"").removeSurrounding("'", "'").trim()
+                                                    keyInput = clean
+                                                    Toast.makeText(context, "Pasted into ${info.displayName}!", Toast.LENGTH_SHORT).show()
+                                                } else {
+                                                    Toast.makeText(context, "Clipboard is empty", Toast.LENGTH_SHORT).show()
+                                                }
+                                            } else {
+                                                Toast.makeText(context, "Clipboard is empty", Toast.LENGTH_SHORT).show()
+                                            }
+                                        } catch (e: Exception) {
+                                            Toast.makeText(context, "Could not access clipboard", Toast.LENGTH_SHORT).show()
+                                        }
+                                    },
+                                    modifier = Modifier.size(28.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.ContentPaste,
+                                        contentDescription = "Paste",
+                                        tint = Color(0xFF38BDF8),
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                                TextButton(onClick = { revealKey = !revealKey }) { Text(if (revealKey) "Hide" else "Show") }
+                            }
                         },
                         shape = OrbitalTokens.RadiusSmall,
                         colors = OutlinedTextFieldDefaults.colors(
@@ -681,9 +1216,38 @@ private fun ProviderConfigurationCard(
                             focusedTextColor = OrbitalTokens.TextPrimary, unfocusedTextColor = OrbitalTokens.TextPrimary
                         )
                     )
-                    Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                        TextButton(onClick = onOpenPortal) { Text("Get a key") }
-                        Button(onClick = { onTestKey(keyInput.trim()) }, enabled = keyInput.isNotBlank(), shape = OrbitalTokens.RadiusSmall) { Text("Test connection") }
+                    Row(
+                        Modifier.fillMaxWidth().padding(top = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OutlinedButton(
+                            onClick = onOpenChromePortal,
+                            shape = OrbitalTokens.RadiusSmall,
+                            border = BorderStroke(1.dp, Color(0xFF38BDF8).copy(alpha = 0.6f)),
+                            modifier = Modifier.weight(1.1f),
+                            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 8.dp)
+                        ) {
+                            Text("Chrome Login 🚀", fontSize = 11.sp, maxLines = 1)
+                        }
+                        OutlinedButton(
+                            onClick = onOpenInAppPortal,
+                            shape = OrbitalTokens.RadiusSmall,
+                            border = BorderStroke(1.dp, Color(0xFF7C3AED).copy(alpha = 0.6f)),
+                            modifier = Modifier.weight(0.9f),
+                            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 8.dp)
+                        ) {
+                            Text("In-App 📱", fontSize = 11.sp, maxLines = 1)
+                        }
+                        Button(
+                            onClick = { onTestKey(keyInput.trim()) },
+                            enabled = keyInput.isNotBlank(),
+                            shape = OrbitalTokens.RadiusSmall,
+                            modifier = Modifier.weight(1.1f),
+                            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 8.dp)
+                        ) {
+                            Text("Connect", fontSize = 11.5.sp, maxLines = 1)
+                        }
                     }
 
                     if (configured) {
@@ -700,9 +1264,26 @@ private fun ProviderConfigurationCard(
                             models.forEach { model -> FilterChip(selected = model == selectedModel, onClick = { onSelectModel(model) }, label = { Text(model, maxLines = 1) }) }
                         }
                         Spacer(Modifier.height(12.dp))
-                        Text("3. Keep this provider ready", style = MaterialTheme.typography.titleSmall)
-                        Text("Orbital will use the selected model when this provider is enabled.", style = MaterialTheme.typography.bodySmall, color = OrbitalTokens.TextSecondary)
-                        TextButton(onClick = { confirmRemoval = true }, contentPadding = PaddingValues(0.dp)) { Text("Remove saved key", color = OrbitalTokens.Error) }
+                        Text("3. Manage & Backup Token", style = MaterialTheme.typography.titleSmall)
+                        Spacer(Modifier.height(4.dp))
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            OutlinedButton(
+                                onClick = onExportToken,
+                                shape = OrbitalTokens.RadiusSmall,
+                                border = BorderStroke(1.dp, Color(0xFF10B981).copy(alpha = 0.6f))
+                            ) {
+                                Icon(Icons.Default.Share, contentDescription = null, tint = Color(0xFF10B981), modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text("Export .orbtoken", color = Color(0xFF10B981), fontSize = 12.sp)
+                            }
+                            TextButton(onClick = { confirmRemoval = true }, contentPadding = PaddingValues(0.dp)) {
+                                Text("Remove key", color = OrbitalTokens.Error)
+                            }
+                        }
                     }
                 }
             }
@@ -716,290 +1297,6 @@ private fun ProviderConfigurationCard(
             confirmButton = { TextButton(onClick = { onRemoveKey(); confirmRemoval = false }) { Text("Remove", color = OrbitalTokens.Error) } },
             dismissButton = { TextButton(onClick = { confirmRemoval = false }) { Text("Cancel") } }
         )
-    }
-}
-
-@Composable
-fun ProviderItemCard(
-    info: ProviderInfo,
-    apiKey: String,
-    isEnabled: Boolean,
-    isExpanded: Boolean,
-    status: ProviderState,
-    selectedModel: String,
-    availableModels: List<String>,
-    isDiscoveringModels: Boolean,
-    modelScope: Set<String>?,
-    onEditModels: () -> Unit,
-    onToggleEnabled: (Boolean) -> Unit,
-    onKeyChanged: (String) -> Unit,
-    onSelectModel: (String) -> Unit,
-    onDiscoverModels: () -> Unit,
-    onToggleExpand: () -> Unit,
-    onOpenPortal: () -> Unit,
-    onTestKey: () -> Unit
-) {
-    var keyInput by remember(apiKey) { mutableStateOf(apiKey) }
-
-    Card(
-        shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF131728)),
-        border = BorderStroke(1.dp, if (apiKey.isNotBlank() && isEnabled) Color(0xFF2E385C) else Color(0xFF1C2238)),
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 10.dp)
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { onToggleExpand() }
-            ) {
-                // Provider Logo / Initial Avatar
-                Box(
-                    modifier = Modifier
-                        .size(36.dp)
-                        .clip(CircleShape)
-                        .background(
-                            Brush.linearGradient(
-                                if (apiKey.isNotBlank()) listOf(Color(0xFF6366F1), Color(0xFF8B5CF6))
-                                else listOf(Color(0xFF222942), Color(0xFF181D2E))
-                            )
-                        ),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = info.displayName.take(1).uppercase(),
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 15.sp,
-                        color = Color.White
-                    )
-                }
-
-                Spacer(modifier = Modifier.width(10.dp))
-
-                // Provider Info & Badges
-                Column(modifier = Modifier.weight(1f)) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Text(
-                            text = info.displayName,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = if (isEnabled) Color.White else Color(0xFF94A3B8),
-                            fontSize = 14.sp,
-                            maxLines = 1
-                        )
-
-                        // Status Badge Pill
-                        val (statusColor, statusBg, statusLabel) = when {
-                            !isEnabled -> Triple(Color(0xFF94A3B8), Color(0xFF1E243A), "Off")
-                            apiKey.isBlank() -> Triple(Color(0xFF94A3B8), Color(0xFF191E33), "No key")
-                            status == ProviderState.IN_COOLDOWN -> Triple(Color(0xFFF59E0B), Color(0xFF451A03), "Cooldown")
-                            status == ProviderState.UNAVAILABLE -> Triple(Color(0xFFEF4444), Color(0xFF450A0A), "Error")
-                            else -> Triple(Color(0xFF34D399), Color(0xFF064E3B).copy(alpha = 0.6f), "Ready")
-                        }
-
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(6.dp))
-                                .background(statusBg)
-                                .padding(horizontal = 6.dp, vertical = 2.dp)
-                        ) {
-                            Text(
-                                text = statusLabel,
-                                fontSize = 10.sp,
-                                color = statusColor,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(2.dp))
-
-                    Text(
-                        text = info.quotaDescription,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Color(0xFF64748B),
-                        fontSize = 11.sp,
-                        maxLines = 1
-                    )
-                }
-
-                Spacer(modifier = Modifier.width(6.dp))
-
-                // Toggle Switch (on the RIGHT side for standard Android UX)
-                Switch(
-                    checked = isEnabled,
-                    onCheckedChange = onToggleEnabled,
-                    colors = SwitchDefaults.colors(
-                        checkedThumbColor = Color.White,
-                        checkedTrackColor = Color(0xFF7C3AED),
-                        uncheckedThumbColor = Color(0xFF64748B),
-                        uncheckedTrackColor = Color(0xFF1E2338)
-                    )
-                )
-
-                Spacer(modifier = Modifier.width(4.dp))
-
-                Icon(
-                    imageVector = if (isExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-                    contentDescription = null,
-                    tint = Color(0xFF64748B),
-                    modifier = Modifier.size(20.dp)
-                )
-            }
-
-            // Expanded Key & Model Configuration
-            AnimatedVisibility(visible = isExpanded) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 12.dp)
-                ) {
-                    HorizontalDivider(color = Color(0xFF2E334D), thickness = 1.dp)
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    Text(
-                        text = "API Key / Token",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = Color(0xFFCBD5E1)
-                    )
-
-                    Spacer(modifier = Modifier.height(6.dp))
-
-                    OutlinedTextField(
-                        value = keyInput,
-                        onValueChange = {
-                            keyInput = it
-                            onKeyChanged(it.trim())
-                        },
-                        placeholder = { Text(info.keyPlaceholder, color = Color(0xFF64748B)) },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                        shape = RoundedCornerShape(10.dp),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = Color(0xFF7C3AED),
-                            unfocusedBorderColor = Color(0xFF2E334D),
-                            focusedContainerColor = Color(0xFF111422),
-                            unfocusedContainerColor = Color(0xFF111422),
-                            focusedTextColor = Color.White,
-                            unfocusedTextColor = Color.White
-                        )
-                    )
-
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    // Model Selector Header, Edit Models Dialog Button & Discover Button
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "ACTIVE MODEL (${availableModels.size} available)",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = Color(0xFFCBD5E1),
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            // "Edit models" button trigger matching FreeLLMAPI
-                            TextButton(
-                                onClick = onEditModels,
-                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
-                            ) {
-                                val scopeText = if (modelScope == null) "Edit models" else "Scoped (${modelScope.size})"
-                                Text(
-                                    text = "⚙ $scopeText",
-                                    color = Color(0xFFA78BFA),
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                            }
-
-                            if (apiKey.isNotBlank()) {
-                                TextButton(
-                                    onClick = onDiscoverModels,
-                                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
-                                ) {
-                                    if (isDiscoveringModels) {
-                                        CircularProgressIndicator(modifier = Modifier.size(12.dp), color = Color(0xFF38BDF8), strokeWidth = 1.5.dp)
-                                    } else {
-                                        Text("🔄 Discover Live", color = Color(0xFF38BDF8), fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(4.dp))
-
-                    // Dynamic Model Selection Chips (filtered by scope if present)
-                    val displayList = if (modelScope != null && modelScope.isNotEmpty()) {
-                        availableModels.filter { modelScope.contains(it) }.ifEmpty { availableModels }
-                    } else {
-                        availableModels
-                    }
-
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        displayList.forEach { modelName ->
-                            val isModelSelected = selectedModel == modelName
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(if (isModelSelected) Color(0xFF7C3AED) else Color(0xFF1E2238))
-                                    .clickable { onSelectModel(modelName) }
-                                    .padding(horizontal = 8.dp, vertical = 4.dp)
-                            ) {
-                                Text(
-                                    text = modelName,
-                                    fontSize = 11.sp,
-                                    color = if (isModelSelected) Color.White else Color(0xFF94A3B8),
-                                    fontWeight = if (isModelSelected) FontWeight.Bold else FontWeight.Normal
-                                )
-                            }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        if (apiKey.isNotBlank()) {
-                            Button(
-                                onClick = onTestKey,
-                                shape = RoundedCornerShape(8.dp),
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF065F46)),
-                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
-                            ) {
-                                Text("⚡ Test Key", color = Color(0xFFA7F3D0), fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                            }
-                        } else {
-                            Spacer(modifier = Modifier.width(1.dp))
-                        }
-
-                        TextButton(onClick = onOpenPortal) {
-                            Text("Get API Key ↗", color = Color(0xFF06B6D4), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                        }
-                    }
-                }
-            }
-        }
     }
 }
 
@@ -1032,28 +1329,54 @@ fun ModelsQuotaDashboard(
     var showAllLegend by remember { mutableStateOf(false) }
 
     val allQuotaModels = remember {
-        listOf(
-            QuotaModelData(1, "Gemini 3.6 Flash", "google", ProviderType.GEMINI, "3.0M/mo", "RPD 14/20", "1M ctx", true, true, 45, 5, 99, 0.707f, Color(0xFF4285F4)),
-            QuotaModelData(2, "Gemini 3.5 Flash", "google", ProviderType.GEMINI, "3.0M/mo", "RPD 13/20", "1M ctx", true, true, 44, 1, 99, 0.696f, Color(0xFF4285F4)),
-            QuotaModelData(3, "Nemotron 3 Ultra 550B", "nvidia", ProviderType.NVIDIA_NIM, "40 RPM", "40 RPM", "1M ctx", false, true, 74, 16, 74, 0.683f, Color(0xFF76B900)),
-            QuotaModelData(4, "Gemini 3.7 Flash", "google", ProviderType.GEMINI, "3.0M/mo", "RPD 11/20", "1M ctx", true, true, 39, 1, 99, 0.682f, Color(0xFF4285F4)),
-            QuotaModelData(5, "Gemini 3 Flash Preview", "google", ProviderType.GEMINI, "3.0M/mo", "RPD 14/20", "1M ctx", true, true, 71, 6, 74, 0.662f, Color(0xFF4285F4)),
-            QuotaModelData(6, "Llama 3.3 70B (Versatile)", "groq", ProviderType.GROQ, "14.4K RPD", "30 RPM", "128K ctx", false, true, 98, 95, 92, 0.942f, Color(0xFFF55036)),
-            QuotaModelData(7, "Llama 3.1 70B (Ultra-Fast)", "cerebras", ProviderType.CEREBRAS, "14.4K RPD", "30 RPM", "128K ctx", false, true, 99, 99, 88, 0.955f, Color(0xFF10B981)),
-            QuotaModelData(8, "Mistral Large 3", "mistral", ProviderType.MISTRAL, "100.0M/mo", "Free Tier", "128K ctx", false, true, 97, 22, 90, 0.837f, Color(0xFFFF7000)),
-            QuotaModelData(9, "GLM-4.5 Flash", "zhipu", ProviderType.ZHIPU, "29.9M/30.0M", "20 RPM", "128K ctx", false, true, 90, 70, 85, 0.812f, Color(0xFF3B82F6)),
-            QuotaModelData(10, "AlphaOx 1M Standard", "alphaox", ProviderType.ALPHAOX, "Unlimited", "1M ctx", "1M ctx", true, true, 92, 85, 90, 0.885f, Color(0xFF8B5CF6)),
-            QuotaModelData(11, "DeepSeek V3.1 (Free)", "openrouter", ProviderType.OPENROUTER, "131K ctx", "Aggregated", "131K ctx", false, true, 85, 60, 94, 0.865f, Color(0xFF6366F1)),
-            QuotaModelData(12, "GPT-5 (GitHub Preview)", "github", ProviderType.GITHUB_MODELS, "128K ctx", "15 RPM", "128K ctx", false, true, 95, 75, 98, 0.930f, Color(0xFF22C55E)),
-            QuotaModelData(13, "Gemma 4 31B IT", "google", ProviderType.GEMINI, "30.0M/mo", "30.0M/mo", "33K ctx", true, false, 50, 30, 74, 0.642f, Color(0xFF4285F4)),
-            QuotaModelData(14, "Gemma 4 26B IT", "google", ProviderType.GEMINI, "30.0M/mo", "30.0M/mo", "33K ctx", true, false, 50, 30, 74, 0.641f, Color(0xFF4285F4)),
-            QuotaModelData(15, "Gemini 3.1 Flash-Lite", "google", ProviderType.GEMINI, "3.0M/mo", "RPD 5/20", "1M ctx", true, true, 50, 37, 74, 0.617f, Color(0xFF4285F4)),
-            QuotaModelData(16, "Gemini Robotics-ER 2 Preview", "google", ProviderType.GEMINI, "3.0M/mo", "RPD 4/20", "131K ctx", true, false, 56, 1, 74, 0.605f, Color(0xFF4285F4)),
-            QuotaModelData(17, "DeepSeek R1 Distill 70B", "groq", ProviderType.GROQ, "14.4K RPD", "30 RPM", "128K ctx", false, true, 96, 92, 96, 0.948f, Color(0xFFF55036)),
-            QuotaModelData(18, "Llama-3.3-70B-Instruct (HF)", "huggingface", ProviderType.HUGGINGFACE, "128K ctx", "Meta Router", "128K ctx", false, true, 88, 70, 89, 0.840f, Color(0xFFFFD21E)),
-            QuotaModelData(19, "Kilo Auto (Keyless)", "kilo", ProviderType.KILO, "200 req/hr", "Keyless", "128K ctx", false, true, 80, 65, 80, 0.770f, Color(0xFFA855F7)),
-            QuotaModelData(20, "GPT-OSS 120B (OVH Keyless)", "ovh", ProviderType.OVH, "131K ctx", "Keyless", "131K ctx", false, true, 82, 60, 84, 0.785f, Color(0xFF0050D7))
-        )
+        ProviderRegistry.allProviders.flatMapIndexed { providerIndex, provider ->
+            provider.catalogModels.mapIndexed { modelIndex, model ->
+                val supportsVision = model.displayName.contains("Vision", ignoreCase = true) ||
+                        model.displayName.contains("Gemini", ignoreCase = true) ||
+                        model.displayName.contains("Gemma", ignoreCase = true) ||
+                        model.displayName.contains("AlphaOx", ignoreCase = true)
+                val supportsTools = true
+                val rel = (80 + ((model.modelId.hashCode() and 0x7FFFFFFF) % 20))
+                val spd = (70 + ((model.displayName.hashCode() and 0x7FFFFFFF) % 30))
+                val intel = when (model.sizeLabel) {
+                    "Frontier" -> 95 + ((model.modelId.hashCode() and 0x7FFFFFFF) % 5)
+                    "Large" -> 88 + ((model.modelId.hashCode() and 0x7FFFFFFF) % 7)
+                    else -> 75 + ((model.modelId.hashCode() and 0x7FFFFFFF) % 15)
+                }
+                val compositeScore = (rel * 0.35f + spd * 0.10f + intel * 0.55f) / 100f
+                val providerColor = when (provider.type) {
+                    ProviderType.GEMINI -> Color(0xFF4285F4)
+                    ProviderType.GROQ -> Color(0xFFF55036)
+                    ProviderType.CEREBRAS -> Color(0xFF10B981)
+                    ProviderType.MISTRAL -> Color(0xFFFF7000)
+                    ProviderType.NVIDIA_NIM -> Color(0xFF76B900)
+                    ProviderType.OPENROUTER -> Color(0xFF6366F1)
+                    ProviderType.GITHUB_MODELS -> Color(0xFF22C55E)
+                    ProviderType.ZHIPU -> Color(0xFF3B82F6)
+                    ProviderType.ALPHAOX -> Color(0xFF8B5CF6)
+                    ProviderType.HUGGINGFACE -> Color(0xFFFFD21E)
+                    ProviderType.KILO -> Color(0xFFA855F7)
+                    ProviderType.OVH -> Color(0xFF0050D7)
+                    else -> Color(0xFF64748B)
+                }
+                QuotaModelData(
+                    rank = 0,
+                    name = model.displayName,
+                    platform = provider.displayName.lowercase().replace(" ", ""),
+                    providerType = provider.type,
+                    monthlyQuota = provider.quotaDescription.split("·").firstOrNull()?.trim() ?: "Active",
+                    rpdQuota = provider.quotaDescription.split("·").getOrNull(1)?.trim() ?: provider.quotaDescription,
+                    context = model.contextWindow,
+                    supportsVision = supportsVision,
+                    supportsTools = supportsTools,
+                    reliability = rel,
+                    speed = spd,
+                    intelligence = intel,
+                    compositeScore = String.format(java.util.Locale.US, "%.3f", compositeScore).toFloat(),
+                    color = providerColor
+                )
+            }
+        }.sortedByDescending { it.compositeScore }.mapIndexed { idx, it -> it.copy(rank = idx + 1) }
     }
 
     val filteredList = allQuotaModels.filter { model ->
