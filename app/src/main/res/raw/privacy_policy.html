@@ -10,7 +10,7 @@
     <strong>Last Updated:</strong> October 1, 2026</p>
 
     <h4>1. Overview & Local-First Architecture</h4>
-    <p>Orbital ("we", "our", or "the app") is a local-first, privacy-by-design AI companion and autonomous device automation system for Android. Orbital is architected from the ground up to operate <strong>without central tracking servers or developer-hosted databases</strong>. Your data remains strictly on your device.</p>
+    <p>Orbital ("we", "our", or "the app") is a local-first AI companion and device automation system for Android. Orbital operates without central tracking servers or developer-hosted databases. User-requested AI features and the optional paired Laptop Bridge can transmit data off the device as described below.</p>
 
     <h4>2. Categories of Information Processed</h4>
     <ul>
@@ -25,8 +25,8 @@
     <ul>
         <li><strong>Specific API Usage:</strong> Orbital utilizes Android's official <code>AccessibilityService</code> API to retrieve window content, inspect visible accessibility nodes (view IDs, text labels, clickable states, and bounding boxes), and dispatch user-directed gestures (e.g. clicks, swipes, and text input).</li>
         <li><strong>Legitimate Purpose:</strong> The service is used exclusively to fulfill explicit user automation commands (e.g. navigating settings, clicking buttons, testing app flows, and answering questions about on-screen content).</li>
-        <li><strong>Strict Data Protection & Non-Collection:</strong> Orbital does <strong>NOT</strong> record, collect, store, or sell sensitive personal information, keystrokes, passwords, payment details, or banking credentials. All accessibility hierarchy traversal occurs locally in temporary memory and is discarded immediately after action execution.</li>
-        <li><strong>No Advertising or Tracking:</strong> Accessibility data is never used for advertising, profiling, behavioral analytics, or third-party sharing.</li>
+        <li><strong>Screen data:</strong> Accessibility snapshots can contain visible text and controls from other apps. Orbital processes them on the device for automation. If you request AI screen analysis, screen information may be sent to your selected AI provider. Optional Laptop Bridge inspection sends the snapshot to your paired laptop, where AI tools may process it. Avoid sensitive screens during automation. Orbital does not sell this data.</li>
+        <li><strong>No Advertising or Tracking:</strong> Accessibility data is not used for advertising, profiling, or behavioral analytics. Screen snapshots are sent to your paired laptop only when you request inspection through the Laptop Bridge.</li>
         <li><strong>Voluntary Consent & Revocation:</strong> The Accessibility Service is disabled by default and requires explicit, voluntary user activation via a prominent disclosure dialog. You can revoke or disable this permission at any time in Android System Settings &rarr; Accessibility.</li>
     </ul>
 

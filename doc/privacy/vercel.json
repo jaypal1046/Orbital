@@ -1,0 +1,11 @@
+{
+  "cleanUrls": true,
+  "rewrites": [
+    { "source": "/privacy", "destination": "/privacy.html" },
+    { "source": "/Privacy Policy", "destination": "/privacy.html" },
+    { "source": "/Privacy%20Policy", "destination": "/privacy.html" },
+    { "source": "/terms", "destination": "/terms.html" },
+    { "source": "/Terms of Service", "destination": "/terms.html" },
+    { "source": "/Terms%20of%20Service", "destination": "/terms.html" }
+  ]
+}

@@ -30,22 +30,6 @@ object UpdateModule {
 
     @Provides
     @Singleton
-    fun provideApkDownloader(
-        @ApplicationContext context: Context
-    ): ApkDownloader {
-        return ApkDownloader(context)
-    }
-
-    @Provides
-    @Singleton
-    fun provideApkInstaller(
-        @ApplicationContext context: Context
-    ): ApkInstaller {
-        return ApkInstaller(context)
-    }
-
-    @Provides
-    @Singleton
     fun provideGitHubUpdateEngine(
         @ApplicationContext context: Context,
         distributionDetector: DistributionDetector,

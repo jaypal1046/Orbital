@@ -258,6 +258,7 @@ fun PermissionsAndAccessibilityStepScreen(
     val scrollState = rememberScrollState()
 
     var isAccessibilityActive by remember { mutableStateOf(OrbitalAccessibilityService.isEnabled(context)) }
+    var showAccessibilityDisclosure by remember { mutableStateOf(false) }
     var isOverlayActive by remember {
         mutableStateOf(if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) Settings.canDrawOverlays(context) else true)
     }
@@ -428,7 +429,7 @@ fun PermissionsAndAccessibilityStepScreen(
 
                     Spacer(modifier = Modifier.height(10.dp))
 
-                    // Strict Privacy Guarantee
+                    // Screen data disclosure
                     Surface(
                         color = Color(0xFF0A1F18),
                         shape = RoundedCornerShape(10.dp),
@@ -436,7 +437,7 @@ fun PermissionsAndAccessibilityStepScreen(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text(
-                            text = "🛡️ Strict Privacy: Zero keystroke logging. No passwords, payments, or banking data collected.",
+                            text = "🛡️ Screen text can go to your selected AI provider for screen analysis, or to your paired laptop through Laptop Bridge inspection. Avoid sensitive screens during automation.",
                             color = Color(0xFFA7F3D0),
                             fontSize = 11.sp,
                             modifier = Modifier.padding(10.dp)
@@ -445,7 +446,7 @@ fun PermissionsAndAccessibilityStepScreen(
 
                     Spacer(modifier = Modifier.height(12.dp))
                     Button(
-                        onClick = { OrbitalAccessibilityService.openSettings(context) },
+                        onClick = { showAccessibilityDisclosure = true },
                         colors = ButtonDefaults.buttonColors(
                             containerColor = if (isAccessibilityActive) Color(0xFF10B981) else Color(0xFF7C3AED)
                         ),
@@ -580,6 +581,9 @@ fun PermissionsAndAccessibilityStepScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
         }
+    }
+    if (showAccessibilityDisclosure) {
+        AccessibilityDisclosureDialog(onDismiss = { showAccessibilityDisclosure = false })
     }
 }
 

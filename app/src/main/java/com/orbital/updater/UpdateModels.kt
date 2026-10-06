@@ -11,7 +11,7 @@ enum class DistributionChannel(val displayName: String) {
 enum class UpdateType {
     UP_TO_DATE,
     PLAY_STORE_REDIRECT,      // Full APK update via Google Play Store listing
-    GITHUB_APK_DOWNLOAD,      // Full APK direct in-app download and 1-tap install
+    GITHUB_APK_DOWNLOAD,      // Opens the standalone APK link in a browser
     OTA_HOT_PATCH             // Shorebird-style instant prompt/config hot-patch (no APK install)
 }
 
@@ -48,13 +48,6 @@ data class VersionManifest(
     val githubStandalone: GithubStandaloneManifest? = null,
     val otaPatch: OtaPatchManifest? = null
 )
-
-sealed interface DownloadProgress {
-    object Idle : DownloadProgress
-    data class Downloading(val bytesRead: Long, val totalBytes: Long, val percent: Int) : DownloadProgress
-    data class Completed(val apkFilePath: String) : DownloadProgress
-    data class Failed(val errorMessage: String) : DownloadProgress
-}
 
 data class UpdateCheckResult(
     val updateType: UpdateType,
