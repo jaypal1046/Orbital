@@ -1,6 +1,5 @@
 package com.orbital.updater.ui
 
-import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.background
@@ -20,20 +19,15 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.orbital.updater.*
 import kotlinx.coroutines.launch
-import java.io.File
 
 @Composable
 fun UpdateDialog(
     updateResult: UpdateCheckResult,
-    downloader: ApkDownloader,
-    installer: ApkInstaller,
     onDismiss: () -> Unit,
     onOtaPatchApplied: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val downloadProgress by downloader.downloadProgress.collectAsState()
-    var downloadedFile by remember { mutableStateOf<File?>(null) }
     var isPatching by remember { mutableStateOf(false) }
 
     Dialog(onDismissRequest = {
@@ -118,59 +112,6 @@ fun UpdateDialog(
                     Spacer(modifier = Modifier.height(20.dp))
                 }
 
-                // Download Progress (for Standalone APK track)
-                when (val prog = downloadProgress) {
-                    is DownloadProgress.Downloading -> {
-                        Column(modifier = Modifier.fillMaxWidth()) {
-                            LinearProgressIndicator(
-                                progress = { prog.percent / 100f },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(8.dp),
-                                color = Color(0xFF7C3AED),
-                                trackColor = Color(0xFF1E2540)
-                            )
-                            Spacer(modifier = Modifier.height(6.dp))
-                            Text(
-                                text = "Downloading: ${prog.percent}%",
-                                fontSize = 12.sp,
-                                color = Color(0xFFA5B4FC),
-                                modifier = Modifier.align(Alignment.CenterHorizontally)
-                            )
-                        }
-                        Spacer(modifier = Modifier.height(16.dp))
-                    }
-                    is DownloadProgress.Failed -> {
-                        Column(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            Text(
-                                text = "❌ ${prog.errorMessage}",
-                                fontSize = 12.sp,
-                                color = Color(0xFFEF4444)
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            OutlinedButton(
-                                onClick = {
-                                    val fallbackUrl = updateResult.standaloneApkUrl?.substringBeforeLast("/download/")
-                                        ?: "https://github.com/jaypal1046/Orbital/releases"
-                                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(fallbackUrl)).apply {
-                                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                                    }
-                                    context.startActivity(intent)
-                                },
-                                shape = RoundedCornerShape(10.dp),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Text("🌐 Open Releases in Browser", fontSize = 12.sp, color = Color.White)
-                            }
-                        }
-                        Spacer(modifier = Modifier.height(16.dp))
-                    }
-                    else -> {}
-                }
-
                 // Action Buttons
                 when (updateResult.updateType) {
                     UpdateType.PLAY_STORE_REDIRECT -> {
@@ -192,47 +133,20 @@ fun UpdateDialog(
                     }
 
                     UpdateType.GITHUB_APK_DOWNLOAD -> {
-                        if (downloadedFile != null) {
-                            Button(
-                                onClick = {
-                                    if (!installer.canInstallPackages()) {
-                                        installer.openInstallPermissionSettings()
-                                    } else {
-                                        installer.installApk(downloadedFile!!)
-                                    }
-                                },
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)),
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Text("Install Update Now", fontWeight = FontWeight.Bold)
-                            }
-                        } else {
-                            val isDownloading = downloadProgress is DownloadProgress.Downloading
-                            Button(
-                                onClick = {
-                                    val apkUrl = updateResult.standaloneApkUrl
-                                    if (!apkUrl.isNullOrBlank()) {
-                                        scope.launch {
-                                            val file = downloader.downloadApk(apkUrl)
-                                            downloadedFile = file
-                                            if (file != null) {
-                                                if (!installer.canInstallPackages()) {
-                                                    installer.openInstallPermissionSettings()
-                                                } else {
-                                                    installer.installApk(file)
-                                                }
-                                            }
-                                        }
-                                    }
-                                },
-                                enabled = !isDownloading,
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF7C3AED)),
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Text(if (isDownloading) "Downloading..." else "Download & Install", fontWeight = FontWeight.Bold)
-                            }
+                        val apkUri = updateResult.standaloneApkUrl?.let(Uri::parse)
+                            ?.takeIf { it.scheme == "https" }
+                        Button(
+                            onClick = {
+                                apkUri?.let { uri ->
+                                    context.startActivity(Intent(Intent.ACTION_VIEW, uri))
+                                }
+                            },
+                            enabled = apkUri != null,
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF7C3AED)),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Open download in browser", fontWeight = FontWeight.Bold)
                         }
                     }
 

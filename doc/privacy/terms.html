@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Terms of Service - Orbital AI Companion</title>
+    <meta name="description" content="Official Terms of Service for Orbital: Autonomous AI Companion. Comprehensive legal terms governing application usage, AI model disclaimers, and user obligations.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-base: #0a0c14;
+            --bg-surface: #111524;
+            --bg-surface-elevated: #181d32;
+            --border: #232a45;
+            --border-highlight: #3b4570;
+            --primary: #7c3aed;
+            --primary-light: #a78bfa;
+            --cyan: #38bdf8;
+            --emerald: #10b981;
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+            --text-dim: #64748b;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        
+        body {
+            font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+            background-color: var(--bg-base);
+            color: var(--text-main);
+            line-height: 1.8;
+            padding: 0;
+            margin: 0;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        .header-wrapper {
+            border-bottom: 1px solid var(--border);
+            background: rgba(10, 12, 20, 0.85);
+            backdrop-filter: blur(12px);
+            position: sticky;
+            top: 0;
+            z-index: 50;
+        }
+
+        .header-container {
+            max-width: 1040px;
+            margin: 0 auto;
+            padding: 16px 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .logo {
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 1.5rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, #a78bfa 0%, #38bdf8 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .nav-links {
+            display: flex;
+            gap: 20px;
+        }
+
+        .nav-links a {
+            color: var(--text-muted);
+            text-decoration: none;
+            font-size: 0.95rem;
+            font-weight: 600;
+            transition: color 0.2s;
+            padding: 6px 12px;
+            border-radius: 6px;
+        }
+
+        .nav-links a:hover, .nav-links a.active {
+            color: var(--cyan);
+            background: rgba(56, 189, 248, 0.08);
+        }
+
+        .main-container {
+            max-width: 1040px;
+            margin: 40px auto 100px;
+            padding: 0 24px;
+            display: grid;
+            grid-template-columns: 260px 1fr;
+            gap: 40px;
+        }
+
+        @media (max-width: 860px) {
+            .main-container { grid-template-columns: 1fr; }
+            .toc-sidebar { display: none; }
+        }
+
+        .toc-sidebar {
+            position: sticky;
+            top: 90px;
+            height: fit-content;
+            background: var(--bg-surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 20px;
+        }
+
+        .toc-title {
+            font-size: 0.85rem;
+            font-weight: 700;
+            color: var(--primary-light);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 12px;
+        }
+
+        .toc-list {
+            list-style: none;
+            font-size: 0.88rem;
+        }
+
+        .toc-list li {
+            margin-bottom: 8px;
+        }
+
+        .toc-list a {
+            color: var(--text-muted);
+            text-decoration: none;
+            transition: color 0.2s;
+            display: block;
+            padding: 4px 6px;
+            border-radius: 4px;
+        }
+
+        .toc-list a:hover {
+            color: var(--text-main);
+            background: var(--bg-surface-elevated);
+        }
+
+        .content-card {
+            background: var(--bg-surface);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 48px 44px;
+        }
+
+        @media (max-width: 600px) {
+            .content-card { padding: 28px 20px; }
+        }
+
+        .doc-title {
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 2.5rem;
+            font-weight: 700;
+            color: #ffffff;
+            line-height: 1.2;
+            margin-bottom: 8px;
+        }
+
+        .meta-strip {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+            margin-bottom: 32px;
+            align-items: center;
+        }
+
+        .badge {
+            display: inline-block;
+            background: rgba(167, 139, 250, 0.1);
+            color: var(--primary-light);
+            border: 1px solid rgba(167, 139, 250, 0.25);
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-size: 0.8rem;
+            font-weight: 600;
+        }
+
+        h2 {
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 1.45rem;
+            color: #ffffff;
+            margin: 40px 0 16px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        h3 {
+            font-size: 1.15rem;
+            color: var(--cyan);
+            margin: 24px 0 10px;
+        }
+
+        p {
+            color: var(--text-muted);
+            margin-bottom: 18px;
+            font-size: 1rem;
+        }
+
+        ul, ol {
+            color: var(--text-muted);
+            padding-left: 24px;
+            margin-bottom: 20px;
+        }
+
+        li {
+            margin-bottom: 10px;
+        }
+
+        strong {
+            color: var(--text-main);
+        }
+
+        .callout {
+            background: rgba(56, 189, 248, 0.08);
+            border: 1px solid rgba(56, 189, 248, 0.3);
+            border-left: 4px solid var(--cyan);
+            border-radius: 8px;
+            padding: 16px 20px;
+            margin: 24px 0;
+            color: var(--text-main);
+        }
+
+        a {
+            color: var(--cyan);
+            text-decoration: none;
+        }
+
+        a:hover {
+            text-decoration: underline;
+        }
+
+        .footer-note {
+            text-align: center;
+            color: var(--text-dim);
+            font-size: 0.88rem;
+            margin-top: 60px;
+            padding-top: 24px;
+            border-top: 1px solid var(--border);
+        }
+    </style>
+</head>
+<body>
+    <div class="header-wrapper">
+        <div class="header-container">
+            <a href="/" class="logo">
+                <span>🪐</span> Orbital AI
+            </a>
+            <nav class="nav-links">
+                <a href="/privacy">Privacy Policy</a>
+                <a href="/terms" class="active">Terms of Service</a>
+            </nav>
+        </div>
+    </div>
+
+    <div class="main-container">
+        <!-- Sticky Table of Contents -->
+        <aside class="toc-sidebar">
+            <div class="toc-title">Table of Contents</div>
+            <ul class="toc-list">
+                <li><a href="#acceptance">1. Acceptance & Scope</a></li>
+                <li><a href="#license">2. License Grant & IP</a></li>
+                <li><a href="#keys">3. API Keys & Billing</a></li>
+                <li><a href="#aup">4. Acceptable Use Policy</a></li>
+                <li><a href="#ai-disclaimer">5. AI Output Disclaimers</a></li>
+                <li><a href="#automations">6. Device Automations</a></li>
+                <li><a href="#warranties">7. Warranty Disclaimer</a></li>
+                <li><a href="#liability">8. Limitation of Liability</a></li>
+                <li><a href="#indemnity">9. Indemnification</a></li>
+                <li><a href="#arbitration">10. Dispute Resolution</a></li>
+                <li><a href="#governing-law">11. Governing Law</a></li>
+                <li><a href="#contact">12. Inquiries & Contact</a></li>
+            </ul>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="content-card">
+            <div class="meta-strip">
+                <span class="badge">Version 2.0</span>
+                <span class="badge">Effective Date: September 29, 2026</span>
+            </div>
+
+            <h1 class="doc-title">Terms of Service</h1>
+            <p>Please read these Terms of Service ("Terms", "Agreement") carefully before downloading, installing, or operating the <strong>Orbital: Autonomous AI Mascot & Companion</strong> mobile application ("Application", "Service", "Orbital", "we", "us", or "our"), authored and provided by <strong>Jayprakash Pal</strong>.</p>
+
+            <div class="callout">
+                <strong>Important Legal Notice:</strong> By installing or using Orbital, you agree to be bound by all terms, conditions, disclaimers, and liability limits set forth herein. If you do not accept these terms, do not install or use the Application.
+            </div>
+
+            <h2 id="acceptance">1. Acceptance of Terms & Eligibility</h2>
+            <p>You affirm that you are at least 13 years of age (or at least 16 in the European Economic Area) and possess legal capacity to enter into this Agreement. If you are using the Application on behalf of an entity, you warrant that you have authority to bind that entity.</p>
+
+            <h2 id="license">2. License Grant & Intellectual Property</h2>
+            <p>Subject to your compliance with these Terms, you are granted a revocable, non-exclusive, non-transferable, limited license to install and run the Application on personal Android devices under your direct control.</p>
+            <ul>
+                <li>All rights, title, and interest in the Application (including code, mascot character designs, user interfaces, branding, and visual assets) remain the exclusive intellectual property of the author.</li>
+                <li>You may not reverse-engineer, decompile, redistribute, or create unauthorized derivative works of the proprietary components without express written permission.</li>
+            </ul>
+
+            <h2 id="keys">3. API Keys & Third-Party Billing Governance</h2>
+            <p>Orbital provides client-side integrations allowing you to connect your personal API keys from external AI providers (such as Google AI Studio, Groq Cloud, Cerebras, OpenAI, Anthropic):</p>
+            <ul>
+                <li><strong>User Responsibility:</strong> You are solely responsible for obtaining and maintaining valid API credentials in compliance with each provider's usage policies.</li>
+                <li><strong>No Provider Affiliation:</strong> Orbital operates as an independent client-side interface and is not endorsed by or affiliated with Google, OpenAI, Groq, Cerebras, or Anthropic.</li>
+                <li><strong>Third-Party Costs:</strong> Any API token charges, subscription fees, or rate-limit penalties assessed by your third-party providers are solely your responsibility.</li>
+            </ul>
+
+            <h2 id="aup">4. Acceptable Use Policy (AUP)</h2>
+            <p>You agree not to use Orbital for any prohibited or unlawful purpose, including but not limited to:</p>
+            <ul>
+                <li>Generating malicious software, automated exploits, or violating cybersecurity laws.</li>
+                <li>Transmitting defamatory, abusive, harassing, infringing, or illegal material.</li>
+                <li>Attempting to bypass safety filters or violate terms established by connected AI model providers.</li>
+            </ul>
+
+            <h2 id="ai-disclaimer">5. AI Output & Probabilistic Systems Disclaimer</h2>
+            <p>Orbital interfaces with Large Language Models (LLMs) that generate output probabilistically. You acknowledge and agree that:</p>
+            <ul>
+                <li>AI responses may occasionally be inaccurate, incomplete, hallucinated, or out-of-date.</li>
+                <li>AI output does not constitute professional legal, medical, financial, or safety advice.</li>
+                <li>You must critically review and verify all information before relying on it or taking irreversible real-world actions.</li>
+            </ul>
+
+            <h2 id="automations">6. Device Automations & Confirmation Safeguards</h2>
+            <p>Orbital provides executive action capabilities (such as sending messages, making calls, setting timers, launching navigation, or scheduling background alerts):</p>
+            <ul>
+                <li><strong>Antigravity Action Control Modes:</strong> Orbital provides user-configurable approval modes (<em>⚡ Always Proceed</em>, <em>🛡️ Request for Action</em>, and <em>⚖️ Smart Safe</em>) so you can require explicit interactive confirmation cards before executing sensitive actions.</li>
+                <li><strong>User Supervision:</strong> You bear full responsibility for all device actions executed or initiated through the Application.</li>
+            </ul>
+
+            <h2 id="warranties">7. Disclaimer of Warranties</h2>
+            <p>TO THE MAXIMUM EXTENT PERMITTED BY LAW, THE APPLICATION IS PROVIDED ON AN <strong>"AS-IS"</strong> AND <strong>"AS-AVAILABLE"</strong> BASIS WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS, IMPLIED, STATUTORY, OR OTHERWISE, INCLUDING BUT NOT LIMITED TO WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NON-INFRINGEMENT.</p>
+
+            <h2 id="liability">8. Limitation of Liability</h2>
+            <p>IN NO EVENT SHALL THE AUTHOR, DEVELOPERS, OR CONTRIBUTORS BE LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, PUNITIVE, OR CONSEQUENTIAL DAMAGES (INCLUDING LOSS OF PROFITS, DATA LOSS, DEVICE MALFUNCTION, THIRD-PARTY CHARGES, OR WORK STOPPAGE) ARISING OUT OF OR IN CONNECTION WITH YOUR USE OR INABILITY TO USE THE APPLICATION, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGES.</p>
+
+            <h2 id="indemnity">9. Indemnification</h2>
+            <p>You agree to indemnify, defend, and hold harmless the author and contributors from and against any claims, liabilities, damages, losses, or expenses arising from your violation of these Terms or misuse of the Application.</p>
+
+            <h2 id="arbitration">10. Dispute Resolution & Class Action Waiver</h2>
+            <p>Any disputes or claims arising out of this Agreement shall be resolved through binding, individual arbitration rather than in court. You agree to waive any right to participate in class-action lawsuits or representative proceedings.</p>
+
+            <h2 id="governing-law">11. Governing Law & Jurisdiction</h2>
+            <p>These Terms shall be governed by and construed in accordance with the substantive laws applicable to the author's primary jurisdiction, without regard to its conflict of law principles.</p>
+
+            <h2 id="contact">12. Inquiries & Contact Information</h2>
+            <p>For inquiries, legal notices, or support concerning these Terms of Service:</p>
+            <p>
+                <strong>Developer / Licensor:</strong> Jayprakash Pal<br>
+                <strong>Repository:</strong> <a href="https://github.com/jaypal1046/orbital_policy" target="_blank" rel="noopener">github.com/jaypal1046/orbital_policy</a><br>
+                <strong>Official Portal:</strong> <a href="https://orbital-lime-three.vercel.app" target="_blank" rel="noopener">orbital-lime-three.vercel.app</a>
+            </p>
+
+            <div class="footer-note">
+                &copy; 2026 Orbital AI Companion. All Rights Reserved.
+            </div>
+        </main>
+    </div>
+</body>
+</html>

@@ -742,8 +742,6 @@ fun InAppChatScreen(
     updateResult?.let { res ->
         com.orbital.updater.ui.UpdateDialog(
             updateResult = res,
-            downloader = chatViewModel.downloader,
-            installer = chatViewModel.installer,
             onDismiss = chatViewModel::dismissUpdateDialog,
             onOtaPatchApplied = {
                 Toast.makeText(context, "OTA Hot-Patch applied successfully!", Toast.LENGTH_SHORT).show()

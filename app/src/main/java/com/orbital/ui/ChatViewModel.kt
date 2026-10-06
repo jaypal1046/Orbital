@@ -55,8 +55,6 @@ class ChatViewModel @Inject constructor(
     private val deviceActionExecutor: DeviceActionExecutor,
     private val secureStorage: SecureStorage,
     private val gitHubUpdateEngine: com.orbital.updater.GitHubUpdateEngine? = null,
-    private val apkDownloader: com.orbital.updater.ApkDownloader? = null,
-    private val apkInstaller: com.orbital.updater.ApkInstaller? = null,
     private val orbitalBridgeClient: com.orbital.bridge.OrbitalBridgeClient? = null,
     private val orbitalDiscoveryService: com.orbital.bridge.OrbitalDiscoveryService? = null,
     private val networkMonitorInstance: com.orbital.util.NetworkMonitor? = null,
@@ -73,8 +71,6 @@ class ChatViewModel @Inject constructor(
     val networkMonitor: com.orbital.util.NetworkMonitor = networkMonitorInstance ?: com.orbital.util.NetworkMonitor(context)
     val isOnline: StateFlow<Boolean> = networkMonitor.isOnline
 
-    val downloader: com.orbital.updater.ApkDownloader = apkDownloader ?: com.orbital.updater.ApkDownloader(context)
-    val installer: com.orbital.updater.ApkInstaller = apkInstaller ?: com.orbital.updater.ApkInstaller(context)
     val bridgeClient: com.orbital.bridge.OrbitalBridgeClient = orbitalBridgeClient ?: com.orbital.bridge.OrbitalBridgeClient(
         context,
         com.orbital.bridge.BridgeActionDispatcher(context, deviceActionExecutor),

@@ -134,14 +134,14 @@ fun AccessibilityDisclosureDialog(
                         Spacer(modifier = Modifier.width(8.dp))
                         Column {
                             Text(
-                                text = "Strict Privacy Guarantee",
+                                text = "Screen data and privacy",
                                 color = Color(0xFF34D399),
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold
                             )
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
-                                text = "• No keystroke logging or password capture\n• No financial or banking data collection\n• All UI parsing is local-first & never sold\n• Remote bridge commands require 256-bit crypto auth",
+                                text = "Orbital reads visible screen text and controls to carry out your requests. If you ask AI to analyze a screen, that information may go to your selected AI provider. Laptop Bridge inspection sends it to your paired laptop, where AI tools may process it. Avoid sensitive screens during automation. Turn screen access off in Android Settings at any time.",
                                 color = Color(0xFFA7F3D0),
                                 fontSize = 11.sp,
                                 lineHeight = 15.sp
