@@ -5,10 +5,15 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import com.orbital.data.LlmRepository
 import com.orbital.data.SecureStorage
 import dagger.hilt.android.AndroidEntryPoint
 
@@ -36,6 +41,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private val chatViewModel: ChatViewModel by viewModels()
+    private var pendingImportPackageJson by mutableStateOf<String?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -48,6 +54,7 @@ class MainActivity : ComponentActivity() {
             chatViewModel.refreshCharacter()
         }
 
+        extractTokenPackageFromIntent(intent)
         renderMainChat()
 
         if (!secureStorage.isSetupComplete()) {
@@ -64,6 +71,29 @@ class MainActivity : ComponentActivity() {
             chatViewModel.switchCharacter(targetChar)
         } else {
             chatViewModel.refreshCharacter()
+        }
+        extractTokenPackageFromIntent(intent)
+    }
+
+    private fun extractTokenPackageFromIntent(incomingIntent: Intent?) {
+        if (incomingIntent == null) return
+        val uri: Uri? = when (incomingIntent.action) {
+            Intent.ACTION_VIEW -> incomingIntent.data
+            Intent.ACTION_SEND -> incomingIntent.getParcelableExtra(Intent.EXTRA_STREAM)
+            else -> incomingIntent.data
+        }
+
+        if (uri != null) {
+            try {
+                contentResolver.openInputStream(uri)?.use { stream ->
+                    val content = stream.bufferedReader().readText()
+                    if (content.contains("ORBITAL_TOKEN_PACKAGE")) {
+                        pendingImportPackageJson = content
+                    }
+                }
+            } catch (e: Exception) {
+                Toast.makeText(this, "Could not open token file: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+            }
         }
     }
 
@@ -101,6 +131,23 @@ class MainActivity : ComponentActivity() {
                         startActivity(intent)
                     }
                 )
+
+                pendingImportPackageJson?.let { rawJson ->
+                    ImportTokenDialog(
+                        packageJson = rawJson,
+                        onDismiss = { pendingImportPackageJson = null },
+                        onImportSuccess = { payload ->
+                            val secureStorage = SecureStorage(this@MainActivity)
+                            val llmRepo = LlmRepository(secureStorage)
+                            secureStorage.saveProviderApiKey(payload.provider, payload.apiKey)
+                            if (payload.selectedModel != null) {
+                                secureStorage.saveProviderSelectedModel(payload.provider, payload.selectedModel)
+                            }
+                            pendingImportPackageJson = null
+                            Toast.makeText(this@MainActivity, "Token imported for ${payload.provider}!", Toast.LENGTH_LONG).show()
+                        }
+                    )
+                }
             }
         }
     }
