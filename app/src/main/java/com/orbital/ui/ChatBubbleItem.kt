@@ -28,6 +28,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
@@ -41,10 +43,12 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -330,6 +334,14 @@ fun ChatBubbleItem(
 
                     // Gemini-Style Bottom Action Footer (Retry, Copy, Speak, 3-Dots Menu)
                     if (!isStreaming) {
+                        var isCopied by remember { mutableStateOf(false) }
+                        LaunchedEffect(isCopied) {
+                            if (isCopied) {
+                                kotlinx.coroutines.delay(2000)
+                                isCopied = false
+                            }
+                        }
+
                         Spacer(modifier = Modifier.height(10.dp))
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -351,13 +363,16 @@ fun ChatBubbleItem(
 
                             // Copy
                             IconButton(
-                                onClick = onCopy,
+                                onClick = {
+                                    onCopy()
+                                    isCopied = true
+                                },
                                 modifier = Modifier.size(30.dp)
                             ) {
                                 Icon(
-                                    imageVector = Icons.Default.Share,
+                                    imageVector = if (isCopied) Icons.Default.Check else Icons.Default.ContentCopy,
                                     contentDescription = "Copy message",
-                                    tint = Color(0xFF94A3B8),
+                                    tint = if (isCopied) Color(0xFF34D399) else Color(0xFF94A3B8),
                                     modifier = Modifier.size(17.dp)
                                 )
                             }

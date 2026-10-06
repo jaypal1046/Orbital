@@ -426,57 +426,86 @@ fun KeyManagementScreen(
                 .padding(horizontal = 16.dp)
         ) {
             if (isOnboarding) {
-                // Onboarding Hero Card & Quick Actions
+                // Onboarding Hero Card & Quick Actions with glowing mesh gradient
                 Surface(
-                    color = Color(0xFF121629),
-                    shape = RoundedCornerShape(14.dp),
-                    border = BorderStroke(1.dp, Color(0xFF242C4C)),
-                    modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp)
+                    color = Color(0xFF13172C),
+                    shape = RoundedCornerShape(16.dp),
+                    border = BorderStroke(1.dp, Color(0xFF263056)),
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)
                 ) {
-                    Column(modifier = Modifier.padding(12.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("⚡", fontSize = 18.sp)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = "Free Tiers & 1-Tap Chrome Login",
-                                color = Color.White,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 13.5.sp
-                            )
+                    Column(modifier = Modifier.padding(14.dp)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(28.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0xFF7C3AED).copy(alpha = 0.3f))
+                                        .border(1.dp, Color(0xFF8B5CF6).copy(alpha = 0.5f), CircleShape),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text("⚡", fontSize = 14.sp)
+                                }
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "100% Free LLM Tiers",
+                                    color = Color.White,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp
+                                )
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(Color(0xFF10B981).copy(alpha = 0.18f))
+                                    .border(1.dp, Color(0xFF10B981).copy(alpha = 0.35f), RoundedCornerShape(6.dp))
+                                    .padding(horizontal = 7.dp, vertical = 2.dp)
+                            ) {
+                                Text(
+                                    text = "$configuredCount Active",
+                                    fontSize = 10.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF34D399)
+                                )
+                            }
                         }
-                        Spacer(modifier = Modifier.height(4.dp))
+                        Spacer(modifier = Modifier.height(6.dp))
                         Text(
-                            text = "Tap 'Chrome Login' to use your existing Google AI Studio or GitHub account. Copy your key and Orbital connects automatically.",
+                            text = "Tap 'Chrome Login' to use your existing Google AI Studio or GitHub account. Copy your key and Orbital detects it automatically.",
                             color = Color(0xFF94A3B8),
-                            fontSize = 11.5.sp,
-                            lineHeight = 15.sp
+                            fontSize = 12.sp,
+                            lineHeight = 16.sp
                         )
-                        Spacer(modifier = Modifier.height(8.dp))
+                        Spacer(modifier = Modifier.height(10.dp))
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             OutlinedButton(
                                 onClick = { checkAndCaptureClipboard(isExplicitAction = true) },
-                                shape = RoundedCornerShape(8.dp),
-                                border = BorderStroke(1.dp, Color(0xFF38BDF8).copy(alpha = 0.5f)),
+                                shape = RoundedCornerShape(10.dp),
+                                border = BorderStroke(1.dp, Color(0xFF38BDF8).copy(alpha = 0.6f)),
                                 modifier = Modifier.weight(1f),
                                 contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
                             ) {
-                                Icon(Icons.Default.ContentPaste, contentDescription = null, tint = Color(0xFF38BDF8), modifier = Modifier.size(14.dp))
+                                Icon(Icons.Default.ContentPaste, contentDescription = null, tint = Color(0xFF38BDF8), modifier = Modifier.size(15.dp))
                                 Spacer(modifier = Modifier.width(6.dp))
-                                Text("Paste Key", fontSize = 11.5.sp, color = Color(0xFF38BDF8))
+                                Text("Paste Key", fontSize = 11.5.sp, color = Color(0xFF38BDF8), fontWeight = FontWeight.SemiBold)
                             }
                             OutlinedButton(
                                 onClick = { filePickerLauncher.launch(arrayOf("*/*")) },
-                                shape = RoundedCornerShape(8.dp),
-                                border = BorderStroke(1.dp, Color(0xFF10B981).copy(alpha = 0.5f)),
+                                shape = RoundedCornerShape(10.dp),
+                                border = BorderStroke(1.dp, Color(0xFF10B981).copy(alpha = 0.6f)),
                                 modifier = Modifier.weight(1f),
                                 contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
                             ) {
-                                Icon(Icons.Default.FileUpload, contentDescription = null, tint = Color(0xFF10B981), modifier = Modifier.size(14.dp))
+                                Icon(Icons.Default.FileUpload, contentDescription = null, tint = Color(0xFF10B981), modifier = Modifier.size(15.dp))
                                 Spacer(modifier = Modifier.width(6.dp))
-                                Text("Import File", fontSize = 11.5.sp, color = Color(0xFF10B981))
+                                Text("Import File", fontSize = 11.5.sp, color = Color(0xFF10B981), fontWeight = FontWeight.SemiBold)
                             }
                             if (configuredCount > 0) {
                                 OutlinedButton(
@@ -484,14 +513,14 @@ fun KeyManagementScreen(
                                         val first = ProviderRegistry.allProviders.firstOrNull { (providerKeys[it.type] ?: "").isNotBlank() }
                                         if (first != null) exportingProvider = first
                                     },
-                                    shape = RoundedCornerShape(8.dp),
-                                    border = BorderStroke(1.dp, Color(0xFFA78BFA).copy(alpha = 0.5f)),
+                                    shape = RoundedCornerShape(10.dp),
+                                    border = BorderStroke(1.dp, Color(0xFFA78BFA).copy(alpha = 0.6f)),
                                     modifier = Modifier.weight(1f),
                                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
                                 ) {
-                                    Icon(Icons.Default.FileDownload, contentDescription = null, tint = Color(0xFFA78BFA), modifier = Modifier.size(14.dp))
+                                    Icon(Icons.Default.FileDownload, contentDescription = null, tint = Color(0xFFA78BFA), modifier = Modifier.size(15.dp))
                                     Spacer(modifier = Modifier.width(6.dp))
-                                    Text("Export", fontSize = 11.5.sp, color = Color(0xFFA78BFA))
+                                    Text("Export", fontSize = 11.5.sp, color = Color(0xFFA78BFA), fontWeight = FontWeight.SemiBold)
                                 }
                             }
                         }
@@ -1118,62 +1147,160 @@ private fun ProviderConfigurationCard(
     var revealKey by remember { mutableStateOf(false) }
     var confirmRemoval by remember { mutableStateOf(false) }
     val configured = apiKey.isNotBlank()
-    val (statusLabel, statusColor) = when {
-        !isEnabled -> "Disabled" to OrbitalTokens.TextMuted
-        !configured -> "Not connected" to OrbitalTokens.TextMuted
-        status == ProviderState.IN_COOLDOWN -> "Rate limited" to OrbitalTokens.Warning
-        status == ProviderState.UNAVAILABLE -> "Needs attention" to OrbitalTokens.Error
-        else -> "Connected" to OrbitalTokens.Success
+    val (statusLabel, statusColor, statusBg) = when {
+        !isEnabled -> Triple("Disabled", Color(0xFF94A3B8), Color(0xFF1E243A))
+        !configured -> Triple("Not connected", Color(0xFF94A3B8), Color(0xFF181D30))
+        status == ProviderState.IN_COOLDOWN -> Triple("Rate limited", Color(0xFFF59E0B), Color(0xFF451A03))
+        status == ProviderState.UNAVAILABLE -> Triple("Needs attention", Color(0xFFEF4444), Color(0xFF450A0A))
+        else -> Triple("Connected", Color(0xFF34D399), Color(0xFF064E3B).copy(alpha = 0.6f))
+    }
+
+    val brandGradient = when (info.type) {
+        ProviderType.GEMINI -> listOf(Color(0xFF4285F4), Color(0xFF1A73E8))
+        ProviderType.GROQ -> listOf(Color(0xFFF55036), Color(0xFFEA580C))
+        ProviderType.CEREBRAS -> listOf(Color(0xFF10B981), Color(0xFF059669))
+        ProviderType.OPENROUTER -> listOf(Color(0xFF6366F1), Color(0xFF4F46E5))
+        ProviderType.MISTRAL -> listOf(Color(0xFFFF7000), Color(0xFFD97706))
+        ProviderType.GITHUB_MODELS -> listOf(Color(0xFF22C55E), Color(0xFF16A34A))
+        ProviderType.NVIDIA_NIM -> listOf(Color(0xFF76B900), Color(0xFF65A30D))
+        ProviderType.ZHIPU -> listOf(Color(0xFF3B82F6), Color(0xFF2563EB))
+        ProviderType.ALPHAOX -> listOf(Color(0xFF8B5CF6), Color(0xFF7C3AED))
+        ProviderType.HUGGINGFACE -> listOf(Color(0xFFFFD21E), Color(0xFFEAB308))
+        else -> listOf(Color(0xFF334155), Color(0xFF1E293B))
     }
 
     Card(
-        shape = OrbitalTokens.RadiusMedium,
-        colors = CardDefaults.cardColors(containerColor = OrbitalTokens.Surface),
-        border = BorderStroke(1.dp, if (isExpanded) OrbitalTokens.Primary.copy(alpha = .7f) else OrbitalTokens.Border),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = if (configured && isEnabled) Color(0xFF12162B) else Color(0xFF0F1222)),
+        border = BorderStroke(
+            1.dp,
+            if (isExpanded) Color(0xFF8B5CF6).copy(alpha = 0.7f)
+            else if (configured && isEnabled) Color(0xFF263056)
+            else Color(0xFF1C2238)
+        ),
         modifier = Modifier.fillMaxWidth()
     ) {
-        Column(Modifier.padding(16.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.size(40.dp).clip(OrbitalTokens.RadiusSmall).background(if (configured) OrbitalTokens.SurfaceSelected else OrbitalTokens.SurfaceRaised), contentAlignment = Alignment.Center) {
-                    Text(info.displayName.take(1).uppercase(), style = MaterialTheme.typography.titleMedium, color = if (configured) OrbitalTokens.Primary else OrbitalTokens.TextSecondary)
+        Column(Modifier.padding(14.dp)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onToggleExpand() }
+            ) {
+                // Provider Avatar with Brand Gradient
+                Box(
+                    modifier = Modifier
+                        .size(42.dp)
+                        .clip(CircleShape)
+                        .background(
+                            Brush.linearGradient(
+                                if (configured) brandGradient else listOf(Color(0xFF1E2540), Color(0xFF15192C))
+                            )
+                        )
+                        .border(
+                            1.dp,
+                            if (configured) Color.White.copy(alpha = 0.3f) else Color(0xFF2A3456),
+                            CircleShape
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = info.displayName.take(1).uppercase(),
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 16.sp,
+                        color = Color.White
+                    )
                 }
+
                 Spacer(Modifier.width(12.dp))
+
                 Column(Modifier.weight(1f)) {
-                    Text(info.displayName, style = MaterialTheme.typography.titleMedium)
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(Modifier.size(7.dp).clip(CircleShape).background(statusColor))
-                        Spacer(Modifier.width(6.dp))
-                        Text(statusLabel, style = MaterialTheme.typography.bodySmall, color = statusColor)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(
+                            text = info.displayName,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = if (isEnabled) Color.White else Color(0xFF94A3B8),
+                            fontSize = 14.5.sp
+                        )
+
+                        // Status Pill Badge
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(statusBg)
+                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                text = statusLabel,
+                                fontSize = 10.sp,
+                                color = statusColor,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
                     }
+
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        text = info.quotaDescription,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color(0xFF94A3B8),
+                        fontSize = 11.sp,
+                        maxLines = 1
+                    )
                 }
+
+                Spacer(Modifier.width(6.dp))
+
                 Switch(
                     checked = isEnabled,
                     onCheckedChange = onToggleEnabled,
                     enabled = configured,
-                    colors = SwitchDefaults.colors(checkedTrackColor = OrbitalTokens.Primary, checkedThumbColor = Color.White)
+                    colors = SwitchDefaults.colors(
+                        checkedTrackColor = Color(0xFF7C3AED),
+                        checkedThumbColor = Color.White,
+                        uncheckedTrackColor = Color(0xFF1C2238),
+                        uncheckedThumbColor = Color(0xFF64748B)
+                    )
                 )
-            }
-            Spacer(Modifier.height(8.dp))
-            Text(info.quotaDescription, style = MaterialTheme.typography.bodySmall, color = OrbitalTokens.TextSecondary)
-            TextButton(onClick = onToggleExpand, contentPadding = PaddingValues(0.dp)) {
-                Text(if (isExpanded) "Hide setup" else if (configured) "Manage connection" else "Configure provider")
+
+                Spacer(Modifier.width(4.dp))
+
+                Icon(
+                    imageVector = if (isExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                    contentDescription = null,
+                    tint = Color(0xFF64748B),
+                    modifier = Modifier.size(20.dp)
+                )
             }
 
             AnimatedVisibility(visible = isExpanded, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
-                Column(Modifier.padding(top = 8.dp)) {
-                    HorizontalDivider(color = OrbitalTokens.Border)
-                    Spacer(Modifier.height(16.dp))
-                    Text(if (configured) "Connection" else "1. Add an API key", style = MaterialTheme.typography.titleSmall)
-                    Spacer(Modifier.height(4.dp))
-                    Text("The key stays masked and is only saved after a successful connection test.", style = MaterialTheme.typography.bodySmall, color = OrbitalTokens.TextSecondary)
+                Column(Modifier.padding(top = 10.dp)) {
+                    HorizontalDivider(color = Color(0xFF222B48))
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        text = if (configured) "Connection & Key" else "1. Connect API Key",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                    Spacer(Modifier.height(3.dp))
+                    Text(
+                        text = "The key is encrypted on your hardware keychain and never shared.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color(0xFF94A3B8),
+                        fontSize = 11.5.sp
+                    )
                     Spacer(Modifier.height(10.dp))
                     OutlinedTextField(
                         value = keyInput,
                         onValueChange = { keyInput = it },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
-                        label = { Text("API key") },
-                        placeholder = { Text(info.keyPlaceholder) },
+                        placeholder = { Text(info.keyPlaceholder, color = Color(0xFF64748B), fontSize = 12.5.sp) },
                         visualTransformation = if (revealKey) VisualTransformation.None else PasswordVisualTransformation(),
                         trailingIcon = {
                             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1206,14 +1333,19 @@ private fun ProviderConfigurationCard(
                                         modifier = Modifier.size(16.dp)
                                     )
                                 }
-                                TextButton(onClick = { revealKey = !revealKey }) { Text(if (revealKey) "Hide" else "Show") }
+                                TextButton(onClick = { revealKey = !revealKey }) {
+                                    Text(if (revealKey) "Hide" else "Show", fontSize = 11.sp, color = Color(0xFFA78BFA))
+                                }
                             }
                         },
-                        shape = OrbitalTokens.RadiusSmall,
+                        shape = RoundedCornerShape(10.dp),
                         colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = OrbitalTokens.Primary, unfocusedBorderColor = OrbitalTokens.Border,
-                            focusedContainerColor = OrbitalTokens.SurfaceRaised, unfocusedContainerColor = OrbitalTokens.SurfaceRaised,
-                            focusedTextColor = OrbitalTokens.TextPrimary, unfocusedTextColor = OrbitalTokens.TextPrimary
+                            focusedBorderColor = Color(0xFF7C3AED),
+                            unfocusedBorderColor = Color(0xFF263056),
+                            focusedContainerColor = Color(0xFF0C0F1D),
+                            unfocusedContainerColor = Color(0xFF0C0F1D),
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White
                         )
                     )
                     Row(
@@ -1223,49 +1355,97 @@ private fun ProviderConfigurationCard(
                     ) {
                         OutlinedButton(
                             onClick = onOpenChromePortal,
-                            shape = OrbitalTokens.RadiusSmall,
+                            shape = RoundedCornerShape(10.dp),
                             border = BorderStroke(1.dp, Color(0xFF38BDF8).copy(alpha = 0.6f)),
                             modifier = Modifier.weight(1.1f),
                             contentPadding = PaddingValues(horizontal = 6.dp, vertical = 8.dp)
                         ) {
-                            Text("Chrome Login 🚀", fontSize = 11.sp, maxLines = 1)
+                            Text("Chrome Login 🚀", fontSize = 11.sp, maxLines = 1, color = Color(0xFF38BDF8), fontWeight = FontWeight.SemiBold)
                         }
                         OutlinedButton(
                             onClick = onOpenInAppPortal,
-                            shape = OrbitalTokens.RadiusSmall,
+                            shape = RoundedCornerShape(10.dp),
                             border = BorderStroke(1.dp, Color(0xFF7C3AED).copy(alpha = 0.6f)),
                             modifier = Modifier.weight(0.9f),
                             contentPadding = PaddingValues(horizontal = 6.dp, vertical = 8.dp)
                         ) {
-                            Text("In-App 📱", fontSize = 11.sp, maxLines = 1)
+                            Text("In-App 📱", fontSize = 11.sp, maxLines = 1, color = Color(0xFFA78BFA), fontWeight = FontWeight.SemiBold)
                         }
                         Button(
                             onClick = { onTestKey(keyInput.trim()) },
                             enabled = keyInput.isNotBlank(),
-                            shape = OrbitalTokens.RadiusSmall,
+                            shape = RoundedCornerShape(10.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF7C3AED)),
                             modifier = Modifier.weight(1.1f),
                             contentPadding = PaddingValues(horizontal = 6.dp, vertical = 8.dp)
                         ) {
-                            Text("Connect", fontSize = 11.5.sp, maxLines = 1)
+                            Text("Connect", fontSize = 11.5.sp, maxLines = 1, fontWeight = FontWeight.Bold, color = Color.White)
                         }
                     }
 
                     if (configured) {
-                        Spacer(Modifier.height(8.dp))
-                        Text("2. Choose a model", style = MaterialTheme.typography.titleSmall)
-                        Spacer(Modifier.height(6.dp))
+                        Spacer(Modifier.height(10.dp))
+                        Text(
+                            text = "2. Active Model",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                        Spacer(Modifier.height(4.dp))
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            Text("$selectedModel selected", style = MaterialTheme.typography.bodySmall, color = OrbitalTokens.TextSecondary, modifier = Modifier.weight(1f))
-                            TextButton(onClick = onEditModels) { Text(if (modelScope == null) "Manage models" else "${modelScope.size} models") }
-                            TextButton(onClick = onDiscoverModels, enabled = !isDiscoveringModels) { Text(if (isDiscoveringModels) "Checking…" else "Refresh") }
+                            Text(
+                                text = "$selectedModel",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color(0xFF38BDF8),
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.weight(1f)
+                            )
+                            TextButton(onClick = onEditModels, contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)) {
+                                Text(if (modelScope == null) "⚙ Scope models" else "⚙ (${modelScope.size} scoped)", fontSize = 11.sp, color = Color(0xFFA78BFA))
+                            }
+                            TextButton(onClick = onDiscoverModels, enabled = !isDiscoveringModels, contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)) {
+                                Text(if (isDiscoveringModels) "Checking…" else "🔄 Refresh", fontSize = 11.sp, color = Color(0xFF38BDF8))
+                            }
                         }
                         val models = if (modelScope.isNullOrEmpty()) availableModels else availableModels.filter(modelScope::contains).ifEmpty { availableModels }
-                        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            models.forEach { model -> FilterChip(selected = model == selectedModel, onClick = { onSelectModel(model) }, label = { Text(model, maxLines = 1) }) }
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            models.forEach { model ->
+                                val isSelected = model == selectedModel
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(if (isSelected) Color(0xFF7C3AED) else Color(0xFF1A1F36))
+                                        .border(
+                                            1.dp,
+                                            if (isSelected) Color(0xFFA78BFA) else Color(0xFF283256),
+                                            RoundedCornerShape(8.dp)
+                                        )
+                                        .clickable { onSelectModel(model) }
+                                        .padding(horizontal = 10.dp, vertical = 5.dp)
+                                ) {
+                                    Text(
+                                        text = model,
+                                        fontSize = 11.sp,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                        color = if (isSelected) Color.White else Color(0xFF94A3B8),
+                                        maxLines = 1
+                                    )
+                                }
+                            }
                         }
                         Spacer(Modifier.height(12.dp))
-                        Text("3. Manage & Backup Token", style = MaterialTheme.typography.titleSmall)
-                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            text = "3. Backup & Security",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                        Spacer(Modifier.height(6.dp))
                         Row(
                             Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
@@ -1273,15 +1453,16 @@ private fun ProviderConfigurationCard(
                         ) {
                             OutlinedButton(
                                 onClick = onExportToken,
-                                shape = OrbitalTokens.RadiusSmall,
-                                border = BorderStroke(1.dp, Color(0xFF10B981).copy(alpha = 0.6f))
+                                shape = RoundedCornerShape(10.dp),
+                                border = BorderStroke(1.dp, Color(0xFF10B981).copy(alpha = 0.6f)),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
                             ) {
-                                Icon(Icons.Default.Share, contentDescription = null, tint = Color(0xFF10B981), modifier = Modifier.size(16.dp))
+                                Icon(Icons.Default.Share, contentDescription = null, tint = Color(0xFF10B981), modifier = Modifier.size(15.dp))
                                 Spacer(Modifier.width(6.dp))
-                                Text("Export .orbtoken", color = Color(0xFF10B981), fontSize = 12.sp)
+                                Text("Export .orbtoken", color = Color(0xFF10B981), fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold)
                             }
                             TextButton(onClick = { confirmRemoval = true }, contentPadding = PaddingValues(0.dp)) {
-                                Text("Remove key", color = OrbitalTokens.Error)
+                                Text("Remove key", color = Color(0xFFEF4444), fontSize = 12.sp)
                             }
                         }
                     }
