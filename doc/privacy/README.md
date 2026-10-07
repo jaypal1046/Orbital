@@ -7,9 +7,15 @@ Official privacy policy and legal documentation repository for **Orbital: Autono
 
 ---
 
-## Quick Summary
+## Privacy & Data Handling Architecture
 
-- **100% Client-Side Architecture**: Chat history and API keys are stored locally on-device in encrypted storage.
-- **Zero Third-Party Tracking**: No ads, no tracking SDKs, no selling of user data.
-- **Microphone**: Audio is used in real time solely for voice conversations with your companion mascot and is never saved.
-- **Floating Mascot (`SYSTEM_ALERT_WINDOW`)**: Used solely for the overlay mascot companion upon user request.
+Orbital adheres to a strict **100% Client-Side, Privacy-First Architecture**:
+
+- **Local Storage**: All chat messages, character configurations, and API keys are stored solely on-device inside hardware-backed AES-256 GCM encrypted storage (`EncryptedSharedPreferences`).
+- **Zero Tracking & Analytics**: The application contains no advertising SDKs, tracking pixels, or third-party telemetry collectors.
+- **Microphone**: Audio is processed ephemerally in real time solely during active voice interactions and is never saved to disk or transmitted to third parties.
+- **Camera**: Used strictly for local QR-code scanning during developer laptop bridge pairing.
+- **Accessibility Service**: Used exclusively for local UI inspection and gesture execution requested by the user or their paired IDE session. No screen data is harvested or transmitted externally.
+- **System Overlay (`SYSTEM_ALERT_WINDOW`)**: Renders the floating mascot companion HUD upon explicit user activation.
+
+For a full technical breakdown of the architecture, see [HOW_IT_WORKS.md](file:///c:/Jay/dev/Orbital/doc/HOW_IT_WORKS.md).
