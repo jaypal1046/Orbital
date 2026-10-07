@@ -229,13 +229,23 @@ Whenever the user asks you to perform an action or confirms a plan, you MUST ALW
             return DeviceAction(action = "WRITE_FILE", path = path, content = content)
         }
 
-        // File Reading Intents (e.g. "read the file /sdcard/Download/test.txt", "read presentation pitch.pptx")
+        // File Open & Launch Intents (e.g. "open the file pitch.pptx", "open pitch.pptx", "launch file test.pdf")
+        val openFileMatch = Regex(
+            """(?:open|launch)\s+(?:the\s+)?(?:file|presentation|document|spreadsheet|sheet|pdf|docx?|pptx?|xlsx?)?\s*([^\s:]+\.[a-zA-Z0-9]{2,6})""",
+            RegexOption.IGNORE_CASE
+        ).find(text.trim())
+        if (openFileMatch != null) {
+            val path = openFileMatch.groupValues[1].trim()
+            return DeviceAction(action = "OPEN_FILE", path = path)
+        }
+
+        // File Reading Intents (e.g. "read the file /sdcard/Download/test.txt", "read presentation pitch.pptx", "inspect file doc.pdf")
         val readFileMatch = Regex(
-            """(?:read|view|open|inspect)\s+(?:the\s+)?(?:file|presentation|document|spreadsheet|sheet|pdf|docx?|pptx?|xlsx?)\s+([^\s:]+)""",
+            """(?:read|inspect|show\s+content\s+of|print)\s+(?:the\s+)?(?:file|presentation|document|spreadsheet|sheet|pdf|docx?|pptx?|xlsx?)?\s*([^\s:]+)""",
             RegexOption.IGNORE_CASE
         ).find(text.trim())
         if (readFileMatch != null) {
-            val path = readFileMatch.groupValues[1]
+            val path = readFileMatch.groupValues[1].trim()
             return DeviceAction(action = "READ_FILE", path = path)
         }
 
@@ -252,11 +262,11 @@ Whenever the user asks you to perform an action or confirms a plan, you MUST ALW
 
         // File Edit Intents (e.g. "edit the file ... by replacing \"foo\" with \"bar\"" or "update presentation ... replace foo with bar")
         val editFileMatch = Regex(
-            """(?:edit|update|modify|change)\s+(?:the\s+)?(?:file|presentation|document|spreadsheet|sheet|slides)?\s*([^\s:]+\.[a-zA-Z0-9]+|[^\s:]+)\s+(?:by\s+replacing|replacing|replace)\s+["']?([^"'\n\r]+?)["']?\s+(?:with|to)\s+["']?([\s\S]+?)["']?$""",
+            """(?:edit|update|modify|change)\s+(?:the\s+)?(?:file|presentation|document|spreadsheet|sheet|slides)?\s*([^\s:]+\.[a-zA-Z0-9]+|[^\s:]+)\s+(?:by\s+replacing|replacing|replace)\s+["']?([^"'\n\r]+?)["']?\s+(?:with|to)\s+["']?([\s\S]+?)["']?(?:\s+(?:and|then)\s+(?:open\s+it|open\s+file|view\s+it))?$""",
             RegexOption.IGNORE_CASE
         ).find(text.trim())
         if (editFileMatch != null) {
-            val path = editFileMatch.groupValues[1]
+            val path = editFileMatch.groupValues[1].trim()
             val target = editFileMatch.groupValues[2].trim().removeSurrounding("\"").removeSurrounding("'")
             val replace = editFileMatch.groupValues[3].trim().removeSurrounding("\"").removeSurrounding("'")
             return DeviceAction(action = "EDIT_FILE", path = path, targetContent = target, replacementContent = replace)

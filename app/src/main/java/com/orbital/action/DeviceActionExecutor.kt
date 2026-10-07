@@ -135,6 +135,7 @@ open class DeviceActionExecutor(private val context: Context) {
                     startLine = action.startLine ?: 1,
                     endLine = action.endLine ?: Int.MAX_VALUE
                 )
+                "OPEN_FILE", "LAUNCH_FILE" -> openFile(action.path ?: action.target ?: "")
                 "WRITE_FILE", "CREATE_FILE" -> writeFile(
                     filePath = action.path ?: action.target ?: "",
                     content = action.content ?: action.message ?: action.query ?: "",
@@ -1148,6 +1149,21 @@ open class DeviceActionExecutor(private val context: Context) {
         }
     }
 
+    fun openFile(filePath: String): ActionResult {
+        val cleanPath = filePath.trim()
+        if (cleanPath.isBlank()) return ActionResult.Error("File path is required.")
+        val file = resolveFile(cleanPath)
+        if (!file.exists()) {
+            return ActionResult.Error("File '${file.name}' not found at ${file.absolutePath}")
+        }
+        val opened = com.orbital.file.FileViewHelper.openFile(context, file)
+        return if (opened) {
+            ActionResult.Success("Opened '${file.name}'", "Path: ${file.absolutePath}")
+        } else {
+            ActionResult.Error("Could not launch viewer for '${file.name}'.")
+        }
+    }
+
     fun writeFile(filePath: String, content: String, overwrite: Boolean = true): ActionResult {
         val cleanPath = filePath.trim()
         if (cleanPath.isBlank()) return ActionResult.Error("File path is required.")
@@ -1161,7 +1177,10 @@ open class DeviceActionExecutor(private val context: Context) {
             else -> com.orbital.file.UniversalFileEngine.writeTextFile(file, content, overwrite)
         }
         return when (result) {
-            is com.orbital.file.FileOperationResult.Success -> ActionResult.Success(result.message, result.content)
+            is com.orbital.file.FileOperationResult.Success -> {
+                val details = if (result.content.isNullOrBlank()) "Path: ${file.absolutePath}" else "${result.content}\nPath: ${file.absolutePath}"
+                ActionResult.Success(result.message, details)
+            }
             is com.orbital.file.FileOperationResult.Error -> ActionResult.Error(result.errorMessage)
         }
     }
@@ -1181,7 +1200,10 @@ open class DeviceActionExecutor(private val context: Context) {
         }
 
         return when (result) {
-            is com.orbital.file.FileOperationResult.Success -> ActionResult.Success(result.message, result.content)
+            is com.orbital.file.FileOperationResult.Success -> {
+                val details = if (result.content.isNullOrBlank()) "Path: ${file.absolutePath}" else "${result.content}\nPath: ${file.absolutePath}"
+                ActionResult.Success(result.message, details)
+            }
             is com.orbital.file.FileOperationResult.Error -> ActionResult.Error(result.errorMessage)
         }
     }

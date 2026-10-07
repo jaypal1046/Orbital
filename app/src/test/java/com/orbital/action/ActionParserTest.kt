@@ -79,5 +79,15 @@ class ActionParserTest {
         assertEquals("pitch.pptx", editIntent.actions[0].path)
         assertEquals("300%", editIntent.actions[0].targetContent)
         assertEquals("500%", editIntent.actions[0].replacementContent)
+
+        val openIntent = ActionParser.parse("open the file pitch.pptx")
+        assertEquals(1, openIntent.actions.size)
+        assertEquals("OPEN_FILE", openIntent.actions[0].action)
+        assertEquals("pitch.pptx", openIntent.actions[0].path)
+
+        val readIntent = ActionParser.parse("read the file report.pdf")
+        assertEquals(1, readIntent.actions.size)
+        assertEquals("READ_FILE", readIntent.actions[0].action)
+        assertEquals("report.pdf", readIntent.actions[0].path)
     }
 }

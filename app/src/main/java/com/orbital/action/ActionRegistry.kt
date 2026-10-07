@@ -186,6 +186,12 @@ object ActionRegistry {
             exampleJson = """{"action": "CANCEL_MONITOR", "target": "train_12951"}"""
         ),
         ActionDefinition(
+            type = "OPEN_FILE",
+            description = "Open any local file or document (PDF, Word docx, PowerPoint pptx, Excel xlsx, CSV, images, text) using the default system app or chooser",
+            requiredParams = listOf("path"),
+            exampleJson = """{"action": "OPEN_FILE", "path": "pitch.pptx"}"""
+        ),
+        ActionDefinition(
             type = "READ_FILE",
             description = "Read contents of any local file (text, code, JSON, Markdown, CSV, DOCX, PPTX, PDF) with line ranges and offsets",
             requiredParams = listOf("path"),

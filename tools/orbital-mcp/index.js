@@ -962,7 +962,7 @@ server.tool(
           text: JSON.stringify({
             phoneConnected: isConnected,
             host: HOSTNAME,
-            primaryIp: PRIMARY_IP,
+            primaryIp: LOCAL_IP,
             port: PORT,
             authFingerprint: KEY_FINGERPRINT,
             message: isConnected

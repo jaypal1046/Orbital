@@ -265,6 +265,15 @@ fun ChatBubbleItem(
                         }
                     }
 
+                    // Interactive File Quick Actions (Open, Share, Copy Path) if an existing file is referenced
+                    val referencedFile = remember(message.content, message.actionDetails) {
+                        com.orbital.file.FileViewHelper.findExistingFile(context, "${message.actionDetails.orEmpty()} ${message.content}")
+                    }
+                    if (referencedFile != null && referencedFile.exists()) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        FileActionCard(file = referencedFile)
+                    }
+
                     // Prominently Render Fetched Data / Action Outcome Card
                     ActionOutcomeCard(
                         actionDetails = message.actionDetails
@@ -729,89 +738,14 @@ fun AntigravityExecutionTimeline(
                                         }
                                     }
 
-                                    // Screenshot Quick Actions (Share & Copy)
-                                    val screenshotPath = remember(step.details) {
-                                        step.details?.let { d ->
-                                            val match = Regex("""(?:File:\s*([^\s\n\r]+)|file://([^\s\n\r\)]+)|(/\S+screenshot\S*\.jpg))""", RegexOption.IGNORE_CASE).find(d)
-                                            match?.let { m ->
-                                                m.groupValues[1].takeIf { it.isNotBlank() }
-                                                    ?: m.groupValues[2].takeIf { it.isNotBlank() }
-                                                    ?: m.groupValues[3].takeIf { it.isNotBlank() }
-                                            }
-                                        }
+                                    // File & Media Quick Actions (Open, Share, Copy Path)
+                                    val stepFile = remember(step.details, step.title) {
+                                        com.orbital.file.FileViewHelper.findExistingFile(context, "${step.details.orEmpty()} ${step.title}")
                                     }
 
-                                    if (screenshotPath != null && java.io.File(screenshotPath).exists()) {
+                                    if (stepFile != null && stepFile.exists()) {
                                         Spacer(modifier = Modifier.height(6.dp))
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                        ) {
-                                            Surface(
-                                                shape = RoundedCornerShape(4.dp),
-                                                color = Color(0xFF0284C7).copy(alpha = 0.2f),
-                                                border = BorderStroke(1.dp, Color(0xFF0284C7)),
-                                                modifier = Modifier.clickable {
-                                                    try {
-                                                        val file = java.io.File(screenshotPath)
-                                                        val uri = androidx.core.content.FileProvider.getUriForFile(
-                                                            context,
-                                                            "${context.packageName}.files",
-                                                            file
-                                                        )
-                                                        val shareIntent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
-                                                            type = "image/jpeg"
-                                                            putExtra(android.content.Intent.EXTRA_STREAM, uri)
-                                                            addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                                        }
-                                                        val chooser = android.content.Intent.createChooser(shareIntent, "Share Screenshot").apply {
-                                                            addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-                                                        }
-                                                        context.startActivity(chooser)
-                                                    } catch (e: Exception) {
-                                                        android.widget.Toast.makeText(context, "Could not share: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
-                                                    }
-                                                }
-                                            ) {
-                                                Row(
-                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                                    verticalAlignment = Alignment.CenterVertically,
-                                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                                ) {
-                                                    Text("📤", fontSize = 10.sp)
-                                                    Text(
-                                                        "Share Image",
-                                                        fontSize = 10.sp,
-                                                        fontWeight = FontWeight.SemiBold,
-                                                        color = Color(0xFF7DD3FC)
-                                                    )
-                                                }
-                                            }
-
-                                            Surface(
-                                                shape = RoundedCornerShape(4.dp),
-                                                color = Color(0xFF1E293B),
-                                                border = BorderStroke(1.dp, Color(0xFF334155)),
-                                                modifier = Modifier.clickable {
-                                                    clipboardManager.setText(androidx.compose.ui.text.AnnotatedString(screenshotPath))
-                                                    android.widget.Toast.makeText(context, "Copied path", android.widget.Toast.LENGTH_SHORT).show()
-                                                }
-                                            ) {
-                                                Row(
-                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                                    verticalAlignment = Alignment.CenterVertically,
-                                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                                ) {
-                                                    Text("📋", fontSize = 10.sp)
-                                                    Text(
-                                                        "Copy Path",
-                                                        fontSize = 10.sp,
-                                                        fontWeight = FontWeight.Medium,
-                                                        color = Color(0xFF94A3B8)
-                                                    )
-                                                }
-                                            }
-                                        }
+                                        FileActionPills(file = stepFile)
                                     }
                                 }
                             }
@@ -837,6 +771,10 @@ fun ActionOutcomeCard(
 
     val clipboardManager = androidx.compose.ui.platform.LocalClipboardManager.current
     val context = androidx.compose.ui.platform.LocalContext.current
+
+    val referencedFile = remember(actionDetails) {
+        com.orbital.file.FileViewHelper.findExistingFile(context, actionDetails)
+    }
 
     Spacer(modifier = Modifier.height(10.dp))
     Surface(
@@ -866,7 +804,7 @@ fun ActionOutcomeCard(
                         Text(text = "📊", fontSize = 11.sp)
                     }
                     Text(
-                        text = "Live Fetched Information",
+                        text = "Live Action Outcome",
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color(0xFF38BDF8)
@@ -908,6 +846,241 @@ fun ActionOutcomeCard(
                 content = actionDetails,
                 textColor = Color(0xFFE2E8F0)
             )
+
+            if (referencedFile != null && referencedFile.exists()) {
+                Spacer(modifier = Modifier.height(10.dp))
+                FileActionCard(file = referencedFile)
+            }
+        }
+    }
+}
+
+@Composable
+fun FileActionCard(
+    file: java.io.File,
+    modifier: Modifier = Modifier
+) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val clipboardManager = androidx.compose.ui.platform.LocalClipboardManager.current
+
+    val icon = remember(file.extension) {
+        when (file.extension.lowercase()) {
+            "pptx", "ppt" -> "📽️"
+            "docx", "doc" -> "📝"
+            "xlsx", "xls", "csv" -> "📊"
+            "pdf" -> "📄"
+            "png", "jpg", "jpeg", "webp" -> "🖼️"
+            else -> "📃"
+        }
+    }
+
+    val sizeFormatted = remember(file.length()) {
+        val bytes = file.length()
+        if (bytes < 1024) "${bytes} B"
+        else if (bytes < 1024 * 1024) "%.1f KB".format(bytes / 1024.0)
+        else "%.1f MB".format(bytes / (1024.0 * 1024.0))
+    }
+
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = Color(0xFF0F172A),
+        border = BorderStroke(1.dp, Brush.linearGradient(listOf(Color(0xFF38BDF8), Color(0xFF818CF8)))),
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp)
+    ) {
+        Column(modifier = Modifier.padding(10.dp)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(32.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Color(0xFF1E293B)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(text = icon, fontSize = 16.sp)
+                }
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = file.name,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White,
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = "$sizeFormatted • File ready",
+                        fontSize = 10.5.sp,
+                        color = Color(0xFF94A3B8)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                // Primary Open Button
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = Color(0xFF2563EB),
+                    border = BorderStroke(1.dp, Color(0xFF60A5FA)),
+                    modifier = Modifier
+                        .weight(1f)
+                        .clickable { com.orbital.file.FileViewHelper.openFile(context, file) }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Text("📂", fontSize = 12.sp)
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            "Open File",
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                    }
+                }
+
+                // Share Button
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = Color(0xFF1E293B),
+                    border = BorderStroke(1.dp, Color(0xFF334155)),
+                    modifier = Modifier.clickable { com.orbital.file.FileViewHelper.shareFile(context, file) }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text("📤", fontSize = 11.sp)
+                        Text(
+                            "Share",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color(0xFFCBD5E1)
+                        )
+                    }
+                }
+
+                // Copy Path Button
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = Color(0xFF1E293B),
+                    border = BorderStroke(1.dp, Color(0xFF334155)),
+                    modifier = Modifier.clickable {
+                        clipboardManager.setText(androidx.compose.ui.text.AnnotatedString(file.absolutePath))
+                        android.widget.Toast.makeText(context, "Copied path", android.widget.Toast.LENGTH_SHORT).show()
+                    }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text("📋", fontSize = 11.sp)
+                        Text(
+                            "Path",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color(0xFFCBD5E1)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun FileActionPills(
+    file: java.io.File,
+    modifier: Modifier = Modifier
+) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val clipboardManager = androidx.compose.ui.platform.LocalClipboardManager.current
+
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Surface(
+            shape = RoundedCornerShape(4.dp),
+            color = Color(0xFF2563EB).copy(alpha = 0.25f),
+            border = BorderStroke(1.dp, Color(0xFF3B82F6)),
+            modifier = Modifier.clickable { com.orbital.file.FileViewHelper.openFile(context, file) }
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Text("📂", fontSize = 10.sp)
+                Text(
+                    "Open ${file.name}",
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFF93C5FD),
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                )
+            }
+        }
+
+        Surface(
+            shape = RoundedCornerShape(4.dp),
+            color = Color(0xFF0284C7).copy(alpha = 0.2f),
+            border = BorderStroke(1.dp, Color(0xFF0284C7)),
+            modifier = Modifier.clickable { com.orbital.file.FileViewHelper.shareFile(context, file) }
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Text("📤", fontSize = 10.sp)
+                Text(
+                    "Share",
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color(0xFF7DD3FC)
+                )
+            }
+        }
+
+        Surface(
+            shape = RoundedCornerShape(4.dp),
+            color = Color(0xFF1E293B),
+            border = BorderStroke(1.dp, Color(0xFF334155)),
+            modifier = Modifier.clickable {
+                clipboardManager.setText(androidx.compose.ui.text.AnnotatedString(file.absolutePath))
+                android.widget.Toast.makeText(context, "Copied path", android.widget.Toast.LENGTH_SHORT).show()
+            }
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Text("📋", fontSize = 10.sp)
+                Text(
+                    "Copy Path",
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = Color(0xFF94A3B8)
+                )
+            }
         }
     }
 }
@@ -925,3 +1098,4 @@ fun PreviewUserChatBubbleItem() {
         onSpeak = {}
     )
 }
+
