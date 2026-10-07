@@ -256,18 +256,102 @@ object UniversalFileEngine {
             val delimiter = if (file.extension.equals("tsv", ignoreCase = true)) "\t" else ","
             val formattedRow = rowValues.joinToString(delimiter) { escapeCsvCell(it, delimiter) }
             file.parentFile?.mkdirs()
-            
+
             val exists = file.exists()
             val textToAppend = if (exists && file.readText().isNotEmpty() && !file.readText().endsWith("\n")) {
                 "\n$formattedRow\n"
             } else {
                 "$formattedRow\n"
             }
-            
+
             file.appendText(textToAppend, StandardCharsets.UTF_8)
             FileOperationResult.Success("Appended row with ${rowValues.size} column(s) to '${file.name}'")
         } catch (e: Exception) {
             FileOperationResult.Error("Failed to append row to '${file.path}': ${e.message}")
+        }
+    }
+
+    fun readXlsx(file: File): FileOperationResult {
+        if (!file.exists()) return FileOperationResult.Error("File '${file.path}' does not exist.")
+        return try {
+            val sheetXml = extractZipEntryText(file, "xl/worksheets/sheet1.xml")
+                ?: return FileOperationResult.Error("Invalid XLSX: 'xl/worksheets/sheet1.xml' not found.")
+            val sharedStringsXml = extractZipEntryText(file, "xl/sharedStrings.xml")
+
+            val sharedStrings = if (sharedStringsXml != null) {
+                val sstRegex = Regex("<t(?:[^>]*)>([\\s\\S]*?)</t>")
+                sstRegex.findAll(sharedStringsXml).map { it.groupValues[1] }.toList()
+            } else emptyList()
+
+            val rowMatches = Regex("<row[^>]*>([\\s\\S]*?)</row>").findAll(sheetXml)
+            val rows = mutableListOf<List<String>>()
+
+            rowMatches.forEach { rowMatch ->
+                val rowContent = rowMatch.groupValues[1]
+                val cellMatches = Regex("<c[\\s\\S]*?</c>").findAll(rowContent)
+                val rowCells = mutableListOf<String>()
+                cellMatches.forEach { cellMatch ->
+                    val fullCell = cellMatch.value
+                    val isSharedString = fullCell.contains("t=\"s\"") || fullCell.contains("t='s'")
+                    val vMatch = Regex("<v>([\\s\\S]*?)</v>").find(fullCell)
+                    val tMatch = Regex("<t>([\\s\\S]*?)</t>").find(fullCell)
+                    val rawVal = vMatch?.groupValues?.get(1) ?: tMatch?.groupValues?.get(1) ?: ""
+                    val resolved = if (isSharedString) {
+                        val idx = rawVal.toIntOrNull() ?: -1
+                        if (idx in sharedStrings.indices) sharedStrings[idx] else rawVal
+                    } else rawVal
+                    if (resolved.isNotBlank()) {
+                        rowCells.add(resolved)
+                    }
+                }
+                if (rowCells.isNotEmpty()) {
+                    rows.add(rowCells)
+                }
+            }
+
+            val formatted = buildString {
+                append("Excel Spreadsheet: '${file.name}' (${rows.size} rows)\n\n")
+                rows.take(50).forEachIndexed { idx, r ->
+                    append("Row $idx: ${r.joinToString(" | ")}\n")
+                }
+                if (rows.size > 50) append("... [${rows.size - 50} more rows]")
+            }
+
+            FileOperationResult.Success(
+                message = "Read ${rows.size} rows from Excel spreadsheet '${file.name}'",
+                content = formatted,
+                details = mapOf("rowCount" to rows.size)
+            )
+        } catch (e: Exception) {
+            FileOperationResult.Error("Failed to read Excel file '${file.path}': ${e.message}")
+        }
+    }
+
+    fun editXlsxCell(file: File, targetText: String, replacementText: String): FileOperationResult {
+        if (!file.exists()) return FileOperationResult.Error("File '${file.path}' does not exist.")
+        return try {
+            var updatedAny = false
+            val sharedStrings = extractZipEntryText(file, "xl/sharedStrings.xml")
+            if (sharedStrings != null && sharedStrings.contains(targetText)) {
+                val updatedSst = sharedStrings.replace(targetText, replacementText)
+                updateZipEntryText(file, "xl/sharedStrings.xml", updatedSst)
+                updatedAny = true
+            }
+
+            val sheet1 = extractZipEntryText(file, "xl/worksheets/sheet1.xml")
+            if (sheet1 != null && sheet1.contains(targetText)) {
+                val updatedSheet = sheet1.replace(targetText, replacementText)
+                updateZipEntryText(file, "xl/worksheets/sheet1.xml", updatedSheet)
+                updatedAny = true
+            }
+
+            if (updatedAny) {
+                FileOperationResult.Success("Replaced '$targetText' with '$replacementText' in Excel file '${file.name}'")
+            } else {
+                FileOperationResult.Error("Target text '$targetText' not found in Excel file '${file.name}'.")
+            }
+        } catch (e: Exception) {
+            FileOperationResult.Error("Failed to edit Excel file '${file.path}': ${e.message}")
         }
     }
 
@@ -343,28 +427,51 @@ object UniversalFileEngine {
 
     fun editPptxSlideText(file: File, slideNumber: Int, targetText: String, replacementText: String): FileOperationResult {
         if (!file.exists()) return FileOperationResult.Error("File '${file.path}' does not exist.")
-        val slidePath = "ppt/slides/slide$slideNumber.xml"
+        val slidePath = if (slideNumber > 0) "ppt/slides/slide$slideNumber.xml" else null
         return try {
-            val slideXml = extractZipEntryText(file, slidePath)
-                ?: return FileOperationResult.Error("Slide $slideNumber ('$slidePath') not found in presentation.")
+            if (slidePath != null) {
+                val slideXml = extractZipEntryText(file, slidePath)
+                    ?: return FileOperationResult.Error("Slide $slideNumber ('$slidePath') not found in presentation.")
 
-            if (!slideXml.contains(targetText)) {
-                return FileOperationResult.Error("Target text '$targetText' not found in Slide $slideNumber.")
+                if (!slideXml.contains(targetText)) {
+                    return FileOperationResult.Error("Target text '$targetText' not found in Slide $slideNumber.")
+                }
+
+                val updatedXml = slideXml.replace(targetText, replacementText)
+                updateZipEntryText(file, slidePath, updatedXml)
+
+                FileOperationResult.Success(
+                    message = "Updated text on Slide $slideNumber in PowerPoint '${file.name}'"
+                )
+            } else {
+                // Replace target across all slides
+                var replacedAny = false
+                ZipInputStream(FileInputStream(file)).use { zip ->
+                    var entry: ZipEntry? = zip.nextEntry
+                    while (entry != null) {
+                        if (entry.name.startsWith("ppt/slides/slide") && entry.name.endsWith(".xml")) {
+                            val xml = zip.readBytes().toString(StandardCharsets.UTF_8)
+                            if (xml.contains(targetText)) {
+                                updateZipEntryText(file, entry.name, xml.replace(targetText, replacementText))
+                                replacedAny = true
+                            }
+                        }
+                        entry = zip.nextEntry
+                    }
+                }
+                if (replacedAny) {
+                    FileOperationResult.Success("Updated PowerPoint presentation '${file.name}'")
+                } else {
+                    FileOperationResult.Error("Target text '$targetText' not found in PowerPoint slides.")
+                }
             }
-
-            val updatedXml = slideXml.replace(targetText, replacementText)
-            updateZipEntryText(file, slidePath, updatedXml)
-
-            FileOperationResult.Success(
-                message = "Updated text on Slide $slideNumber in PowerPoint '${file.name}'"
-            )
         } catch (e: Exception) {
-            FileOperationResult.Error("Failed to edit PowerPoint Slide $slideNumber in '${file.path}': ${e.message}")
+            FileOperationResult.Error("Failed to edit PowerPoint Slide in '${file.path}': ${e.message}")
         }
     }
 
     // ==========================================
-    // 4. PDF Document Text Extraction
+    // 4. PDF Documents (Read & Edit/Create)
     // ==========================================
 
     fun readPdfText(file: File, maxPages: Int = 50): FileOperationResult {
@@ -379,8 +486,7 @@ object UniversalFileEngine {
 
             matches.take(maxPages).forEach { match ->
                 val streamContent = match.groupValues[1]
-                // Extract plain text strings in parenthesis e.g. (Hello World) Tj or [(Hello) -10 (World)] TJ
-                val tjRegex = Regex("""\(([^()]*)\)\s*T[jJ]""")
+                val tjRegex = Regex("""\(([^()]*)\)\s*(?:T[jJ]|'|")""")
                 val extracted = tjRegex.findAll(streamContent).map { it.groupValues[1] }.joinToString(" ")
                 if (extracted.isNotBlank()) {
                     textBlocks.add(extracted)
@@ -390,7 +496,7 @@ object UniversalFileEngine {
             val content = if (textBlocks.isNotEmpty()) {
                 textBlocks.joinToString("\n\n")
             } else {
-                "PDF file '${file.name}' contains ${bytes.size} bytes. (Scanned image or compressed stream)"
+                "PDF document '${file.name}' (${bytes.size} bytes)."
             }
 
             FileOperationResult.Success(
@@ -400,6 +506,61 @@ object UniversalFileEngine {
             )
         } catch (e: Exception) {
             FileOperationResult.Error("Failed to read PDF '${file.path}': ${e.message}")
+        }
+    }
+
+    fun editPdfText(file: File, targetText: String, replacementText: String): FileOperationResult {
+        if (!file.exists()) return FileOperationResult.Error("File '${file.path}' does not exist.")
+        return try {
+            val rawBytes = file.readBytes()
+            val rawString = String(rawBytes, StandardCharsets.ISO_8859_1)
+
+            if (!rawString.contains(targetText)) {
+                return FileOperationResult.Error("Target text '$targetText' not found in PDF streams.")
+            }
+
+            val updatedString = rawString.replace(targetText, replacementText)
+            file.writeBytes(updatedString.toByteArray(StandardCharsets.ISO_8859_1))
+
+            FileOperationResult.Success("Updated text '$targetText' with '$replacementText' in PDF '${file.name}'")
+        } catch (e: Exception) {
+            FileOperationResult.Error("Failed to edit PDF '${file.path}': ${e.message}")
+        }
+    }
+
+    fun createPdf(file: File, title: String, content: String): FileOperationResult {
+        return try {
+            file.parentFile?.mkdirs()
+            val cleanTitle = title.replace("(", "[").replace(")", "]")
+            val cleanContent = content.replace("(", "[").replace(")", "]")
+
+            val pdfData = buildString {
+                append("%PDF-1.4\n")
+                append("1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n")
+                append("2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n")
+                append("3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>\nendobj\n")
+                
+                val streamContent = buildString {
+                    append("BT\n/F1 18 Tf\n50 720 Td\n($cleanTitle) Tj\nET\n")
+                    append("BT\n/F1 12 Tf\n50 680 Td\n16 TL\n")
+                    cleanContent.lines().take(40).forEach { line ->
+                        append("(${line.take(80)}) '\n")
+                    }
+                    append("ET\n")
+                }
+                
+                append("4 0 obj\n<< /Length ${streamContent.length} >>\nstream\n")
+                append(streamContent)
+                append("endstream\nendobj\n")
+                append("5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n")
+                append("xref\n0 6\n0000000000 65535 f \n0000000009 00000 n \n0000000058 00000 n \n0000000115 00000 n \n0000000224 00000 n \n0000000300 00000 n \n")
+                append("trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n380\n%%EOF\n")
+            }
+
+            file.writeText(pdfData, StandardCharsets.ISO_8859_1)
+            FileOperationResult.Success("Created PDF document '${file.name}' (${file.length()} bytes)")
+        } catch (e: Exception) {
+            FileOperationResult.Error("Failed to create PDF '${file.path}': ${e.message}")
         }
     }
 

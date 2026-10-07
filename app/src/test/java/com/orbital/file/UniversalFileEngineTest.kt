@@ -149,11 +149,90 @@ class UniversalFileEngineTest {
         assertTrue((updatedRead as FileOperationResult.Success).content!!.contains("Annual Strategy"))
     }
 
+    @Test
+    fun `readXlsx and editXlsxCell handle excel sheets and shared strings`() {
+        val xlsxFile = File(rootDir, "financials.xlsx")
+        val sheet1Xml = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+            <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+                <sheetData>
+                    <row r="1">
+                        <c r="A1" t="s"><v>0</v></c>
+                        <c r="B1"><v>50000</v></c>
+                    </row>
+                    <row r="2">
+                        <c r="A2" t="s"><v>1</v></c>
+                        <c r="B2"><v>120000</v></c>
+                    </row>
+                </sheetData>
+            </worksheet>
+        """.trimIndent()
+
+        val sharedStringsXml = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+            <sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" count="2" uniqueCount="2">
+                <si><t>Revenue</t></si>
+                <si><t>Profit</t></si>
+            </sst>
+        """.trimIndent()
+
+        createMockZipMultiEntries(xlsxFile, mapOf(
+            "xl/worksheets/sheet1.xml" to sheet1Xml,
+            "xl/sharedStrings.xml" to sharedStringsXml
+        ))
+
+        val readRes = UniversalFileEngine.readXlsx(xlsxFile)
+        assertTrue(readRes is FileOperationResult.Success)
+        val readContent = (readRes as FileOperationResult.Success).content!!
+        assertTrue(readContent.contains("Revenue"))
+        assertTrue(readContent.contains("50000"))
+        assertTrue(readContent.contains("Profit"))
+        assertTrue(readContent.contains("120000"))
+
+        val editRes = UniversalFileEngine.editXlsxCell(xlsxFile, targetText = "120000", replacementText = "150000")
+        assertTrue(editRes is FileOperationResult.Success)
+
+        val updatedRead = UniversalFileEngine.readXlsx(xlsxFile)
+        assertTrue(updatedRead is FileOperationResult.Success)
+        val updatedContent = (updatedRead as FileOperationResult.Success).content!!
+        assertTrue(updatedContent.contains("150000"))
+    }
+
+    @Test
+    fun `createPdf, readPdfText, and editPdfText execute correctly`() {
+        val pdfFile = File(rootDir, "contract.pdf")
+        val createRes = UniversalFileEngine.createPdf(
+            file = pdfFile,
+            title = "Service Contract",
+            content = "Client: Acme Corp\nAmount: $10000\nTerms: Net 30"
+        )
+        assertTrue(createRes is FileOperationResult.Success)
+        assertTrue(pdfFile.exists() && pdfFile.length() > 0)
+
+        val readRes = UniversalFileEngine.readPdfText(pdfFile)
+        assertTrue(readRes is FileOperationResult.Success)
+        val readContent = (readRes as FileOperationResult.Success).content!!
+        assertTrue(readContent.contains("Service Contract"))
+        assertTrue(readContent.contains("Acme Corp"))
+
+        val editRes = UniversalFileEngine.editPdfText(pdfFile, targetText = "10000", replacementText = "25000")
+        assertTrue(editRes is FileOperationResult.Success)
+
+        val updatedRead = UniversalFileEngine.readPdfText(pdfFile)
+        assertTrue(updatedRead is FileOperationResult.Success)
+        val updatedContent = (updatedRead as FileOperationResult.Success).content!!
+        assertTrue(updatedContent.contains("25000"))
+    }
+
     private fun createMockZipFile(zipFile: File, entryPath: String, content: String) {
+        createMockZipMultiEntries(zipFile, mapOf(entryPath to content))
+    }
+
+    private fun createMockZipMultiEntries(zipFile: File, entries: Map<String, String>) {
         ZipOutputStream(FileOutputStream(zipFile)).use { zipOut ->
-            zipOut.putNextEntry(ZipEntry(entryPath))
-            zipOut.write(content.toByteArray(StandardCharsets.UTF_8))
-            zipOut.closeEntry()
+            for ((path, content) in entries) {
+                zipOut.putNextEntry(ZipEntry(path))
+                zipOut.write(content.toByteArray(StandardCharsets.UTF_8))
+                zipOut.closeEntry()
+            }
         }
     }
 }

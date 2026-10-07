@@ -1135,6 +1135,7 @@ open class DeviceActionExecutor(private val context: Context) {
         val category = com.orbital.file.UniversalFileEngine.detectCategory(cleanPath)
         val result = when (category) {
             com.orbital.file.UniversalFileEngine.FileCategory.SPREADSHEET_CSV -> com.orbital.file.UniversalFileEngine.readCsv(file)
+            com.orbital.file.UniversalFileEngine.FileCategory.SPREADSHEET_EXCEL -> com.orbital.file.UniversalFileEngine.readXlsx(file)
             com.orbital.file.UniversalFileEngine.FileCategory.WORD_DOCUMENT -> com.orbital.file.UniversalFileEngine.readDocxText(file)
             com.orbital.file.UniversalFileEngine.FileCategory.POWERPOINT_PRESENTATION -> com.orbital.file.UniversalFileEngine.readPptxText(file)
             com.orbital.file.UniversalFileEngine.FileCategory.PDF_DOCUMENT -> com.orbital.file.UniversalFileEngine.readPdfText(file)
@@ -1151,7 +1152,11 @@ open class DeviceActionExecutor(private val context: Context) {
         val cleanPath = filePath.trim()
         if (cleanPath.isBlank()) return ActionResult.Error("File path is required.")
         val file = resolveFile(cleanPath)
-        val result = com.orbital.file.UniversalFileEngine.writeTextFile(file, content, overwrite)
+        val category = com.orbital.file.UniversalFileEngine.detectCategory(cleanPath)
+        val result = when (category) {
+            com.orbital.file.UniversalFileEngine.FileCategory.PDF_DOCUMENT -> com.orbital.file.UniversalFileEngine.createPdf(file, file.nameWithoutExtension, content)
+            else -> com.orbital.file.UniversalFileEngine.writeTextFile(file, content, overwrite)
+        }
         return when (result) {
             is com.orbital.file.FileOperationResult.Success -> ActionResult.Success(result.message, result.content)
             is com.orbital.file.FileOperationResult.Error -> ActionResult.Error(result.errorMessage)
@@ -1166,7 +1171,9 @@ open class DeviceActionExecutor(private val context: Context) {
         val category = com.orbital.file.UniversalFileEngine.detectCategory(cleanPath)
         val result = when (category) {
             com.orbital.file.UniversalFileEngine.FileCategory.WORD_DOCUMENT -> com.orbital.file.UniversalFileEngine.editDocxText(file, targetContent, replacementContent)
-            com.orbital.file.UniversalFileEngine.FileCategory.POWERPOINT_PRESENTATION -> com.orbital.file.UniversalFileEngine.editPptxSlideText(file, 1, targetContent, replacementContent)
+            com.orbital.file.UniversalFileEngine.FileCategory.POWERPOINT_PRESENTATION -> com.orbital.file.UniversalFileEngine.editPptxSlideText(file, -1, targetContent, replacementContent)
+            com.orbital.file.UniversalFileEngine.FileCategory.SPREADSHEET_EXCEL -> com.orbital.file.UniversalFileEngine.editXlsxCell(file, targetContent, replacementContent)
+            com.orbital.file.UniversalFileEngine.FileCategory.PDF_DOCUMENT -> com.orbital.file.UniversalFileEngine.editPdfText(file, targetContent, replacementContent)
             else -> com.orbital.file.UniversalFileEngine.replaceFileContent(file, targetContent, replacementContent, allowMultiple)
         }
 
