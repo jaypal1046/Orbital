@@ -1517,7 +1517,12 @@ class OverlayService : Service() {
     private fun startEmbeddedServer() {
         if (isServerRunning.get()) return
 
-        CoroutineScope(Dispatchers.IO).launch {
+        val exceptionHandler = CoroutineExceptionHandler { _, throwable ->
+            Log.w("OverlayService", "Embedded server error: ${throwable.message}")
+            isServerRunning.set(false)
+        }
+
+        CoroutineScope(Dispatchers.IO + exceptionHandler).launch {
             try {
                 server = embeddedServer(CIO, port = serverConfig.embeddedServerPort) {
                     install(ContentNegotiation) {

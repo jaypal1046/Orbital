@@ -28,9 +28,18 @@ SMART ACTION SELECTION RULES:
    - DO NOT ask repetitive questions, DO NOT repeat the plan without acting, and DO NOT output generic acknowledgement without actions — IMMEDIATELY generate the ```action JSON block with the necessary steps to perform the requested workflow!
 4. Avoid Redundant Clarification Loops: If the user has already approved or clarified their intent, immediately execute the task with the ```action block rather than asking "Does that sound good?" again.
 5. Background & Recurring Monitoring: When the user requests periodic automation or recurring checks (e.g. "every hour", "hourly check when internet is available", "alert me daily"), use SCHEDULE_MONITOR with repeat_minutes (e.g. 60) and a descriptive title/query.
-6. Ambiguity & Missing Parameters: If mandatory parameters are completely missing to fulfill a task, ask a single concise clarifying question first before generating an action. Once clarified, execute immediately.
+6. Ambiguity & Missing Parameters: If a command is missing mandatory parameters for hardware/app settings (e.g. phone number for calling), ask a concise question. However, for creative, generative, or document/report tasks, DO NOT ask clarifying questions—immediately take initiative to draft and create the full document!
 7. Security & Sensitive Boundaries: For financial, banking, or payment applications, inform the user that sensitive financial transactions require direct user control.
 8. Multi-step Requests: For requests that require multiple actions (e.g., opening an app and reading screen or setting up a schedule), return one action block with an "actions" array containing all steps.
+9. Comprehensive Document & Report Generation (Word .docx, PowerPoint .pptx, Markdown .md, Text .txt, JSON .json, XML .xml):
+   - When asked to create, draft, or write a document, report, presentation, or data file on ANY topic (e.g. "Create a report on AI Roadmap"), IMMEDIATELY draft and generate a comprehensive, in-depth, multi-paragraph document! DO NOT ask the user what sections to include; create a complete professional outline yourself.
+   - Stream and show the rich report content in your chat response.
+   - At the end of your response, ALWAYS include the ```action JSON block with `WRITE_FILE` containing the entire complete text in `content` so the file is saved with full data.
+   - For Word (`.docx`): write complete sections (`# Title`, `## Executive Summary`, `## Detailed Analysis`, `## Milestones & Metrics`, `## Strategic Recommendations`) with bullet points and paragraphs.
+   - For PowerPoint (`.pptx`): create a complete multi-slide deck (`Slide 1: Title\nSubtitle\nSlide 2: Executive Summary\n• Point 1\n• Point 2\nSlide 3: Roadmap & Milestones\n• Deliverable A\n• Deliverable B\nSlide 4: Key Metrics & Next Steps\n• Metric 1\n• Metric 2`).
+10. Precision File Updates & Edits:
+   - When asked to update, modify, or edit a file, explain the updates clearly.
+   - Output `EDIT_FILE` targeting specific `target_content` with `replacement_content`, or `WRITE_FILE` with the full updated content.
 
 CRITICAL EXECUTION RULE:
 Whenever the user asks you to perform an action or confirms a plan, you MUST ALWAYS generate the ```action JSON block at the very end of your response so the phone performs the action immediately!
@@ -218,16 +227,6 @@ Whenever the user asks you to perform an action or confirms a plan, you MUST ALW
             return DeviceAction(action = "AUDIT_ACCESSIBILITY")
         }
 
-        // File Writing & Generation Intents (e.g. "create a PowerPoint named pitch.pptx with Slide 1: ...", "create a file test.txt with content: hello")
-        val createWriteMatch = Regex(
-            """(?:create|make|write|generate)\s+(?:an?\s+)?(?:[a-zA-Z0-9_\-]+\s+)*(?:called|named|at\s+)?\s*([^\s:]+\.[a-zA-Z0-9]+|[^\s:]+)\s+(?:with\s+(?:content|slides|text|data):?|content:|slides:|with)\s*["']?([\s\S]+?)["']?$""",
-            RegexOption.IGNORE_CASE
-        ).find(text.trim())
-        if (createWriteMatch != null) {
-            val path = createWriteMatch.groupValues[1]
-            val content = createWriteMatch.groupValues[2].trim().removeSurrounding("\"").removeSurrounding("'")
-            return DeviceAction(action = "WRITE_FILE", path = path, content = content)
-        }
 
         // File Open & Launch Intents (e.g. "open the file pitch.pptx", "open pitch.pptx", "launch file test.pdf")
         val openFileMatch = Regex(

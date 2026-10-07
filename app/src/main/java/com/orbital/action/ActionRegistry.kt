@@ -200,17 +200,17 @@ object ActionRegistry {
         ),
         ActionDefinition(
             type = "WRITE_FILE",
-            description = "Create or write new content to a local file (text, JSON, markdown, CSV, Excel xlsx, Word docx, PowerPoint pptx, PDF)",
+            description = "Create or write comprehensive, full-length, structured content to a local file (Word docx, PowerPoint pptx, Markdown md, Text txt, JSON json, XML xml, PDF pdf). Always write complete, detailed data with full paragraphs, headings, bullet points, or multi-slide decks.",
             requiredParams = listOf("path", "content"),
             optionalParams = listOf("overwrite"),
-            exampleJson = """{"action": "WRITE_FILE", "path": "pitch.pptx", "content": "Slide 1: Executive Summary\nRevenue: 300%\nSlide 2: Objectives\nExpansion"}"""
+            exampleJson = """{"action": "WRITE_FILE", "path": "report.docx", "content": "# Executive Summary\nThis report provides comprehensive project analysis.\n\n## Key Findings\n• 45% growth YoY across core user engagement\n• Reduced latency by 60% with edge compute\n\n## Strategic Recommendations\n• Scale mobile edge infrastructure"}"""
         ),
         ActionDefinition(
             type = "EDIT_FILE",
-            description = "Replace specific text or lines inside any file (text, code, markdown, Word docx, PowerPoint pptx, Excel xlsx, PDF)",
+            description = "Update, replace, or refine specific text, paragraphs, or sections inside any existing file (Word docx, PowerPoint pptx, Markdown md, Text txt, JSON json, XML xml, PDF pdf) like an advanced coding assistant. Provide exact target_content to match and replacement_content.",
             requiredParams = listOf("path", "target_content", "replacement_content"),
             optionalParams = listOf("allow_multiple"),
-            exampleJson = """{"action": "EDIT_FILE", "path": "pitch.pptx", "target_content": "300%", "replacement_content": "500%"}"""
+            exampleJson = """{"action": "EDIT_FILE", "path": "report.docx", "target_content": "45% growth YoY", "replacement_content": "58% growth YoY across all quarters"}"""
         ),
         ActionDefinition(
             type = "SEARCH_FILE",

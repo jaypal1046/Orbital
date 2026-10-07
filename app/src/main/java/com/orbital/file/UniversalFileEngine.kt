@@ -21,6 +21,25 @@ sealed class FileOperationResult {
 data class SpreadsheetRow(val rowIndex: Int, val cells: List<String>)
 data class SpreadsheetData(val sheetName: String, val headers: List<String>, val rows: List<SpreadsheetRow>)
 
+data class PptSlideData(
+    val slideNumber: Int,
+    val title: String,
+    val bullets: List<String>,
+    val rawText: String
+)
+
+data class DocxParagraphData(
+    val text: String,
+    val isHeading: Boolean = false,
+    val isBullet: Boolean = false
+)
+
+data class SpreadsheetGrid(
+    val sheetName: String,
+    val headers: List<String>,
+    val rows: List<List<String>>
+)
+
 object UniversalFileEngine {
 
     enum class FileCategory {
@@ -425,6 +444,163 @@ object UniversalFileEngine {
         }
     }
 
+    private fun decodeXmlEntities(str: String): String {
+        return str
+            .replace("&amp;", "&")
+            .replace("&lt;", "<")
+            .replace("&gt;", ">")
+            .replace("&quot;", "\"")
+            .replace("&apos;", "'")
+    }
+
+    fun extractPptxSlides(file: File): List<PptSlideData> {
+        if (!file.exists()) return emptyList()
+        val slides = mutableListOf<PptSlideData>()
+        try {
+            ZipInputStream(FileInputStream(file)).use { zip ->
+                var entry: ZipEntry? = zip.nextEntry
+                while (entry != null) {
+                    if (entry.name.startsWith("ppt/slides/slide") && entry.name.endsWith(".xml")) {
+                        val slideNumber = entry.name.substringAfter("slide").substringBefore(".").toIntOrNull() ?: (slides.size + 1)
+                        val xml = zip.readBytes().toString(StandardCharsets.UTF_8)
+                        
+                        // Extract shapes <p:sp>
+                        val spMatches = Regex("<p:sp[\\s\\S]*?</p:sp>").findAll(xml).toList()
+                        var detectedTitle: String? = null
+                        val bullets = mutableListOf<String>()
+
+                        for (sp in spMatches) {
+                            val spXml = sp.value
+                            val isBadge = spXml.contains("name=\"Badge\"") || spXml.contains("name=\"Subtitle\"")
+                            val isTitleShape = spXml.contains("name=\"Title\"") || spXml.contains("type=\"title\"") || spXml.contains("type=\"ctrTitle\"")
+                            
+                            val tMatches = Regex("<a:t[^>]*>([\\s\\S]*?)</a:t>").findAll(spXml).map { decodeXmlEntities(it.groupValues[1].trim()) }.filter { it.isNotBlank() }.toList()
+                            val shapeText = tMatches.joinToString(" ")
+                            if (shapeText.isBlank()) continue
+
+                            if (isTitleShape && detectedTitle == null) {
+                                detectedTitle = shapeText
+                            } else if (!isBadge) {
+                                val pMatches = Regex("<a:p[\\s\\S]*?</a:p>").findAll(spXml)
+                                for (p in pMatches) {
+                                    val pText = Regex("<a:t[^>]*>([\\s\\S]*?)</a:t>").findAll(p.value).map { decodeXmlEntities(it.groupValues[1].trim()) }.filter { it.isNotBlank() }.joinToString(" ")
+                                    if (pText.isNotBlank() && !pText.matches(Regex("(?i)^Slide\\s*\\d+$"))) {
+                                        if (detectedTitle == null && !pText.startsWith("•") && !pText.startsWith("-")) {
+                                            detectedTitle = pText
+                                        } else {
+                                            val cleanBullet = pText.removePrefix("•").removePrefix("-").removePrefix("*").trim()
+                                            if (cleanBullet.isNotBlank() && !cleanBullet.equals(detectedTitle, ignoreCase = true)) {
+                                                bullets.add(cleanBullet)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Fallback if no structured shapes parsed
+                        if (detectedTitle == null && bullets.isEmpty()) {
+                            val pMatches = Regex("<a:p[\\s\\S]*?</a:p>").findAll(xml).toList()
+                            val paragraphs = pMatches.map { pMatch ->
+                                Regex("<a:t[^>]*>([\\s\\S]*?)</a:t>").findAll(pMatch.value).map { decodeXmlEntities(it.groupValues[1].trim()) }.joinToString("").trim()
+                            }.filter { it.isNotBlank() && !it.matches(Regex("(?i)^Slide\\s*\\d+$")) }
+
+                            if (paragraphs.isNotEmpty()) {
+                                detectedTitle = paragraphs.first()
+                                bullets.addAll(paragraphs.drop(1).map { it.removePrefix("•").removePrefix("-").removePrefix("*").trim() })
+                            }
+                        }
+
+                        val finalTitle = (detectedTitle ?: "Slide $slideNumber")
+                            .replace(Regex("(?i)^Slide\\s*\\d+\\s*[:\\-]?\\s*"), "")
+                            .trimStart(':', '-', ' ')
+                            .ifBlank { "Slide $slideNumber" }
+
+                        val raw = decodeXmlEntities(extractXmlTextContent(xml))
+                        slides.add(PptSlideData(slideNumber = slideNumber, title = finalTitle, bullets = bullets, rawText = raw))
+                    }
+                    entry = zip.nextEntry
+                }
+            }
+        } catch (_: Exception) {}
+        return slides.sortedBy { it.slideNumber }
+    }
+
+    fun extractDocxParagraphs(file: File): List<DocxParagraphData> {
+        if (!file.exists()) return emptyList()
+        val result = mutableListOf<DocxParagraphData>()
+        try {
+            val docXml = extractZipEntryText(file, "word/document.xml") ?: return emptyList()
+            val pMatches = Regex("<w:p[\\s\\S]*?</w:p>").findAll(docXml)
+            pMatches.forEach { pMatch ->
+                val pStr = pMatch.value
+                val tMatches = Regex("<w:t[^>]*>([\\s\\S]*?)</w:t>").findAll(pStr)
+                val fullText = decodeXmlEntities(tMatches.map { it.groupValues[1] }.joinToString("").trim())
+                if (fullText.isNotBlank()) {
+                    val isHeading = pStr.contains("Heading", ignoreCase = true) || pStr.contains("<w:sz w:val=\"3") || pStr.contains("<w:sz w:val=\"4") || pStr.contains("<w:sz w:val=\"48\"")
+                    val isBullet = pStr.contains("<w:numPr") || fullText.startsWith("•") || fullText.startsWith("-") || fullText.startsWith("*")
+                    val cleanText = if (isBullet) fullText.removePrefix("•").removePrefix("-").removePrefix("*").trim() else fullText
+                    result.add(DocxParagraphData(text = cleanText, isHeading = isHeading, isBullet = isBullet))
+                }
+            }
+        } catch (_: Exception) {}
+        return result
+    }
+
+    fun extractSpreadsheetGrid(file: File): SpreadsheetGrid {
+        if (!file.exists()) return SpreadsheetGrid(file.nameWithoutExtension, emptyList(), emptyList())
+        val ext = file.extension.lowercase()
+        return if (ext == "csv" || ext == "tsv") {
+            try {
+                val lines = file.readLines()
+                val delimiter = if (ext == "tsv") "\t" else ","
+                val allRows = lines.filter { it.isNotBlank() }.map { line ->
+                    parseCsvLine(line, delimiter)
+                }
+                val headers = allRows.firstOrNull() ?: emptyList()
+                val rows = if (allRows.size > 1) allRows.drop(1) else emptyList()
+                SpreadsheetGrid(file.nameWithoutExtension, headers, rows)
+            } catch (_: Exception) {
+                SpreadsheetGrid(file.nameWithoutExtension, emptyList(), emptyList())
+            }
+        } else {
+            // Excel XLSX
+            try {
+                val sheetXml = extractZipEntryText(file, "xl/worksheets/sheet1.xml") ?: return SpreadsheetGrid(file.nameWithoutExtension, emptyList(), emptyList())
+                val sstXml = extractZipEntryText(file, "xl/sharedStrings.xml")
+                val sharedStrings = if (sstXml != null) {
+                    Regex("<t(?:[^>]*)>([\\s\\S]*?)</t>").findAll(sstXml).map { decodeXmlEntities(it.groupValues[1]) }.toList()
+                } else emptyList()
+
+                val rowMatches = Regex("<row[^>]*>([\\s\\S]*?)</row>").findAll(sheetXml)
+                val rows = mutableListOf<List<String>>()
+
+                rowMatches.forEach { rowMatch ->
+                    val cellMatches = Regex("<c[\\s\\S]*?</c>").findAll(rowMatch.groupValues[1])
+                    val rowCells = mutableListOf<String>()
+                    cellMatches.forEach { c ->
+                        val isS = c.value.contains("t=\"s\"") || c.value.contains("t='s'")
+                        val raw = Regex("<v>([\\s\\S]*?)</v>").find(c.value)?.groupValues?.get(1)
+                            ?: Regex("<t>([\\s\\S]*?)</t>").find(c.value)?.groupValues?.get(1) ?: ""
+                        val resolved = if (isS) {
+                            val idx = raw.toIntOrNull() ?: -1
+                            if (idx in sharedStrings.indices) sharedStrings[idx] else raw
+                        } else decodeXmlEntities(raw)
+                        rowCells.add(resolved)
+                    }
+                    if (rowCells.any { it.isNotBlank() }) {
+                        rows.add(rowCells)
+                    }
+                }
+                val headers = rows.firstOrNull() ?: emptyList()
+                val dataRows = if (rows.size > 1) rows.drop(1) else emptyList()
+                SpreadsheetGrid(file.nameWithoutExtension, headers, dataRows)
+            } catch (_: Exception) {
+                SpreadsheetGrid(file.nameWithoutExtension, emptyList(), emptyList())
+            }
+        }
+    }
+
     fun editPptxSlideText(file: File, slideNumber: Int, targetText: String, replacementText: String): FileOperationResult {
         if (!file.exists()) return FileOperationResult.Error("File '${file.path}' does not exist.")
         val slidePath = if (slideNumber > 0) "ppt/slides/slide$slideNumber.xml" else null
@@ -473,14 +649,40 @@ object UniversalFileEngine {
         return try {
             file.parentFile?.mkdirs()
             val cleanTitle = title.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-            val pXmls = content.lines().filter { it.isNotBlank() }.joinToString("") { line ->
+            val rawLines = content.lines().map { it.trim() }.filter { it.isNotBlank() }
+            
+            // Avoid duplicating document title if content already starts with it
+            val effectiveLines = if (rawLines.firstOrNull()?.removePrefix("# ")?.trim()?.equals(title.trim(), ignoreCase = true) == true) {
+                rawLines.drop(1)
+            } else {
+                rawLines
+            }
+
+            val pXmls = effectiveLines.joinToString("") { line ->
                 val escaped = line.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-                val isBullet = escaped.startsWith("•") || escaped.startsWith("-") || escaped.startsWith("*")
-                val text = if (isBullet) escaped.substring(1).trim() else escaped
-                if (isBullet) {
-                    "<w:p><w:pPr><w:pStyle w:val=\"ListParagraph\"/><w:numPr><w:ilvl w:val=\"0\"/><w:numId w:val=\"1\"/></w:numPr></w:pPr><w:r><w:rPr><w:sz w:val=\"24\"/><w:color w:val=\"334155\"/><w:rFonts w:ascii=\"Arial\" w:hAnsi=\"Arial\"/></w:rPr><w:t>• $text</w:t></w:r></w:p>"
-                } else {
-                    "<w:p><w:pPr><w:spacing w:before=\"120\" w:after=\"120\"/></w:pPr><w:r><w:rPr><w:sz w:val=\"24\"/><w:color w:val=\"1E293B\"/><w:rFonts w:ascii=\"Arial\" w:hAnsi=\"Arial\"/></w:rPr><w:t>$text</w:t></w:r></w:p>"
+                when {
+                    escaped.startsWith("# ") -> {
+                        val h1 = escaped.removePrefix("# ").trim()
+                        "<w:p><w:pPr><w:spacing w:before=\"280\" w:after=\"140\"/></w:pPr><w:r><w:rPr><w:b/><w:sz w:val=\"36\"/><w:color w:val=\"0F172A\"/><w:rFonts w:ascii=\"Arial\" w:hAnsi=\"Arial\"/></w:rPr><w:t>$h1</w:t></w:r></w:p>"
+                    }
+                    escaped.startsWith("## ") -> {
+                        val h2 = escaped.removePrefix("## ").trim()
+                        "<w:p><w:pPr><w:spacing w:before=\"220\" w:after=\"100\"/></w:pPr><w:r><w:rPr><w:b/><w:sz w:val=\"30\"/><w:color w:val=\"1E293B\"/><w:rFonts w:ascii=\"Arial\" w:hAnsi=\"Arial\"/></w:rPr><w:t>$h2</w:t></w:r></w:p>"
+                    }
+                    escaped.startsWith("### ") -> {
+                        val h3 = escaped.removePrefix("### ").trim()
+                        "<w:p><w:pPr><w:spacing w:before=\"160\" w:after=\"80\"/></w:pPr><w:r><w:rPr><w:b/><w:sz w:val=\"26\"/><w:color w:val=\"334155\"/><w:rFonts w:ascii=\"Arial\" w:hAnsi=\"Arial\"/></w:rPr><w:t>$h3</w:t></w:r></w:p>"
+                    }
+                    escaped.startsWith("•") || escaped.startsWith("-") || escaped.startsWith("*") -> {
+                        val bullet = escaped.removePrefix("•").removePrefix("-").removePrefix("*").trim()
+                        "<w:p><w:pPr><w:pStyle w:val=\"ListParagraph\"/><w:spacing w:before=\"60\" w:after=\"60\"/><w:numPr><w:ilvl w:val=\"0\"/><w:numId w:val=\"1\"/></w:numPr></w:pPr><w:r><w:rPr><w:sz w:val=\"24\"/><w:color w:val=\"334155\"/><w:rFonts w:ascii=\"Arial\" w:hAnsi=\"Arial\"/></w:rPr><w:t>• $bullet</w:t></w:r></w:p>"
+                    }
+                    escaped.matches(Regex("^\\d+\\.\\s+.*")) -> {
+                        "<w:p><w:pPr><w:spacing w:before=\"60\" w:after=\"60\"/></w:pPr><w:r><w:rPr><w:sz w:val=\"24\"/><w:color w:val=\"334155\"/><w:rFonts w:ascii=\"Arial\" w:hAnsi=\"Arial\"/></w:rPr><w:t>$escaped</w:t></w:r></w:p>"
+                    }
+                    else -> {
+                        "<w:p><w:pPr><w:spacing w:before=\"120\" w:after=\"120\"/></w:pPr><w:r><w:rPr><w:sz w:val=\"24\"/><w:color w:val=\"1E293B\"/><w:rFonts w:ascii=\"Arial\" w:hAnsi=\"Arial\"/></w:rPr><w:t>$escaped</w:t></w:r></w:p>"
+                    }
                 }
             }
 
@@ -496,7 +698,7 @@ object UniversalFileEngine {
           <w:b/>
           <w:sz w:val="48"/>
           <w:color w:val="0F172A"/>
-          <w:rFonts w:ascii=\"Arial\" w:hAnsi=\"Arial\"/>
+          <w:rFonts w:ascii="Arial" w:hAnsi="Arial"/>
         </w:rPr>
         <w:t>$cleanTitle</w:t>
       </w:r>
@@ -605,14 +807,19 @@ object UniversalFileEngine {
         return try {
             file.parentFile?.mkdirs()
             val cleanTitle = title.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-            val rawLines = content.lines().map { it.trim() }.filter { it.isNotBlank() }
+            
+            // Normalize inline "Slide X:" or "and Slide X:" markers into distinct lines
+            val normalizedContent = content
+                .replace(Regex("(?i)(?:^|\\s+|\\band\\s+)(Slide\\s*\\d+\\s*[:\\-])"), "\n$1")
+                .replace(Regex("(?i)(?:^|\\s+|\\band\\s+)(Slide\\s*\\d+\\b)"), "\n$1:")
+            val rawLines = normalizedContent.lines().map { it.trim() }.filter { it.isNotBlank() }
 
-            val slides = if (rawLines.any { it.startsWith("---") || it.startsWith("Slide") }) {
+            val slides = if (rawLines.any { it.startsWith("---") || it.startsWith("Slide", ignoreCase = true) }) {
                 val currentSlides = mutableListOf<Pair<String, List<String>>>()
                 var curTitle = ""
                 var curBody = mutableListOf<String>()
                 rawLines.forEach { line ->
-                    if (line.startsWith("---") || line.startsWith("Slide")) {
+                    if (line.startsWith("---") || line.matches(Regex("(?i)^Slide\\s*\\d+.*"))) {
                         if (curTitle.isNotEmpty() || curBody.isNotEmpty()) {
                             currentSlides.add(curTitle to curBody)
                             curBody = mutableListOf()
@@ -645,18 +852,22 @@ object UniversalFileEngine {
                     presRels.append("<Relationship Id=\"$rId\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide\" Target=\"slides/slide$sNum.xml\"/>")
                     ctOverrides.append("<Override PartName=\"/ppt/slides/slide$sNum.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.presentationml.slide+xml\"/>")
 
-                    val displayTitle = if (rawSlideTitle.matches(Regex("(?i)^Slide\\s*\\d+\\s*:\\s*(.+)"))) {
-                        rawSlideTitle.replace(Regex("(?i)^Slide\\s*\\d+\\s*:\\s*"), "").trim()
-                    } else {
-                        rawSlideTitle
-                    }.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                    val displayTitle = rawSlideTitle
+                        .replace(Regex("(?i)^Slide\\s*\\d+\\s*[:\\-]?\\s*"), "")
+                        .trimStart(':', '-', ' ')
+                        .ifBlank { "Slide $sNum" }
+                        .replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
                     val subtitleBadge = "Slide $sNum".replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
-                    val bodyLines = if (sBody.isEmpty()) {
-                        listOf("Overview & Highlights", "Generated dynamically by Orbital AI Companion")
-                    } else {
+                    val bodyLines = if (sBody.isNotEmpty()) {
                         sBody
+                    } else {
+                        listOf(
+                            "Strategic Overview & Vision",
+                            "Key Execution Milestones & Deliverables",
+                            "Performance Analytics & Next Steps"
+                        )
                     }
 
                     val bodyXml = bodyLines.joinToString("") { bLine ->

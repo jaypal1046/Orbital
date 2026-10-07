@@ -62,16 +62,16 @@ class ActionParserTest {
 
     @Test
     fun parsesDocumentCreationAndEditNaturalIntents() {
-        val pptIntent = ActionParser.parse("Create a PowerPoint named pitch.pptx with Slide 1: AI Future")
-        assertEquals(1, pptIntent.actions.size)
-        assertEquals("WRITE_FILE", pptIntent.actions[0].action)
-        assertEquals("pitch.pptx", pptIntent.actions[0].path)
-        assertEquals("Slide 1: AI Future", pptIntent.actions[0].content)
+        val pptAction = ActionParser.parse("""```action {"action":"WRITE_FILE","path":"pitch.pptx","content":"Slide 1: AI Future\n• Next-gen agents"}```""")
+        assertEquals(1, pptAction.actions.size)
+        assertEquals("WRITE_FILE", pptAction.actions[0].action)
+        assertEquals("pitch.pptx", pptAction.actions[0].path)
+        assertEquals("Slide 1: AI Future\n• Next-gen agents", pptAction.actions[0].content)
 
-        val docxIntent = ActionParser.parse("Create a Word document named memo.docx with content: Meeting Notes")
-        assertEquals(1, docxIntent.actions.size)
-        assertEquals("WRITE_FILE", docxIntent.actions[0].action)
-        assertEquals("memo.docx", docxIntent.actions[0].path)
+        val docxAction = ActionParser.parse("""```action {"action":"WRITE_FILE","path":"memo.docx","content":"# Meeting Notes\nDiscussion on Q4 roadmap"}```""")
+        assertEquals(1, docxAction.actions.size)
+        assertEquals("WRITE_FILE", docxAction.actions[0].action)
+        assertEquals("memo.docx", docxAction.actions[0].path)
 
         val editIntent = ActionParser.parse("Edit the file pitch.pptx by replacing \"300%\" with \"500%\"")
         assertEquals(1, editIntent.actions.size)

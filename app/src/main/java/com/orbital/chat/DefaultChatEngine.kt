@@ -385,8 +385,10 @@ class DefaultChatEngine @Inject constructor(
                             results += "⚡ Executed: ${result.message}"
                             val resolvedDetails = result.details?.takeIf { it.isNotBlank() } ?: "• Status: Executed successfully\n• Message: ${result.message}"
                             actionDetails = listOfNotNull(actionDetails, resolvedDetails).joinToString("\n").takeIf { it.isNotBlank() }
-                            com.orbital.ui.MascotEventBus.postEvent(com.orbital.ui.MascotEvent.ActionSuccess(result.message))
-                            launchFloatingCompanionOverlay()
+                            val externalAppActions = setOf("OPEN_APP", "LAUNCH_APP", "NAVIGATE", "PLAY_MUSIC", "COMPOSE_EMAIL", "MAKE_CALL", "SEND_SMS")
+                            if (action.action.uppercase() in externalAppActions) {
+                                launchFloatingCompanionOverlay()
+                            }
 
                             foremanSupervisor?.tracker?.markCurrentStepSuccess()
                             scope.launch(Dispatchers.IO) {
@@ -557,7 +559,10 @@ class DefaultChatEngine @Inject constructor(
             val (label, details) = when (result) {
                 is ActionResult.Success -> {
                     com.orbital.ui.MascotEventBus.postEvent(com.orbital.ui.MascotEvent.ActionSuccess(result.message))
-                    launchFloatingCompanionOverlay()
+                    val externalAppActions = setOf("OPEN_APP", "LAUNCH_APP", "NAVIGATE", "PLAY_MUSIC", "COMPOSE_EMAIL", "MAKE_CALL", "SEND_SMS")
+                    if (action.action.uppercase() in externalAppActions) {
+                        launchFloatingCompanionOverlay()
+                    }
                     val resolvedDetails = result.details?.takeIf { it.isNotBlank() } ?: "• Status: Executed successfully\n• Message: ${result.message}"
                     "⚡ Executed: ${result.message}" to resolvedDetails
                 }
