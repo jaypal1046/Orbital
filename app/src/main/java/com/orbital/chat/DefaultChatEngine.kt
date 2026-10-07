@@ -306,8 +306,8 @@ class DefaultChatEngine @Inject constructor(
     override suspend fun handleStreamCompletion() {
         val currentChunk = streamingContent.value
         if (currentChunk.isNotBlank()) {
-            // Parse the action from the response
-            val parsed = ActionParser.parse(currentChunk)
+            // Parse the action from the response or multi-turn dialogue context
+            val parsed = ActionParser.parseContextual(_messages.value, currentChunk)
             var userDisplayText = parsed.userDisplayText
             var actionLabel: String? = null
             var actionDetails: String? = null
@@ -482,57 +482,59 @@ class DefaultChatEngine @Inject constructor(
             )
         } else {
             // Edge Resilience Fallback: If streaming closed with 0 chunks or empty response,
-            // immediately evaluate the user's intent locally so the command never hangs or waits for a 2nd message.
-            val lastUserMessage = _messages.value.lastOrNull { it.role == "user" }?.content.orEmpty()
-            if (lastUserMessage.isNotBlank()) {
-                val parsed = com.orbital.action.ActionParser.parse(lastUserMessage)
-                if (parsed.actions.isNotEmpty()) {
-                    val execResults = kotlinx.coroutines.withContext(Dispatchers.IO) {
-                        parsed.actions.map { deviceActionExecutor.execute(it) }
+            // immediately evaluate the multi-turn dialogue context so affirmations and follow-ups execute instantly.
+            val parsed = com.orbital.action.ActionParser.parseContextual(_messages.value)
+            if (parsed.actions.isNotEmpty()) {
+                val execResults = kotlinx.coroutines.withContext(Dispatchers.IO) {
+                    parsed.actions.map { deviceActionExecutor.execute(it) }
+                }
+                val isSuccess = execResults.all { it is ActionResult.Success }
+                val label = parsed.actions.firstOrNull()?.action?.lowercase()?.replace('_', ' ') ?: "action"
+                val details = execResults.mapNotNull { res ->
+                    when (res) {
+                        is ActionResult.Success -> listOfNotNull(res.message, res.details).joinToString("\n")
+                        is ActionResult.Error -> res.errorMessage
                     }
-                    val isSuccess = execResults.all { it is ActionResult.Success }
-                    val label = parsed.actions.firstOrNull()?.action?.lowercase()?.replace('_', ' ') ?: "action"
-                    val details = execResults.mapNotNull { res ->
-                        when (res) {
-                            is ActionResult.Success -> listOfNotNull(res.message, res.details).joinToString("\n")
-                            is ActionResult.Error -> res.errorMessage
-                        }
-                    }.joinToString("\n\n")
-                    val fallbackContent = if (isSuccess) {
-                        if (parsed.actions.any { it.action == "DEVICE_STATUS" || it.action == "BATTERY" }) {
-                            "Checking your device and battery status now!"
-                        } else {
-                            "Executed ${label.replaceFirstChar { it.uppercase() }} on your phone."
-                        }
-                    } else "Attempted $label: $details"
+                }.joinToString("\n\n")
+                val fallbackContent = if (isSuccess) {
+                    if (parsed.actions.any { it.action == "DEVICE_STATUS" || it.action == "BATTERY" }) {
+                        "Checking your device and battery status now!"
+                    } else {
+                        "Executed ${label.replaceFirstChar { it.uppercase() }} on your phone."
+                    }
+                } else "Attempted $label: $details"
 
-                    val executionSteps = listOf(
-                        com.orbital.action.ExecutionStep(
-                            title = "Ran DeviceAction: ${label.replaceFirstChar { it.uppercase() }}",
-                            status = if (isSuccess) com.orbital.action.StepStatus.SUCCESS else com.orbital.action.StepStatus.FAILED,
-                            toolName = "DeviceAction",
-                            details = details.ifBlank { fallbackContent },
-                            durationMs = 250L
-                        )
-                    )
-
-                    addActionMessage(
-                        content = fallbackContent,
-                        actionLabel = "⚡ ${label.replaceFirstChar { it.uppercase() }}",
-                        actionDetails = details.takeIf { it.isNotBlank() },
-                        steps = executionSteps,
+                val executionSteps = listOf(
+                    com.orbital.action.ExecutionStep(
+                        title = "Ran DeviceAction: ${label.replaceFirstChar { it.uppercase() }}",
+                        status = if (isSuccess) com.orbital.action.StepStatus.SUCCESS else com.orbital.action.StepStatus.FAILED,
+                        toolName = "DeviceAction",
+                        details = details.ifBlank { fallbackContent },
                         durationMs = 250L
                     )
+                )
+
+                addActionMessage(
+                    content = fallbackContent,
+                    actionLabel = "⚡ ${label.replaceFirstChar { it.uppercase() }}",
+                    actionDetails = details.takeIf { it.isNotBlank() },
+                    steps = executionSteps,
+                    durationMs = 250L
+                )
+            } else {
+                val lastUserMsg = _messages.value.lastOrNull { it.role == "user" }?.content.orEmpty()
+                val fallbackContent = if (lastUserMsg.isNotBlank()) {
+                    "Understood! Proceeding with your request."
                 } else {
-                    val fallbackContent = "I received your request. How else can I assist you?"
-                    _messages.update { currentMessages ->
-                        currentMessages + ChatMessage(
-                            role = "assistant",
-                            content = fallbackContent
-                        )
-                    }
-                    persistMessage(role = "assistant", content = fallbackContent, providerName = activeProvider.value)
+                    "How else can I assist you?"
                 }
+                _messages.update { currentMessages ->
+                    currentMessages + ChatMessage(
+                        role = "assistant",
+                        content = fallbackContent
+                    )
+                }
+                persistMessage(role = "assistant", content = fallbackContent, providerName = activeProvider.value)
             }
         }
         streamingContent.value = ""

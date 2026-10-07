@@ -21,17 +21,94 @@ $capabilityContext
 $toolsDoc
 
 SMART ACTION SELECTION RULES:
-1. Dynamic App Resolution: Dynamically use the apps installed on the user's phone. Match target app names or package IDs strictly from installed capabilities, including minor user-input misspellings when a unique installed-app match exists.
-2. Direct Execution & Automation: Whenever the user asks you to perform an action, open an app, update/test details, read the screen, or automate a workflow, ALWAYS generate the ```action JSON block at the end of your response so the phone executes the action immediately!
-3. Background & Recurring Monitoring: When the user requests periodic automation or recurring checks (e.g. "every hour", "hourly check when internet is available", "alert me daily"), use SCHEDULE_MONITOR with repeat_minutes (e.g. 60) and a descriptive title/query.
-4. Ambiguity & Multiple Matches: If a user asks for a general task (e.g. "search train tickets", "play songs", "send a message") and multiple matching apps are installed on their phone without a clear preference, ask a quick, helpful clarifying question.
-5. Clarify Missing Information: If mandatory parameters are missing to fulfill a task, ask a concise clarifying question first before generating an action.
-6. Security & Sensitive Boundaries: For financial, banking, or payment applications, inform the user that sensitive financial transactions require direct user control.
-7. Multi-step Requests: For requests that require multiple actions (e.g., opening an app and setting up a schedule or inspecting screen), return one action block with an "actions" array containing all steps. To run an action only when battery is low, add "if_battery_below" to that action.
+1. Dynamic App Resolution: Dynamically use the apps installed on the user's phone. Match target app names or package IDs strictly from installed capabilities, including minor user-input misspellings (e.g. "Gamil" -> "Gmail") when a unique installed-app match exists.
+2. Direct Execution & Automation: Whenever the user asks you to perform an action, open an app, read/summarize emails or notifications, update details, or automate a workflow, ALWAYS generate the ```action JSON block at the end of your response so the phone executes the action immediately!
+3. Multi-Turn Context & Task Continuity:
+   - Conversations are continuous across turns. When the user provides a follow-up answer (e.g. selecting an app like "Gmail") or gives confirmation (e.g. "Yes", "Sure", "Proceed", "Go ahead", "Do it"), treat it as the final trigger for the task discussed in preceding turns.
+   - DO NOT ask repetitive questions, DO NOT repeat the plan without acting, and DO NOT output generic acknowledgement without actions — IMMEDIATELY generate the ```action JSON block with the necessary steps to perform the requested workflow!
+4. Avoid Redundant Clarification Loops: If the user has already approved or clarified their intent, immediately execute the task with the ```action block rather than asking "Does that sound good?" again.
+5. Background & Recurring Monitoring: When the user requests periodic automation or recurring checks (e.g. "every hour", "hourly check when internet is available", "alert me daily"), use SCHEDULE_MONITOR with repeat_minutes (e.g. 60) and a descriptive title/query.
+6. Ambiguity & Missing Parameters: If mandatory parameters are completely missing to fulfill a task, ask a single concise clarifying question first before generating an action. Once clarified, execute immediately.
+7. Security & Sensitive Boundaries: For financial, banking, or payment applications, inform the user that sensitive financial transactions require direct user control.
+8. Multi-step Requests: For requests that require multiple actions (e.g., opening an app and reading screen or setting up a schedule), return one action block with an "actions" array containing all steps.
 
 CRITICAL EXECUTION RULE:
-Whenever the user asks you to perform an action, you MUST ALWAYS generate the ```action JSON block at the very end of your response so the phone performs the action immediately!
+Whenever the user asks you to perform an action or confirms a plan, you MUST ALWAYS generate the ```action JSON block at the very end of your response so the phone performs the action immediately!
 """.trimIndent()
+    }
+
+    fun parseContextual(messages: List<com.orbital.data.ChatMessage>, modelResponseText: String = ""): ParsedResponse {
+        // 1. If modelResponseText has an action block or inline action, parse it directly
+        if (modelResponseText.isNotBlank()) {
+            val direct = parse(modelResponseText)
+            if (direct.actions.isNotEmpty()) {
+                return direct
+            }
+        }
+
+        // 2. Extract dialogue context
+        val nonSystemMessages = messages.filter { it.role != "system" }
+        val lastUserMessage = nonSystemMessages.lastOrNull { it.role == "user" }?.content?.trim().orEmpty()
+        val previousAssistant = nonSystemMessages.dropLast(1).lastOrNull { it.role == "assistant" }
+        val earlierUserMessages = nonSystemMessages.dropLast(1).filter { it.role == "user" }
+
+        // 3. Direct parse on the last user message
+        if (lastUserMessage.isNotBlank()) {
+            val directUserParse = parse(lastUserMessage)
+            if (directUserParse.actions.isNotEmpty()) {
+                return directUserParse
+            }
+        }
+
+        // 4. Multi-turn continuity evaluation:
+        // Check if user confirmed ("yes", "proceed", "do it", "sure", "ok", "go ahead")
+        val isAffirmation = lastUserMessage.matches(
+            Regex("(?i)^(yes|yep|yeah|yup|sure|ok|okay|do it|proceed|confirm|go ahead|please do|sounds good|yes please|right|correct|fine|all right|alright)$")
+        )
+
+        // Combine recent context (previous turns + model response text + last user message)
+        val combinedContext = buildString {
+            earlierUserMessages.takeLast(2).forEach { append("${it.content} ") }
+            previousAssistant?.let { append("${it.content} ") }
+            if (modelResponseText.isNotBlank()) append("$modelResponseText ")
+            append(lastUserMessage)
+        }.trim()
+
+        if (combinedContext.isNotBlank()) {
+            // Check if combined context has a natural intent
+            val naturalAction = parseNaturalIntent(combinedContext)
+            if (naturalAction != null) {
+                return ParsedResponse(
+                    userDisplayText = "Executing ${naturalAction.action.replace('_', ' ').lowercase()}...",
+                    actions = listOf(naturalAction)
+                )
+            }
+
+            // Check if previous assistant or user proposed opening an app or reading screen
+            val openAppPattern = Regex("(?i)\\b(?:open|launch|start|reading|read|summarize|checking)\\s+(?:the\\s+)?([A-Za-z0-9\\s]{2,25}?)(?:\\s+app|\\s+and|\\s+for|\\s+to|$)")
+            val match = openAppPattern.find(combinedContext)
+            val extractedApp = match?.groupValues?.get(1)?.trim()
+
+            if (isAffirmation && !extractedApp.isNullOrBlank() && extractedApp.length in 2..20 && !extractedApp.equals("the", ignoreCase = true)) {
+                val actions = if (combinedContext.contains("read", ignoreCase = true) ||
+                                 combinedContext.contains("screen", ignoreCase = true) ||
+                                 combinedContext.contains("summarize", ignoreCase = true) ||
+                                 combinedContext.contains("unread", ignoreCase = true)) {
+                    listOf(
+                        DeviceAction(action = "OPEN_APP", target = extractedApp),
+                        DeviceAction(action = "READ_SCREEN")
+                    )
+                } else {
+                    listOf(DeviceAction(action = "OPEN_APP", target = extractedApp))
+                }
+                return ParsedResponse(
+                    userDisplayText = "Proceeding with opening $extractedApp...",
+                    actions = actions
+                )
+            }
+        }
+
+        return parse(if (modelResponseText.isNotBlank()) modelResponseText else lastUserMessage)
     }
 
     fun parse(rawResponse: String): ParsedResponse {
