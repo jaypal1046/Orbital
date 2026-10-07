@@ -1219,12 +1219,18 @@ open class DeviceActionExecutor(private val context: Context) {
     }
 
     private fun resolveFile(path: String): java.io.File {
-        val file = java.io.File(path)
-        return if (file.isAbsolute) {
-            file
-        } else {
-            java.io.File(context.filesDir, path)
+        val trimmed = path.trim().removeSurrounding("\"").removeSurrounding("'")
+        val file = java.io.File(trimmed)
+        if (file.isAbsolute) {
+            val parent = file.parentFile
+            if (parent != null && (parent.exists() || parent.mkdirs()) && parent.canWrite()) {
+                return file
+            }
         }
+
+        val baseDir = context.getExternalFilesDir(null) ?: context.filesDir
+        val safeName = if (file.isAbsolute) file.name else trimmed
+        return java.io.File(baseDir, safeName)
     }
 
     fun searchDevice(query: String): ActionResult {

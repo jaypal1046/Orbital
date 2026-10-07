@@ -194,17 +194,17 @@ object ActionRegistry {
         ),
         ActionDefinition(
             type = "WRITE_FILE",
-            description = "Create or write new content to a local file (text, JSON, markdown, code, CSV)",
+            description = "Create or write new content to a local file (text, JSON, markdown, CSV, Excel xlsx, Word docx, PowerPoint pptx, PDF)",
             requiredParams = listOf("path", "content"),
             optionalParams = listOf("overwrite"),
-            exampleJson = """{"action": "WRITE_FILE", "path": "/sdcard/Documents/report.md", "content": "# Daily Summary\nAll tasks completed."}"""
+            exampleJson = """{"action": "WRITE_FILE", "path": "pitch.pptx", "content": "Slide 1: Executive Summary\nRevenue: 300%\nSlide 2: Objectives\nExpansion"}"""
         ),
         ActionDefinition(
             type = "EDIT_FILE",
-            description = "Replace specific text or lines inside any file (text, code, markdown, Word docx, PowerPoint pptx)",
+            description = "Replace specific text or lines inside any file (text, code, markdown, Word docx, PowerPoint pptx, Excel xlsx, PDF)",
             requiredParams = listOf("path", "target_content", "replacement_content"),
             optionalParams = listOf("allow_multiple"),
-            exampleJson = """{"action": "EDIT_FILE", "path": "/sdcard/Documents/project.json", "target_content": "version: 1.0", "replacement_content": "version: 1.1"}"""
+            exampleJson = """{"action": "EDIT_FILE", "path": "pitch.pptx", "target_content": "300%", "replacement_content": "500%"}"""
         ),
         ActionDefinition(
             type = "SEARCH_FILE",
