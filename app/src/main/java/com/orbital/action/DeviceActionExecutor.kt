@@ -1155,6 +1155,9 @@ open class DeviceActionExecutor(private val context: Context) {
         val category = com.orbital.file.UniversalFileEngine.detectCategory(cleanPath)
         val result = when (category) {
             com.orbital.file.UniversalFileEngine.FileCategory.PDF_DOCUMENT -> com.orbital.file.UniversalFileEngine.createPdf(file, file.nameWithoutExtension, content)
+            com.orbital.file.UniversalFileEngine.FileCategory.POWERPOINT_PRESENTATION -> com.orbital.file.UniversalFileEngine.createPptx(file, file.nameWithoutExtension, content)
+            com.orbital.file.UniversalFileEngine.FileCategory.WORD_DOCUMENT -> com.orbital.file.UniversalFileEngine.createDocx(file, file.nameWithoutExtension, content)
+            com.orbital.file.UniversalFileEngine.FileCategory.SPREADSHEET_EXCEL -> com.orbital.file.UniversalFileEngine.createXlsx(file, file.nameWithoutExtension, content)
             else -> com.orbital.file.UniversalFileEngine.writeTextFile(file, content, overwrite)
         }
         return when (result) {

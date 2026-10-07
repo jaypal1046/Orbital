@@ -444,7 +444,6 @@ object UniversalFileEngine {
                     message = "Updated text on Slide $slideNumber in PowerPoint '${file.name}'"
                 )
             } else {
-                // Replace target across all slides
                 var replacedAny = false
                 ZipInputStream(FileInputStream(file)).use { zip ->
                     var entry: ZipEntry? = zip.nextEntry
@@ -467,6 +466,231 @@ object UniversalFileEngine {
             }
         } catch (e: Exception) {
             FileOperationResult.Error("Failed to edit PowerPoint Slide in '${file.path}': ${e.message}")
+        }
+    }
+
+    fun createDocx(file: File, title: String, content: String): FileOperationResult {
+        return try {
+            file.parentFile?.mkdirs()
+            val cleanTitle = title.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            val pXmls = content.lines().joinToString("") { line ->
+                val escaped = line.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                "<w:p><w:r><w:t>$escaped</w:t></w:r></w:p>"
+            }
+
+            val docXml = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:body>
+    <w:p><w:r><w:rPr><w:b/><w:sz w:val="32"/></w:rPr><w:t>$cleanTitle</w:t></w:r></w:p>
+    $pXmls
+  </w:body>
+</w:document>"""
+
+            val contentTypes = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
+</Types>"""
+
+            val rels = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
+</Relationships>"""
+
+            ZipOutputStream(FileOutputStream(file)).use { zipOut ->
+                writeZipEntry(zipOut, "[Content_Types].xml", contentTypes)
+                writeZipEntry(zipOut, "_rels/.rels", rels)
+                writeZipEntry(zipOut, "word/document.xml", docXml)
+            }
+
+            FileOperationResult.Success("Created Word document '${file.name}' (${file.length()} bytes)")
+        } catch (e: Exception) {
+            FileOperationResult.Error("Failed to create Word document '${file.path}': ${e.message}")
+        }
+    }
+
+    fun createXlsx(file: File, title: String, content: String): FileOperationResult {
+        return try {
+            file.parentFile?.mkdirs()
+            val rowLines = content.lines().filter { it.isNotBlank() }
+            val rowsXml = StringBuilder()
+
+            rowLines.forEachIndexed { rIdx, line ->
+                val cells = parseCsvLine(line, ",")
+                val cellsXml = cells.mapIndexed { cIdx, cellVal ->
+                    val colLetter = ('A' + cIdx).toString()
+                    val cellRef = "$colLetter${rIdx + 1}"
+                    val esc = cellVal.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                    val isNum = cellVal.toDoubleOrNull() != null
+                    if (isNum) {
+                        "<c r=\"$cellRef\"><v>$esc</v></c>"
+                    } else {
+                        "<c r=\"$cellRef\" t=\"inlineStr\"><is><t>$esc</t></is></c>"
+                    }
+                }.joinToString("")
+                rowsXml.append("<row r=\"${rIdx + 1}\">$cellsXml</row>")
+            }
+
+            val sheet1Xml = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <sheetData>
+    $rowsXml
+  </sheetData>
+</worksheet>"""
+
+            val wbXml = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <sheets>
+    <sheet name="Sheet1" sheetId="1" r:id="rId1" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"/>
+  </sheets>
+</workbook>"""
+
+            val wbRels = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+</Relationships>"""
+
+            val rels = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
+</Relationships>"""
+
+            val contentTypes = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+  <Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+</Types>"""
+
+            ZipOutputStream(FileOutputStream(file)).use { zipOut ->
+                writeZipEntry(zipOut, "[Content_Types].xml", contentTypes)
+                writeZipEntry(zipOut, "_rels/.rels", rels)
+                writeZipEntry(zipOut, "xl/workbook.xml", wbXml)
+                writeZipEntry(zipOut, "xl/_rels/workbook.xml.rels", wbRels)
+                writeZipEntry(zipOut, "xl/worksheets/sheet1.xml", sheet1Xml)
+            }
+
+            FileOperationResult.Success("Created Excel spreadsheet '${file.name}' (${file.length()} bytes)")
+        } catch (e: Exception) {
+            FileOperationResult.Error("Failed to create Excel spreadsheet '${file.path}': ${e.message}")
+        }
+    }
+
+    fun createPptx(file: File, title: String, content: String): FileOperationResult {
+        return try {
+            file.parentFile?.mkdirs()
+            val cleanTitle = title.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            val lines = content.lines()
+            val slides = if (lines.any { it.startsWith("---") || it.startsWith("Slide") }) {
+                val currentSlides = mutableListOf<Pair<String, List<String>>>()
+                var curTitle = ""
+                var curBody = mutableListOf<String>()
+                lines.forEach { line ->
+                    val trimmed = line.trim()
+                    if (trimmed.startsWith("---") || trimmed.startsWith("Slide")) {
+                        if (curTitle.isNotEmpty() || curBody.isNotEmpty()) {
+                            currentSlides.add(curTitle to curBody)
+                            curBody = mutableListOf()
+                        }
+                        curTitle = trimmed.trim('-', ' ')
+                    } else if (trimmed.isNotBlank()) {
+                        if (curTitle.isEmpty()) {
+                            curTitle = cleanTitle
+                        }
+                        curBody.add(trimmed)
+                    }
+                }
+                if (curTitle.isNotEmpty() || curBody.isNotEmpty()) {
+                    currentSlides.add(curTitle to curBody)
+                }
+                if (currentSlides.isEmpty()) listOf(cleanTitle to lines.filter { it.isNotBlank() }) else currentSlides
+            } else {
+                listOf(cleanTitle to lines.filter { it.isNotBlank() })
+            }
+
+            ZipOutputStream(FileOutputStream(file)).use { zipOut ->
+                val sldIds = StringBuilder()
+                val presRels = StringBuilder()
+                val ctOverrides = StringBuilder()
+
+                slides.forEachIndexed { idx, (sTitle, sBody) ->
+                    val sNum = idx + 1
+                    val rId = "rId$sNum"
+                    sldIds.append("<p:sldId id=\"${255 + sNum}\" r:id=\"$rId\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\"/>")
+                    presRels.append("<Relationship Id=\"$rId\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide\" Target=\"slides/slide$sNum.xml\"/>")
+                    ctOverrides.append("<Override PartName=\"/ppt/slides/slide$sNum.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.presentationml.slide+xml\"/>")
+
+                    val bodyXml = sBody.joinToString("") { bLine ->
+                        val esc = bLine.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                        "<a:p><a:r><a:t>$esc</a:t></a:r></a:p>"
+                    }
+
+                    val slideXml = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
+  <p:cSld>
+    <p:spTree>
+      <p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>
+      <p:grpSpPr/>
+      <p:sp>
+        <p:nvSpPr><p:cNvPr id="2" name="Title"/><p:cNvSpPr><a:spLocks noGrp="1"/></p:cNvSpPr><p:nvPr/></p:nvSpPr>
+        <p:spPr/>
+        <p:txBody>
+          <a:bodyPr/>
+          <a:lstStyle/>
+          <a:p><a:r><a:t>${sTitle.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")}</a:t></a:r></a:p>
+        </p:txBody>
+      </p:sp>
+      <p:sp>
+        <p:nvSpPr><p:cNvPr id="3" name="Content"/><p:cNvSpPr><a:spLocks noGrp="1"/></p:cNvSpPr><p:nvPr/></p:nvSpPr>
+        <p:spPr/>
+        <p:txBody>
+          <a:bodyPr/>
+          <a:lstStyle/>
+          $bodyXml
+        </p:txBody>
+      </p:sp>
+    </p:spTree>
+  </p:cSld>
+</p:sld>"""
+                    writeZipEntry(zipOut, "ppt/slides/slide$sNum.xml", slideXml)
+                }
+
+                val contentTypes = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/>
+  $ctOverrides
+</Types>"""
+
+                val rels = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="ppt/presentation.xml"/>
+</Relationships>"""
+
+                val presXml = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<p:presentation xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
+  <p:sldIdLst>
+    $sldIds
+  </p:sldIdLst>
+</p:presentation>"""
+
+                val presRelsXml = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  $presRels
+</Relationships>"""
+
+                writeZipEntry(zipOut, "[Content_Types].xml", contentTypes)
+                writeZipEntry(zipOut, "_rels/.rels", rels)
+                writeZipEntry(zipOut, "ppt/presentation.xml", presXml)
+                writeZipEntry(zipOut, "ppt/_rels/presentation.xml.rels", presRelsXml)
+            }
+
+            FileOperationResult.Success("Created PowerPoint presentation '${file.name}' with ${slides.size} slide(s)")
+        } catch (e: Exception) {
+            FileOperationResult.Error("Failed to create PowerPoint presentation '${file.path}': ${e.message}")
         }
     }
 
@@ -675,5 +899,11 @@ object UniversalFileEngine {
             extractNodeText(child, sb)
             child = child.nextSibling
         }
+    }
+
+    private fun writeZipEntry(zipOut: ZipOutputStream, entryName: String, content: String) {
+        zipOut.putNextEntry(ZipEntry(entryName))
+        zipOut.write(content.toByteArray(StandardCharsets.UTF_8))
+        zipOut.closeEntry()
     }
 }

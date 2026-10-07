@@ -150,6 +150,34 @@ class UniversalFileEngineTest {
     }
 
     @Test
+    fun `createPptx, readPptxText, and editPptxSlideText handle dynamic presentation generation`() {
+        val pptxFile = File(rootDir, "company_pitch.pptx")
+        val content = """Slide 1: Executive Summary
+Key Milestones Achieved
+Revenue Growth: 300%
+Slide 2: Strategic Objectives
+Global Expansion Plan
+Enterprise Partnerships"""
+
+        val createRes = UniversalFileEngine.createPptx(pptxFile, title = "Company Pitch", content = content)
+        assertTrue(createRes is FileOperationResult.Success)
+        assertTrue(pptxFile.exists() && pptxFile.length() > 0)
+
+        val readRes = UniversalFileEngine.readPptxText(pptxFile)
+        assertTrue(readRes is FileOperationResult.Success)
+        val readContent = (readRes as FileOperationResult.Success).content!!
+        assertTrue(readContent.contains("Executive Summary"))
+        assertTrue(readContent.contains("Revenue Growth: 300%"))
+        assertTrue(readContent.contains("Strategic Objectives"))
+
+        val editRes = UniversalFileEngine.editPptxSlideText(pptxFile, slideNumber = 1, targetText = "300%", replacementText = "500%")
+        assertTrue(editRes is FileOperationResult.Success)
+
+        val updatedRead = UniversalFileEngine.readPptxText(pptxFile)
+        assertTrue((updatedRead as FileOperationResult.Success).content!!.contains("500%"))
+    }
+
+    @Test
     fun `readXlsx and editXlsxCell handle excel sheets and shared strings`() {
         val xlsxFile = File(rootDir, "financials.xlsx")
         val sheet1Xml = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
