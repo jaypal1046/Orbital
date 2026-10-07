@@ -881,6 +881,12 @@ fun FileActionCard(
         else "%.1f MB".format(bytes / (1024.0 * 1024.0))
     }
 
+    var showInAppViewer by remember { mutableStateOf(false) }
+
+    if (showInAppViewer) {
+        InAppFileViewerModal(file = file, onDismiss = { showInAppViewer = false })
+    }
+
     Surface(
         shape = RoundedCornerShape(12.dp),
         color = Color(0xFF0F172A),
@@ -893,7 +899,9 @@ fun FileActionCard(
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { showInAppViewer = true }
             ) {
                 Box(
                     modifier = Modifier
@@ -914,7 +922,7 @@ fun FileActionCard(
                         overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                     )
                     Text(
-                        text = "$sizeFormatted • File ready",
+                        text = "$sizeFormatted • Tap to view inside app",
                         fontSize = 10.5.sp,
                         color = Color(0xFF94A3B8)
                     )
@@ -927,24 +935,24 @@ fun FileActionCard(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                // Primary Open Button
+                // Primary In-App View Button
                 Surface(
                     shape = RoundedCornerShape(8.dp),
                     color = Color(0xFF2563EB),
                     border = BorderStroke(1.dp, Color(0xFF60A5FA)),
                     modifier = Modifier
                         .weight(1f)
-                        .clickable { com.orbital.file.FileViewHelper.openFile(context, file) }
+                        .clickable { showInAppViewer = true }
                 ) {
                     Row(
                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.Center
                     ) {
-                        Text("📂", fontSize = 12.sp)
+                        Text("👁️", fontSize = 12.sp)
                         Spacer(modifier = Modifier.width(4.dp))
                         Text(
-                            "Open File",
+                            "View In-App",
                             fontSize = 11.5.sp,
                             fontWeight = FontWeight.Bold,
                             color = Color.White
@@ -960,7 +968,7 @@ fun FileActionCard(
                     modifier = Modifier.clickable { com.orbital.file.FileViewHelper.shareFile(context, file) }
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 7.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
@@ -985,7 +993,7 @@ fun FileActionCard(
                     }
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 7.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
@@ -1010,6 +1018,11 @@ fun FileActionPills(
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val clipboardManager = androidx.compose.ui.platform.LocalClipboardManager.current
+    var showInAppViewer by remember { mutableStateOf(false) }
+
+    if (showInAppViewer) {
+        InAppFileViewerModal(file = file, onDismiss = { showInAppViewer = false })
+    }
 
     Row(
         modifier = modifier.fillMaxWidth(),
@@ -1019,16 +1032,16 @@ fun FileActionPills(
             shape = RoundedCornerShape(4.dp),
             color = Color(0xFF2563EB).copy(alpha = 0.25f),
             border = BorderStroke(1.dp, Color(0xFF3B82F6)),
-            modifier = Modifier.clickable { com.orbital.file.FileViewHelper.openFile(context, file) }
+            modifier = Modifier.clickable { showInAppViewer = true }
         ) {
             Row(
                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                Text("📂", fontSize = 10.sp)
+                Text("👁️", fontSize = 10.sp)
                 Text(
-                    "Open ${file.name}",
+                    "View ${file.name}",
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Bold,
                     color = Color(0xFF93C5FD),
