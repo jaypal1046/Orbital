@@ -473,16 +473,39 @@ object UniversalFileEngine {
         return try {
             file.parentFile?.mkdirs()
             val cleanTitle = title.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-            val pXmls = content.lines().joinToString("") { line ->
+            val pXmls = content.lines().filter { it.isNotBlank() }.joinToString("") { line ->
                 val escaped = line.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-                "<w:p><w:r><w:t>$escaped</w:t></w:r></w:p>"
+                val isBullet = escaped.startsWith("•") || escaped.startsWith("-") || escaped.startsWith("*")
+                val text = if (isBullet) escaped.substring(1).trim() else escaped
+                if (isBullet) {
+                    "<w:p><w:pPr><w:pStyle w:val=\"ListParagraph\"/><w:numPr><w:ilvl w:val=\"0\"/><w:numId w:val=\"1\"/></w:numPr></w:pPr><w:r><w:rPr><w:sz w:val=\"24\"/><w:color w:val=\"334155\"/><w:rFonts w:ascii=\"Arial\" w:hAnsi=\"Arial\"/></w:rPr><w:t>• $text</w:t></w:r></w:p>"
+                } else {
+                    "<w:p><w:pPr><w:spacing w:before=\"120\" w:after=\"120\"/></w:pPr><w:r><w:rPr><w:sz w:val=\"24\"/><w:color w:val=\"1E293B\"/><w:rFonts w:ascii=\"Arial\" w:hAnsi=\"Arial\"/></w:rPr><w:t>$text</w:t></w:r></w:p>"
+                }
             }
 
             val docXml = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
   <w:body>
-    <w:p><w:r><w:rPr><w:b/><w:sz w:val="32"/></w:rPr><w:t>$cleanTitle</w:t></w:r></w:p>
+    <w:p>
+      <w:pPr>
+        <w:spacing w:before="240" w:after="180"/>
+      </w:pPr>
+      <w:r>
+        <w:rPr>
+          <w:b/>
+          <w:sz w:val="48"/>
+          <w:color w:val="0F172A"/>
+          <w:rFonts w:ascii=\"Arial\" w:hAnsi=\"Arial\"/>
+        </w:rPr>
+        <w:t>$cleanTitle</w:t>
+      </w:r>
+    </w:p>
     $pXmls
+    <w:sectPr>
+      <w:pgSz w:w="12240" w:h="15840"/>
+      <w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440"/>
+    </w:sectPr>
   </w:body>
 </w:document>"""
 
@@ -582,32 +605,32 @@ object UniversalFileEngine {
         return try {
             file.parentFile?.mkdirs()
             val cleanTitle = title.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-            val lines = content.lines()
-            val slides = if (lines.any { it.startsWith("---") || it.startsWith("Slide") }) {
+            val rawLines = content.lines().map { it.trim() }.filter { it.isNotBlank() }
+
+            val slides = if (rawLines.any { it.startsWith("---") || it.startsWith("Slide") }) {
                 val currentSlides = mutableListOf<Pair<String, List<String>>>()
                 var curTitle = ""
                 var curBody = mutableListOf<String>()
-                lines.forEach { line ->
-                    val trimmed = line.trim()
-                    if (trimmed.startsWith("---") || trimmed.startsWith("Slide")) {
+                rawLines.forEach { line ->
+                    if (line.startsWith("---") || line.startsWith("Slide")) {
                         if (curTitle.isNotEmpty() || curBody.isNotEmpty()) {
                             currentSlides.add(curTitle to curBody)
                             curBody = mutableListOf()
                         }
-                        curTitle = trimmed.trim('-', ' ')
-                    } else if (trimmed.isNotBlank()) {
+                        curTitle = line.trim('-', ' ')
+                    } else {
                         if (curTitle.isEmpty()) {
                             curTitle = cleanTitle
                         }
-                        curBody.add(trimmed)
+                        curBody.add(line)
                     }
                 }
                 if (curTitle.isNotEmpty() || curBody.isNotEmpty()) {
                     currentSlides.add(curTitle to curBody)
                 }
-                if (currentSlides.isEmpty()) listOf(cleanTitle to lines.filter { it.isNotBlank() }) else currentSlides
+                if (currentSlides.isEmpty()) listOf(cleanTitle to rawLines) else currentSlides
             } else {
-                listOf(cleanTitle to lines.filter { it.isNotBlank() })
+                listOf(cleanTitle to rawLines)
             }
 
             ZipOutputStream(FileOutputStream(file)).use { zipOut ->
@@ -615,44 +638,126 @@ object UniversalFileEngine {
                 val presRels = StringBuilder()
                 val ctOverrides = StringBuilder()
 
-                slides.forEachIndexed { idx, (sTitle, sBody) ->
+                slides.forEachIndexed { idx, (rawSlideTitle, sBody) ->
                     val sNum = idx + 1
                     val rId = "rId$sNum"
                     sldIds.append("<p:sldId id=\"${255 + sNum}\" r:id=\"$rId\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\"/>")
                     presRels.append("<Relationship Id=\"$rId\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide\" Target=\"slides/slide$sNum.xml\"/>")
                     ctOverrides.append("<Override PartName=\"/ppt/slides/slide$sNum.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.presentationml.slide+xml\"/>")
 
-                    val bodyXml = sBody.joinToString("") { bLine ->
+                    val displayTitle = if (rawSlideTitle.matches(Regex("(?i)^Slide\\s*\\d+\\s*:\\s*(.+)"))) {
+                        rawSlideTitle.replace(Regex("(?i)^Slide\\s*\\d+\\s*:\\s*"), "").trim()
+                    } else {
+                        rawSlideTitle
+                    }.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+                    val subtitleBadge = "Slide $sNum".replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+                    val bodyLines = if (sBody.isEmpty()) {
+                        listOf("Overview & Highlights", "Generated dynamically by Orbital AI Companion")
+                    } else {
+                        sBody
+                    }
+
+                    val bodyXml = bodyLines.joinToString("") { bLine ->
                         val esc = bLine.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-                        "<a:p><a:r><a:t>$esc</a:t></a:r></a:p>"
+                        val isBullet = esc.startsWith("•") || esc.startsWith("-") || esc.startsWith("*")
+                        val cleanText = if (isBullet) esc.substring(1).trim() else esc
+                        """<a:p>
+              <a:pPr marL="342900" indent="-285750"><a:buChar char="•"/></a:pPr>
+              <a:r>
+                <a:rPr lang="en-US" sz="2200" dirty="0">
+                  <a:solidFill><a:srgbClr val="334155"/></a:solidFill>
+                  <a:latin typeface="Arial"/>
+                </a:rPr>
+                <a:t>$cleanText</a:t>
+              </a:r>
+            </a:p>"""
                     }
 
                     val slideXml = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
+<p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
   <p:cSld>
     <p:spTree>
       <p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>
-      <p:grpSpPr/>
+      <p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr>
+      
+      <!-- Slide Background Card -->
       <p:sp>
-        <p:nvSpPr><p:cNvPr id="2" name="Title"/><p:cNvSpPr><a:spLocks noGrp="1"/></p:cNvSpPr><p:nvPr/></p:nvSpPr>
-        <p:spPr/>
+        <p:nvSpPr><p:cNvPr id="2" name="BackgroundCard"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>
+        <p:spPr>
+          <a:xfrm><a:off x="400000" y="400000"/><a:ext cx="11392000" cy="6058000"/></a:xfrm>
+          <a:prstGeom prst="roundRect"><a:avLst><a:gd name="adj" fmla="val 2500"/></a:avLst></a:prstGeom>
+          <a:solidFill><a:srgbClr val="F8FAFC"/></a:solidFill>
+          <a:ln w="25400"><a:solidFill><a:srgbClr val="CBD5E1"/></a:solidFill></a:ln>
+        </p:spPr>
+      </p:sp>
+
+      <!-- Badge Box -->
+      <p:sp>
+        <p:nvSpPr><p:cNvPr id="3" name="Badge"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>
+        <p:spPr>
+          <a:xfrm><a:off x="800000" y="700000"/><a:ext cx="2200000" cy="450000"/></a:xfrm>
+          <a:prstGeom prst="roundRect"><a:avLst><a:gd name="adj" fmla="val 8000"/></a:avLst></a:prstGeom>
+          <a:solidFill><a:srgbClr val="4F46E5"/></a:solidFill>
+        </p:spPr>
         <p:txBody>
-          <a:bodyPr/>
+          <a:bodyPr vert="horz" lIns="91440" tIns="45720" rIns="91440" bIns="45720" anchor="ctr"/>
           <a:lstStyle/>
-          <a:p><a:r><a:t>${sTitle.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")}</a:t></a:r></a:p>
+          <a:p>
+            <a:pPr algn="ctr"/>
+            <a:r>
+              <a:rPr lang="en-US" sz="1300" b="1" dirty="0">
+                <a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill>
+                <a:latin typeface="Arial"/>
+              </a:rPr>
+              <a:t>$subtitleBadge</a:t>
+            </a:r>
+          </a:p>
         </p:txBody>
       </p:sp>
+
+      <!-- Title Box -->
       <p:sp>
-        <p:nvSpPr><p:cNvPr id="3" name="Content"/><p:cNvSpPr><a:spLocks noGrp="1"/></p:cNvSpPr><p:nvPr/></p:nvSpPr>
-        <p:spPr/>
+        <p:nvSpPr><p:cNvPr id="4" name="Title"/><p:cNvSpPr><a:spLocks noGrp="1"/></p:cNvSpPr><p:nvPr/></p:nvSpPr>
+        <p:spPr>
+          <a:xfrm><a:off x="800000" y="1300000"/><a:ext cx="10592000" cy="1200000"/></a:xfrm>
+          <a:prstGeom prst="rect"><a:avLst/></a:prstGeom>
+          <a:noFill/>
+        </p:spPr>
         <p:txBody>
-          <a:bodyPr/>
+          <a:bodyPr vert="horz" lIns="91440" tIns="91440" rIns="91440" bIns="91440" anchor="t"/>
+          <a:lstStyle/>
+          <a:p>
+            <a:pPr algn="l"/>
+            <a:r>
+              <a:rPr lang="en-US" sz="3400" b="1" dirty="0">
+                <a:solidFill><a:srgbClr val="0F172A"/></a:solidFill>
+                <a:latin typeface="Arial"/>
+              </a:rPr>
+              <a:t>$displayTitle</a:t>
+            </a:r>
+          </a:p>
+        </p:txBody>
+      </p:sp>
+
+      <!-- Content Body Box -->
+      <p:sp>
+        <p:nvSpPr><p:cNvPr id="5" name="Content"/><p:cNvSpPr><a:spLocks noGrp="1"/></p:cNvSpPr><p:nvPr/></p:nvSpPr>
+        <p:spPr>
+          <a:xfrm><a:off x="800000" y="2700000"/><a:ext cx="10592000" cy="3500000"/></a:xfrm>
+          <a:prstGeom prst="rect"><a:avLst/></a:prstGeom>
+          <a:noFill/>
+        </p:spPr>
+        <p:txBody>
+          <a:bodyPr vert="horz" lIns="91440" tIns="91440" rIns="91440" bIns="91440" anchor="t"/>
           <a:lstStyle/>
           $bodyXml
         </p:txBody>
       </p:sp>
     </p:spTree>
   </p:cSld>
+  <p:clrMapOvr><a:masterClrMap/></p:clrMapOvr>
 </p:sld>"""
                     writeZipEntry(zipOut, "ppt/slides/slide$sNum.xml", slideXml)
                 }
@@ -675,6 +780,8 @@ object UniversalFileEngine {
   <p:sldIdLst>
     $sldIds
   </p:sldIdLst>
+  <p:sldSz cx="12192000" cy="6858000" type="screen16x9"/>
+  <p:notesSz cx="6858000" cy="9144000"/>
 </p:presentation>"""
 
                 val presRelsXml = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
