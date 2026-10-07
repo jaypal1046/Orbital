@@ -21,9 +21,9 @@ android {
 
     defaultConfig {
         applicationId = "com.ai.orbital"
-        minSdk = 23
+        minSdk = 24
         targetSdk = 36
-        versionCode = 7
+        versionCode = 10
         versionName = "1.0.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
