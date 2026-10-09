@@ -34,7 +34,7 @@ androidxHiltNavigation = "1.2.0"
 androidxHiltWork = "1.2.0"
 androidxLifecycleViewmodelCompose = "2.8.0"
 room = "2.6.1"
-coil = "2.6.0"
+coil = "2.7.0"
 
 
 [libraries]
