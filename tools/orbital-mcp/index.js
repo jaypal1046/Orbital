@@ -1080,6 +1080,62 @@ server.tool(
   }
 );
 
+// Tool 18: Execute Autonomous Task on Phone (Phone AI Synthesizes & Executes Shell Script)
+server.tool(
+  "execute_autonomous_task",
+  "Instruct the on-device Orbital Phone AI to autonomously perform a complete task on an app, generate a self-contained shell script on the phone, execute it, extract the required data/results, and return the structured report back to the laptop.",
+  {
+    instruction: z.string().describe("Clear natural language instruction of what task to perform on the phone and what data to extract"),
+    targetApp: z.string().optional().describe("Optional app name or package to open (e.g. 'Calculator', 'Settings', 'YouTube')"),
+    scriptName: z.string().optional().describe("Optional name for the generated script file (default: task_<timestamp>.sh)")
+  },
+  async ({ instruction, targetApp, scriptName }) => {
+    try {
+      const actionId = "auto-" + Date.now();
+      const payload = {
+        type: "EXECUTE_ACTION",
+        action: {
+          actionId,
+          actionType: "AUTONOMOUS_TASK",
+          customPrompt: instruction,
+          target: targetApp || null,
+          sessionTitle: scriptName || `task_${Date.now()}.sh`
+        }
+      };
+      const result = await sendToPhone(payload, actionId, 30000);
+      let parsed = null;
+      try {
+        if (result.aiResponse) parsed = JSON.parse(result.aiResponse);
+      } catch (_) {}
+
+      const formattedData = parsed?.extractedData
+        ? Object.entries(parsed.extractedData).map(([k, v]) => `  • ${k}: ${v}`).join("\n")
+        : "";
+
+      const scriptSummary = parsed?.scriptCode
+        ? `\n\n📄 Generated Shell Script (${parsed.scriptPath}):\n\`\`\`bash\n${parsed.scriptCode}\n\`\`\``
+        : "";
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: `🤖 Autonomous Task Result: ${result.message}\n` +
+                  `⏱️ Duration: ${result.executionDurationMs}ms\n` +
+                  (formattedData ? `\n📊 Extracted Data:\n${formattedData}` : "") +
+                  scriptSummary
+          }
+        ]
+      };
+    } catch (err) {
+      return {
+        content: [{ type: "text", text: `Error executing autonomous task: ${err.message}` }],
+        isError: true
+      };
+    }
+  }
+);
+
 // Connect MCP over Stdio for Claude / Cursor / Antigravity
 const transport = new StdioServerTransport();
 await server.connect(transport);

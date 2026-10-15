@@ -63,24 +63,27 @@ class ContextCompactionEngine @Inject constructor() {
         val summarySb = StringBuilder()
         summarySb.append("[COMPACTED CONTEXT SUMMARY (${olderMessages.size} turns)]\n")
 
-        olderMessages.forEach { msg ->
-            val cleanContent = msg.content.orEmpty().lines().firstOrNull { it.isNotBlank() }?.trim() ?: ""
+        olderMessages.forEachIndexed { index, msg ->
+            val cleanContent = msg.content.orEmpty().trim()
             when (msg.role) {
-                "user" -> summarySb.append("• User: \"${cleanContent.take(60)}\"\n")
+                "user" -> summarySb.append("• User: \"${cleanContent.take(if (index == 0) 800 else 300)}\"\n")
                 "assistant" -> {
                     if (!msg.actionLabel.isNullOrBlank()) {
-                        summarySb.append("• Assistant: Executed ${msg.actionLabel}\n")
+                        val lastState = msg.actionDetails.orEmpty()
+                            .substringAfterLast("• State transition:", "")
+                            .lineSequence().firstOrNull { it.isNotBlank() }?.trim()
+                        summarySb.append("• Assistant: ${msg.actionLabel}; latest state: ${lastState ?: msg.actionDetails.orEmpty().take(300)}\n")
                     } else {
-                        summarySb.append("• Assistant: \"${cleanContent.take(40)}\"\n")
+                        summarySb.append("• Assistant: \"${cleanContent.take(300)}\"\n")
                     }
                 }
-                else -> summarySb.append("• ${msg.role}: \"${cleanContent.take(40)}\"\n")
+                else -> summarySb.append("• ${msg.role}: \"${cleanContent.take(300)}\"\n")
             }
         }
 
         val compactedMessage = ChatMessage(
             role = "assistant",
-            content = summarySb.toString().trim(),
+            content = summarySb.toString().trim().take(maxChars),
             actionLabel = "📦 Compacted History (${olderMessages.size} turns)"
         )
 

@@ -403,8 +403,6 @@ fun PermissionsAndAccessibilityStepScreen(
     val context = LocalContext.current
     val scrollState = rememberScrollState()
 
-    var isAccessibilityActive by remember { mutableStateOf(OrbitalAccessibilityService.isEnabled(context)) }
-    var showAccessibilityDisclosure by remember { mutableStateOf(false) }
     var isOverlayActive by remember {
         mutableStateOf(if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) Settings.canDrawOverlays(context) else true)
     }
@@ -413,7 +411,6 @@ fun PermissionsAndAccessibilityStepScreen(
     DisposableEffect(lifecycleOwner) {
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
             if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
-                isAccessibilityActive = OrbitalAccessibilityService.isEnabled(context)
                 isOverlayActive = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) Settings.canDrawOverlays(context) else true
             }
         }
@@ -425,8 +422,8 @@ fun PermissionsAndAccessibilityStepScreen(
         topBar = {
             OnboardingStepProgressHeader(
                 currentStepIndex = 3,
-                title = "Automation Powers",
-                subtitle = "Optional permissions for hands-free device navigation & mascot overlay",
+                title = "Floating Mascot Overlay",
+                subtitle = "Optional permission to display your companion mascot over other apps",
                 onBack = onBack
             )
         },
@@ -472,166 +469,6 @@ fun PermissionsAndAccessibilityStepScreen(
                 .verticalScroll(scrollState),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            // Accessibility Card
-            Surface(
-                color = Color(0xFF12162B),
-                shape = RoundedCornerShape(18.dp),
-                border = BorderStroke(
-                    1.dp,
-                    if (isAccessibilityActive) Color(0xFF10B981).copy(alpha = 0.65f) else Color(0xFF242C4E)
-                ),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                            Box(
-                                modifier = Modifier
-                                    .size(40.dp)
-                                    .clip(CircleShape)
-                                    .background(Color(0xFF1E1738))
-                                    .border(1.dp, Color(0xFF7C3AED).copy(alpha = 0.5f), CircleShape),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text("🤖", fontSize = 20.sp)
-                            }
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Column {
-                                Text(
-                                    "Screen Automation",
-                                    color = Color.White,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 15.sp
-                                )
-                                Text(
-                                    "Accessibility Service (Optional)",
-                                    color = Color(0xFF38BDF8),
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                            }
-                        }
-
-                        // Live Status Badge
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(
-                                    if (isAccessibilityActive) Color(0xFF10B981).copy(alpha = 0.2f)
-                                    else Color(0xFF64748B).copy(alpha = 0.2f)
-                                )
-                                .border(
-                                    1.dp,
-                                    if (isAccessibilityActive) Color(0xFF10B981).copy(alpha = 0.4f) else Color(0xFF64748B).copy(alpha = 0.3f),
-                                    RoundedCornerShape(8.dp)
-                                )
-                                .padding(horizontal = 8.dp, vertical = 4.dp)
-                        ) {
-                            Text(
-                                text = if (isAccessibilityActive) "🟢 Active" else "⚪ Not Enabled",
-                                color = if (isAccessibilityActive) Color(0xFF34D399) else Color(0xFF94A3B8),
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(10.dp))
-                    Text(
-                        "Allows Orbital to read visible UI elements and execute taps, text entry, and app navigation on your behalf.",
-                        color = Color(0xFFCBD5E1),
-                        fontSize = 12.sp,
-                        lineHeight = 16.sp
-                    )
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    // Step-by-Step Instructions
-                    Surface(
-                        color = Color(0xFF171D38),
-                        shape = RoundedCornerShape(12.dp),
-                        border = BorderStroke(1.dp, Color(0xFF28335E)),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(12.dp),
-                            verticalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            Text(
-                                text = "📋 How to Enable:",
-                                color = Color(0xFFA78BFA),
-                                fontSize = 11.5.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text("1. Tap button below to open Accessibility settings.", color = Color(0xFFCBD5E1), fontSize = 11.sp)
-                            Text("2. Look under 'Downloaded apps' or 'Installed services'.", color = Color(0xFFCBD5E1), fontSize = 11.sp)
-                            Text("3. Tap 'Orbital' and toggle ON.", color = Color(0xFFCBD5E1), fontSize = 11.sp)
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Button(
-                        onClick = { showAccessibilityDisclosure = true },
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = if (isAccessibilityActive) Color(0xFF065F46) else Color(0xFF7C3AED)
-                        ),
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.fillMaxWidth().height(44.dp)
-                    ) {
-                        Text(
-                            text = if (isAccessibilityActive) "✅ Accessibility Active (Open Settings)" else "⚙️ Enable Accessibility in Settings",
-                            fontSize = 12.5.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = if (isAccessibilityActive) Color(0xFFA7F3D0) else Color.White
-                        )
-                    }
-
-                    // Android 13+ Restricted Setting Helper
-                    if (!isAccessibilityActive && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                        Spacer(modifier = Modifier.height(10.dp))
-                        Surface(
-                            color = Color(0xFF22172B),
-                            shape = RoundedCornerShape(10.dp),
-                            border = BorderStroke(1.dp, Color(0xFF7C3AED).copy(alpha = 0.4f)),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Column(modifier = Modifier.padding(10.dp)) {
-                                Text(
-                                    text = "🔒 Toggle grayed out? (Restricted Setting)",
-                                    color = Color(0xFFF59E0B),
-                                    fontSize = 11.5.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Spacer(modifier = Modifier.height(3.dp))
-                                Text(
-                                    text = "Open App Info → tap (⋮) top-right → tap 'Allow restricted settings'.",
-                                    color = Color(0xFFCBD5E1),
-                                    fontSize = 11.sp,
-                                    lineHeight = 15.sp
-                                )
-                                Spacer(modifier = Modifier.height(6.dp))
-                                OutlinedButton(
-                                    onClick = {
-                                        val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                                            data = Uri.parse("package:${context.packageName}")
-                                        }
-                                        context.startActivity(intent)
-                                    },
-                                    shape = RoundedCornerShape(8.dp),
-                                    border = BorderStroke(1.dp, Color(0xFF8B5CF6)),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Text("🔓 Open App Info to Allow Restricted Settings", fontSize = 11.sp, color = Color(0xFFA78BFA), fontWeight = FontWeight.SemiBold)
-                                }
-                            }
-                        }
-                    }
-                }
-            }
 
             // Floating Overlay Permission Card
             Surface(
@@ -724,9 +561,6 @@ fun PermissionsAndAccessibilityStepScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
         }
-    }
-    if (showAccessibilityDisclosure) {
-        AccessibilityDisclosureDialog(onDismiss = { showAccessibilityDisclosure = false })
     }
 }
 

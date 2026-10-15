@@ -11,9 +11,9 @@ data class ScoredCandidateElement(
 
 /**
  * Ranks live UI elements dynamically using the JEV Decision Engine.
- * Operates purely on live accessibility hierarchies with zero hardcoding.
+ * Operates purely on live UI hierarchies with zero hardcoding.
  */
-class AccessibilityNodeRanker(
+class UiNodeRanker(
     private val decisionEngine: JevDecisionEngine
 ) {
 
@@ -51,8 +51,10 @@ class AccessibilityNodeRanker(
                 element = element,
                 score = prob,
                 displayLabel = label,
-                isTopMatch = (element == topMatchedElement)
+                isTopMatch = element == topMatchedElement
             )
         }.sortedByDescending { it.score }
     }
 }
+
+typealias AccessibilityNodeRanker = UiNodeRanker

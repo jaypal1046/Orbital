@@ -1,6 +1,6 @@
 package com.orbital.automation
 
-data class AccessibilityIssue(
+data class UiIssue(
     val severity: IssueSeverity,
     val element: UIElement,
     val issueType: String,
@@ -14,22 +14,22 @@ enum class IssueSeverity {
     LOW
 }
 
-data class AccessibilityAuditReport(
+data class UiAuditReport(
     val packageName: String,
     val overallScore: Int, // 0 to 100
     val totalElements: Int,
-    val issues: List<AccessibilityIssue>
+    val issues: List<UiIssue>
 ) {
     fun toMarkdownReport(): String {
         return buildString {
-            append("## ♿ Mobile Accessibility & Usability Audit Report\n")
+            append("## 📱 Mobile Accessibility & Usability Audit Report\n")
             append("• **App Package:** `$packageName`\n")
-            append("• **Accessibility Health Score:** **$overallScore / 100**\n")
+            append("• **UI Health Score:** **$overallScore / 100**\n")
             append("• **Total Elements Evaluated:** $totalElements\n")
             append("• **Total Issues Identified:** ${issues.size}\n\n")
 
             if (issues.isEmpty()) {
-                append("🎉 **Outstanding!** No accessibility or touch-target issues detected on this screen.\n")
+                append("🎉 **Outstanding!** No UI or touch-target issues detected on this screen.\n")
             } else {
                 append("### Detailed Findings:\n")
                 issues.forEachIndexed { idx, issue ->
@@ -48,56 +48,75 @@ data class AccessibilityAuditReport(
     }
 }
 
-object AccessibilityAuditorEngine {
+object UiAuditorEngine {
 
     private const val MIN_TOUCH_TARGET_SIZE_PX = 96 // Equivalent to ~48dp on typical xhdpi displays
 
-    fun auditScreen(snapshot: ScreenHierarchySnapshot): AccessibilityAuditReport {
-        val issues = mutableListOf<AccessibilityIssue>()
+    fun auditScreen(snapshot: ScreenHierarchySnapshot): UiAuditReport {
+        val issues = mutableListOf<UiIssue>()
         var deductions = 0
 
         snapshot.elements.forEach { el ->
             val label = el.text.ifBlank { el.contentDescription ?: "" }
 
-            // Check 1: Clickable element with missing label/contentDescription
+            // 1. Missing Label on Clickable Elements
             if (el.isClickable && label.isBlank()) {
                 issues.add(
-                    AccessibilityIssue(
+                    UiIssue(
                         severity = IssueSeverity.HIGH,
                         element = el,
                         issueType = "Missing Accessible Label",
-                        description = "Interactive control (${el.className}) has no text or contentDescription.",
-                        suggestion = "Add an 'android:contentDescription' attribute or accessible label."
+                        description = "Clickable element ${el.viewId ?: el.className} has no text or content description.",
+                        suggestion = "Add an 'android:contentDescription' or descriptive visible text."
                     )
                 )
                 deductions += 15
             }
 
-            // Check 2: Clickable element with small touch target
+            // 2. Small Touch Targets (<48dp standard)
             if (el.isClickable) {
                 val width = el.bounds.right - el.bounds.left
                 val height = el.bounds.bottom - el.bounds.top
-                if ((width in 1 until MIN_TOUCH_TARGET_SIZE_PX) || (height in 1 until MIN_TOUCH_TARGET_SIZE_PX)) {
+                if (width > 0 && height > 0 && (width < MIN_TOUCH_TARGET_SIZE_PX || height < MIN_TOUCH_TARGET_SIZE_PX)) {
                     issues.add(
-                        AccessibilityIssue(
+                        UiIssue(
                             severity = IssueSeverity.MEDIUM,
                             element = el,
                             issueType = "Small Touch Target",
-                            description = "Touch bounds are ${width}x${height}px, below the recommended 48dp minimum.",
-                            suggestion = "Increase padding or minimum touch dimensions to at least 48x48dp."
+                            description = "Touch target size (${width}x${height}px) is below minimum recommended 48x48dp.",
+                            suggestion = "Increase padding or minWidth/minHeight to at least 48dp."
                         )
                     )
                     deductions += 10
                 }
             }
+
+            // 3. Unlabeled Editable Text Fields
+            if (el.isEditable && label.isBlank() && el.hintText.isNullOrBlank()) {
+                issues.add(
+                    UiIssue(
+                        severity = IssueSeverity.HIGH,
+                        element = el,
+                        issueType = "Unlabeled Input Field",
+                        description = "Input field ${el.viewId ?: ""} has no visible label or hint text.",
+                        suggestion = "Provide a meaningful hint text or floating label."
+                    )
+                )
+                deductions += 15
+            }
         }
 
-        val finalScore = (100 - deductions).coerceIn(0, 100)
-        return AccessibilityAuditReport(
+        val overallScore = (100 - deductions).coerceIn(0, 100)
+        return UiAuditReport(
             packageName = snapshot.packageName,
-            overallScore = finalScore,
+            overallScore = overallScore,
             totalElements = snapshot.elements.size,
             issues = issues
         )
     }
 }
+
+// Backwards compatibility aliases
+typealias AccessibilityIssue = UiIssue
+typealias AccessibilityAuditReport = UiAuditReport
+typealias AccessibilityAuditorEngine = UiAuditorEngine

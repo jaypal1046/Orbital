@@ -6,6 +6,8 @@ plugins {
     id("org.jetbrains.kotlin.plugin.serialization") version "1.9.23"
     id("com.google.dagger.hilt.android") version "2.48.1" apply true
     id("org.jetbrains.kotlin.kapt") version "1.9.23" apply true
+    alias(libs.plugins.google.services) apply true
+    alias(libs.plugins.firebase.crashlytics) apply true
 }
 
 val localProperties = Properties().apply {
@@ -152,6 +154,15 @@ dependencies {
     implementation(libs.play.app.update)
     implementation(libs.androidx.browser)
 
+    // Shizuku (ADB Wireless Debugging / Root automation without Accessibility)
+    implementation(libs.shizuku.api)
+    implementation(libs.shizuku.provider)
+
+
+    // Firebase Crashlytics & Analytics
+    implementation(platform(libs.firebase.bom))
+    implementation(libs.firebase.crashlytics)
+    implementation(libs.firebase.analytics)
 
     // Hilt
     implementation(libs.hilt.android)

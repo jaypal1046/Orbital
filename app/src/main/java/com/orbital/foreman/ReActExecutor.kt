@@ -1,6 +1,7 @@
 package com.orbital.foreman
 
 import android.util.Log
+import com.orbital.crash.CrashReporterEngine
 import com.orbital.action.ExecutionStep as ChatExecutionStep
 import com.orbital.action.StepStatus as ChatStepStatus
 import com.orbital.automation.ObstacleClearanceEngine
@@ -126,6 +127,14 @@ class ReActExecutor(
             } catch (e: Exception) {
                 actionDispatched = false
                 lastError = e.message
+                CrashReporterEngine.recordException(
+                    throwable = e,
+                    customAttributes = mapOf(
+                        "step_name" to context.stepName,
+                        "step_index" to context.stepIndex,
+                        "target" to (context.target ?: "none")
+                    )
+                )
             }
 
             // Settle delay for animations / UI transitions
@@ -290,6 +299,9 @@ class ReActExecutor(
         }
         supervisor.startPlan(supervisorSteps)
 
+        CrashReporterEngine.addBreadcrumb("ReAct plan started: ${steps.size} steps")
+        CrashReporterEngine.logEvent("react_plan_started", mapOf("steps_count" to steps.size))
+
         for (stepCtx in steps) {
             val result = executeStep(
                 context = stepCtx,
@@ -300,26 +312,45 @@ class ReActExecutor(
             finalHash = result.postHash
 
             if (!result.isSuccess && stopOnError) {
+                val duration = System.currentTimeMillis() - overallStart
+                CrashReporterEngine.logEvent(
+                    "react_plan_failed",
+                    mapOf(
+                        "failed_step_index" to stepCtx.stepIndex,
+                        "failed_step_name" to stepCtx.stepName,
+                        "duration_ms" to duration
+                    )
+                )
                 return ReActTaskSummary(
                     isComplete = false,
                     completedStepsCount = results.count { it.isSuccess },
                     totalStepsCount = steps.size,
                     stepResults = results,
                     finalStateHash = finalHash,
-                    totalDurationMs = System.currentTimeMillis() - overallStart,
+                    totalDurationMs = duration,
                     escalationReason = "Step ${stepCtx.stepIndex} ('${stepCtx.stepName}') failed verification."
                 )
             }
         }
 
         val completedCount = results.count { it.isSuccess }
+        val duration = System.currentTimeMillis() - overallStart
+        CrashReporterEngine.logEvent(
+            "react_plan_completed",
+            mapOf(
+                "is_complete" to (completedCount == steps.size),
+                "completed_steps" to completedCount,
+                "total_steps" to steps.size,
+                "duration_ms" to duration
+            )
+        )
         return ReActTaskSummary(
             isComplete = completedCount == steps.size,
             completedStepsCount = completedCount,
             totalStepsCount = steps.size,
             stepResults = results,
             finalStateHash = finalHash,
-            totalDurationMs = System.currentTimeMillis() - overallStart
+            totalDurationMs = duration
         )
     }
 }

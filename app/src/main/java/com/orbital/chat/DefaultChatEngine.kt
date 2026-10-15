@@ -4,6 +4,10 @@ import com.orbital.action.ActionParser
 import com.orbital.action.ActionResult
 import com.orbital.action.DeviceAction
 import com.orbital.action.DeviceActionExecutor
+import com.orbital.automation.OrbitalAccessibilityService
+import com.orbital.automation.ScreenHierarchySnapshot
+import com.orbital.foreman.StateVerificationCriterion
+import com.orbital.foreman.StateVerificationEngine
 import com.orbital.data.ChatMessage
 import com.orbital.data.LlmRepository
 import com.orbital.data.ProviderType
@@ -17,10 +21,12 @@ import com.orbital.overlay.OverlayService
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -62,16 +68,20 @@ class DefaultChatEngine @Inject constructor(
     private var currentCharacter = "aether"
     private var currentSessionId = UUID.randomUUID().toString()
     private var currentSessionTitle = "New chat"
+    private var sessionLoadJob: Job? = null
 
     init {
         // Restore the latest encrypted session and prune expired history.
-        scope.launch(Dispatchers.IO) {
+        sessionLoadJob = scope.launch(Dispatchers.IO) {
             chatHistoryRepository.pruneOlderThan30Days()
             refreshSessions()
             _sessions.value.firstOrNull()?.let { session ->
-                currentSessionId = session.id
-                currentSessionTitle = session.title
-                _messages.value = chatHistoryRepository.loadSession(session.id)
+                val loaded = chatHistoryRepository.loadSession(session.id)
+                if (isActive && _messages.value.isEmpty()) {
+                    currentSessionId = session.id
+                    currentSessionTitle = session.title
+                    _messages.value = loaded
+                }
             }
         }
     }
@@ -82,6 +92,7 @@ class DefaultChatEngine @Inject constructor(
     }
 
     override fun clearMessages() {
+        sessionLoadJob?.cancel()
         _messages.value = emptyList()
         streamingContent.value = ""
         isStreaming.value = false
@@ -100,9 +111,9 @@ class DefaultChatEngine @Inject constructor(
             currentSessionTitle = existing.title
         }
         clearMessages()
-        scope.launch(Dispatchers.IO) {
+        sessionLoadJob = scope.launch(Dispatchers.IO) {
             val loaded = chatHistoryRepository.loadSession(sessionId)
-            _messages.value = loaded
+            if (isActive && currentSessionId == sessionId) _messages.value = loaded
             refreshSessions()
         }
     }
@@ -119,6 +130,7 @@ class DefaultChatEngine @Inject constructor(
 
 
     override suspend fun sendMessage(message: String) {
+        sessionLoadJob?.join()
         isStreaming.value = true
         streamingContent.value = ""
 
@@ -169,12 +181,16 @@ class DefaultChatEngine @Inject constructor(
         // 1. Check for immediate natural device action intents (zero-latency edge execution)
         val naturalAction = ActionParser.parseNaturalIntent(effectiveQuery)
         if (naturalAction != null) {
+            val beforeSnapshot = OrbitalAccessibilityService.instance?.captureScreenHierarchy()
             val result = kotlinx.coroutines.withContext(Dispatchers.IO) {
                 deviceActionExecutor.execute(naturalAction)
             }
+            val stateTransition = describeStateTransition(
+                beforeSnapshot, OrbitalAccessibilityService.instance?.captureScreenHierarchy()
+            )
             val label = "⚡ " + naturalAction.action.replace('_', ' ').lowercase().replaceFirstChar { it.uppercase() }
             val fullContent = when (result) {
-                is ActionResult.Success -> result.details ?: result.message ?: "Action completed."
+                is ActionResult.Success -> result.details ?: result.message
                 is ActionResult.Error -> result.errorMessage
             }
 
@@ -183,14 +199,14 @@ class DefaultChatEngine @Inject constructor(
                     role = "assistant",
                     content = fullContent,
                     actionLabel = label,
-                    actionDetails = null
+                    actionDetails = stateTransition
                 )
             }
             persistMessage(
                 role = "assistant",
                 content = fullContent,
                 actionLabel = label,
-                actionDetails = null
+                actionDetails = stateTransition
             )
             isStreaming.value = false
             return
@@ -227,7 +243,20 @@ class DefaultChatEngine @Inject constructor(
         } catch (_: Exception) { "" }
 
         val promptWithSkills = if (skillsContext.isNotBlank()) "$promptWithOta$skillsContext" else promptWithOta
-        val finalSystemPrompt = if (memoryContext.isNotBlank()) "$promptWithSkills\n\n$memoryContext" else promptWithSkills
+        val liveScreen = try {
+            OrbitalAccessibilityService.instance?.captureScreenHierarchy()?.toPromptSummary()?.take(6000)
+        } catch (_: Exception) { null }
+        val appTestHistory = try {
+            com.orbital.automation.AppTestCache(context).relevantContext(
+                effectiveQuery, OrbitalAccessibilityService.currentForegroundPackage.value
+            )
+        } catch (_: Exception) { "" }
+        val finalSystemPrompt = buildString {
+            append(promptWithSkills)
+            if (memoryContext.isNotBlank()) append("\n\n$memoryContext")
+            if (appTestHistory.isNotBlank()) append("\n\n$appTestHistory")
+            if (!liveScreen.isNullOrBlank()) append("\n\nLive device screen (observe before planning the next test step):\n$liveScreen")
+        }
 
         val chatHistory = mutableListOf<ChatMessage>()
         chatHistory.add(ChatMessage(role = "system", content = finalSystemPrompt))
@@ -237,7 +266,11 @@ class DefaultChatEngine @Inject constructor(
         val compaction = resolvedCompactionEngine.compact(currentDialog)
         compaction.compactedMessages.forEach { msg ->
             if (msg.role != "system") {
-                chatHistory.add(ChatMessage(role = msg.role, content = msg.content))
+                val outcome = listOfNotNull(msg.actionLabel, msg.actionDetails).joinToString("\n")
+                chatHistory.add(ChatMessage(
+                    role = msg.role,
+                    content = listOfNotNull(msg.content, outcome.takeIf { it.isNotBlank() }).joinToString("\n")
+                ))
             }
         }
 
@@ -319,7 +352,7 @@ class DefaultChatEngine @Inject constructor(
                 val foremanSteps = parsed.actions.mapIndexed { idx, act ->
                     com.orbital.foreman.ExecutionStep(
                         id = "step_$idx",
-                        description = "${act.action}: ${act.target ?: act.query ?: ""}",
+                        description = "${act.action}: ${act.target ?: if (act.action.uppercase() in setOf("INPUT_TEXT", "TYPE_TEXT", "TYPE")) "input field" else act.query ?: ""}",
                         targetPackage = act.target,
                         expectedOutcome = "Execute ${act.action} successfully"
                     )
@@ -336,8 +369,8 @@ class DefaultChatEngine @Inject constructor(
                 )
 
                 val results = mutableListOf<String>()
-                parsed.actions.forEach { action ->
-                    if (_pendingConfirmation.value != null) return@forEach
+                for ((index, action) in parsed.actions.withIndex()) {
+                    if (_pendingConfirmation.value != null) break
 
                     // Check if critical parameters are missing
                     val missingParams = com.orbital.action.ScreenNavigationLedger.getMissingParameters(action)
@@ -358,7 +391,7 @@ class DefaultChatEngine @Inject constructor(
                             toolName = "Ledger",
                             details = clarification
                         )
-                        return@forEach
+                        break
                     }
 
                     if (deviceActionExecutor.requiresConfirmation(action)) {
@@ -370,20 +403,71 @@ class DefaultChatEngine @Inject constructor(
                             toolName = "Gatekeeper",
                             details = "User confirmation requested before executing sensitive action"
                         )
-                        return@forEach
+                        break
                     }
 
                     val actionStartTime = System.currentTimeMillis()
+                    val beforeSnapshot = OrbitalAccessibilityService.instance?.captureScreenHierarchy()
                     com.orbital.ui.MascotEventBus.postEvent(com.orbital.ui.MascotEvent.ActionExecuting(action.action))
-                    val result = kotlinx.coroutines.withContext(Dispatchers.IO) {
+                    val isInput = action.action.uppercase() in setOf("INPUT_TEXT", "TYPE_TEXT", "TYPE")
+                    val passwordTarget = isInput && beforeSnapshot?.elements?.any { field ->
+                        field.isPassword && (action.target.isNullOrBlank() ||
+                            action.target.let { target ->
+                                listOfNotNull(field.hintText, field.viewId, field.contentDescription)
+                                    .any { it.equals(target, ignoreCase = true) }
+                            } == true)
+                    } == true
+                    val suppliedByUser = action.query?.let { value ->
+                        _messages.value.any { it.role == "user" && it.content?.contains(value) == true }
+                    } == true
+                    val result = if (passwordTarget && !suppliedByUser) {
+                        ActionResult.Error("Password was not supplied by the user in this chat.")
+                    } else if (action.action.uppercase() in setOf("PERFORM_TESTING", "TEST_APP", "AUTO_TEST", "SCREEN_TEST")) {
+                        try {
+                            com.orbital.automation.AppTestRunner(
+                                deviceActionExecutor, llmRepository, com.orbital.automation.AppTestCache(context)
+                            ).run(action.target ?: action.query.orEmpty(), _messages.value.filter { it.role == "user" }.mapNotNull { it.content })
+                        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                            throw cancelled
+                        } catch (_: Exception) {
+                            ActionResult.Error("App test stopped because screen inspection failed.")
+                        }
+                    } else kotlinx.coroutines.withContext(Dispatchers.IO) {
                         deviceActionExecutor.execute(action)
                     }
-                    when (result) {
+                    val snapshot = if (OrbitalAccessibilityService.instance != null) {
+                        kotlinx.coroutines.delay(250)
+                        OrbitalAccessibilityService.instance?.captureScreenHierarchy()
+                    } else null
+                    val stateTransition = describeStateTransition(beforeSnapshot, snapshot)
+                    val verificationFailure = if (result is ActionResult.Success) {
+                        when {
+                            !action.expectedUiText.isNullOrBlank() -> {
+                                val verdict = StateVerificationEngine().verify(
+                                    snapshot, StateVerificationCriterion.ContainsText(action.expectedUiText)
+                                )
+                                verdict.reason.takeIf { !verdict.isVerified }
+                            }
+                            parsed.actions.size > 1 -> "No expected screen result was supplied for this batch step"
+                            else -> null
+                        }
+                    } else null
+                    val checkedResult = verificationFailure?.let { ActionResult.Error(it) } ?: result
+                    if (action.action.uppercase() in setOf("PERFORM_TESTING", "TEST_APP", "AUTO_TEST", "SCREEN_TEST")) {
+                        userDisplayText = when (checkedResult) {
+                            is ActionResult.Success -> checkedResult.message
+                            is ActionResult.Error -> checkedResult.errorMessage
+                        }
+                    }
+                    when (checkedResult) {
                         is ActionResult.Success -> {
 
                             val actionDuration = System.currentTimeMillis() - actionStartTime
-                            results += "⚡ Executed: ${result.message}"
-                            val resolvedDetails = result.details?.takeIf { it.isNotBlank() } ?: "• Status: Executed successfully\n• Message: ${result.message}"
+                            results += "⚡ Executed: ${checkedResult.message}"
+                            val resolvedDetails = listOfNotNull(
+                                stateTransition,
+                                checkedResult.details?.takeIf { it.isNotBlank() } ?: "• Status: Executed successfully\n• Message: ${checkedResult.message}"
+                            ).joinToString("\n")
                             actionDetails = listOfNotNull(actionDetails, resolvedDetails).joinToString("\n").takeIf { it.isNotBlank() }
                             val externalAppActions = setOf("OPEN_APP", "LAUNCH_APP", "NAVIGATE", "PLAY_MUSIC", "COMPOSE_EMAIL", "MAKE_CALL", "SEND_SMS")
                             if (action.action.uppercase() in externalAppActions) {
@@ -393,7 +477,7 @@ class DefaultChatEngine @Inject constructor(
                             foremanSupervisor?.tracker?.markCurrentStepSuccess()
                             scope.launch(Dispatchers.IO) {
                                 try {
-                                    val summary = "Successfully executed ${action.action}${if (!action.target.isNullOrBlank()) " on ${action.target}" else if (!action.query.isNullOrBlank()) " for '${action.query}'" else ""}"
+                                    val summary = "Successfully executed ${action.action}${if (!action.target.isNullOrBlank()) " on ${action.target}" else if (!action.query.isNullOrBlank() && action.action.uppercase() !in setOf("INPUT_TEXT", "TYPE_TEXT", "TYPE")) " for '${action.query}'" else ""}"
                                     hindsightMemoryEngine?.retain(
                                         category = com.orbital.memory.hindsight.MemoryType.HABIT,
                                         contextKey = action.action.lowercase(),
@@ -403,14 +487,14 @@ class DefaultChatEngine @Inject constructor(
                             }
 
                             executionSteps += com.orbital.action.ExecutionStep(
-                                title = "Ran DeviceAction: ${action.action.lowercase().replace('_', ' ')}${if (!action.target.isNullOrBlank()) " (${action.target})" else if (!action.query.isNullOrBlank()) " (${action.query})" else ""}",
+                                title = "Ran DeviceAction: ${action.action.lowercase().replace('_', ' ')}${if (!action.target.isNullOrBlank()) " (${action.target})" else if (!action.query.isNullOrBlank() && action.action.uppercase() !in setOf("INPUT_TEXT", "TYPE_TEXT", "TYPE")) " (${action.query})" else ""}",
                                 status = com.orbital.action.StepStatus.SUCCESS,
                                 toolName = "DeviceAction",
                                 details = resolvedDetails,
                                 durationMs = actionDuration
                             )
 
-                            if (result.details != null && result.details.isNotBlank()) {
+                            if (!checkedResult.details.isNullOrBlank()) {
                                 executionSteps += com.orbital.action.ExecutionStep(
                                     title = "Processed Outcome & Context",
                                     status = com.orbital.action.StepStatus.SUCCESS,
@@ -422,16 +506,17 @@ class DefaultChatEngine @Inject constructor(
                         }
                         is ActionResult.Error -> {
                             val actionDuration = System.currentTimeMillis() - actionStartTime
-                            results += "⚠️ ${result.errorMessage}"
-                            com.orbital.ui.MascotEventBus.postEvent(com.orbital.ui.MascotEvent.ActionFailed(result.errorMessage))
+                            results += "⚠️ ${checkedResult.errorMessage}"
+                            userDisplayText = "Stopped at ${action.action}: ${checkedResult.errorMessage}"
+                            com.orbital.ui.MascotEventBus.postEvent(com.orbital.ui.MascotEvent.ActionFailed(checkedResult.errorMessage))
 
-                            foremanSupervisor?.tracker?.incrementRetryOnCurrent(result.errorMessage)
+                            foremanSupervisor?.tracker?.haltPlan(checkedResult.errorMessage)
                             scope.launch(Dispatchers.IO) {
                                 try {
                                     hindsightMemoryEngine?.retain(
                                         category = com.orbital.memory.hindsight.MemoryType.APP_QUIRK,
                                         contextKey = action.action.lowercase(),
-                                        summary = "Action ${action.action} encountered error: ${result.errorMessage}"
+                                        summary = "Action ${action.action} encountered error: ${checkedResult.errorMessage}"
                                     )
                                 } catch (_: Exception) {}
                             }
@@ -439,8 +524,14 @@ class DefaultChatEngine @Inject constructor(
                             val failureLog = buildString {
                                 append("• Status: Execution Failed\n")
                                 append("• Action: ${action.action}\n")
-                                append("• Error: ${result.errorMessage}")
-                                if (result.errorMessage.contains("Accessibility", ignoreCase = true)) {
+                                append("• Error: ${checkedResult.errorMessage}")
+                                if (stateTransition != null) append("\n$stateTransition")
+                                val remaining = parsed.actions.drop(index + 1)
+                                if (remaining.isNotEmpty()) {
+                                    append("\n• Remaining plan steps: ")
+                                    append(remaining.joinToString { "${it.action}${it.target?.let { target -> " ($target)" }.orEmpty()}" })
+                                }
+                                if (checkedResult.errorMessage.contains("Accessibility", ignoreCase = true)) {
                                     append("\n• Required Setup: Enable Orbital in Android Settings > Accessibility > Installed Apps.")
                                 }
                             }
@@ -455,6 +546,8 @@ class DefaultChatEngine @Inject constructor(
                             )
                         }
                     }
+                    if (checkedResult is ActionResult.Error) break
+                    if (action.action.uppercase() in setOf("PERFORM_TESTING", "TEST_APP", "AUTO_TEST", "SCREEN_TEST")) break
                 }
                 actionLabel = results.joinToString("\n").takeIf { it.isNotBlank() }
             } else {
@@ -479,7 +572,7 @@ class DefaultChatEngine @Inject constructor(
             // Persist encrypted assistant message to SQL database
             val provider = activeProvider.value
             persistMessage(
-                role = "assistant", content = parsed.userDisplayText, providerName = provider,
+                role = "assistant", content = userDisplayText, providerName = provider,
                 actionLabel = actionLabel, actionDetails = actionDetails
             )
         } else {
@@ -548,10 +641,14 @@ class DefaultChatEngine @Inject constructor(
         _pendingConfirmation.value = null
         scope.launch {
             val startTime = System.currentTimeMillis()
+            val beforeSnapshot = OrbitalAccessibilityService.instance?.captureScreenHierarchy()
             com.orbital.ui.MascotEventBus.postEvent(com.orbital.ui.MascotEvent.ActionExecuting(action.action))
             val result = kotlinx.coroutines.withContext(Dispatchers.IO) {
                 deviceActionExecutor.execute(action)
             }
+            val stateTransition = describeStateTransition(
+                beforeSnapshot, OrbitalAccessibilityService.instance?.captureScreenHierarchy()
+            )
             val duration = System.currentTimeMillis() - startTime
             val isSuccess = result is ActionResult.Success
 
@@ -564,11 +661,11 @@ class DefaultChatEngine @Inject constructor(
                         launchFloatingCompanionOverlay()
                     }
                     val resolvedDetails = result.details?.takeIf { it.isNotBlank() } ?: "• Status: Executed successfully\n• Message: ${result.message}"
-                    "⚡ Executed: ${result.message}" to resolvedDetails
+                    "⚡ Executed: ${result.message}" to listOfNotNull(stateTransition, resolvedDetails).joinToString("\n")
                 }
                 is ActionResult.Error -> {
                     com.orbital.ui.MascotEventBus.postEvent(com.orbital.ui.MascotEvent.ActionFailed(result.errorMessage))
-                    "⚠️ Action Failed: ${result.errorMessage}" to result.errorMessage
+                    "⚠️ Action Failed: ${result.errorMessage}" to listOfNotNull(stateTransition, result.errorMessage).joinToString("\n")
                 }
             }
 
@@ -616,6 +713,24 @@ class DefaultChatEngine @Inject constructor(
             ),
             durationMs = 0L
         )
+    }
+
+    private fun describeStateTransition(
+        before: ScreenHierarchySnapshot?,
+        after: ScreenHierarchySnapshot?
+    ): String? {
+        if (before == null && after == null) return null
+        val delta = StateVerificationEngine().computeDelta(before, after)
+        return buildString {
+            append("• State transition:\n")
+            append("Before: ${before?.packageName ?: "unavailable"} (${delta.preHash.take(8)}); ")
+            append("After: ${after?.packageName ?: "unavailable"} (${delta.postHash.take(8)})")
+            append("; changed=${delta.hasMutated}")
+            if (delta.addedTexts.isNotEmpty()) append("; appeared=${delta.addedTexts.joinToString().take(200)}")
+            if (delta.removedTexts.isNotEmpty()) append("; disappeared=${delta.removedTexts.joinToString().take(200)}")
+            before?.let { append("\nPrevious screen:\n${it.toPromptSummary().take(1200)}") }
+            after?.let { append("\nCurrent screen:\n${it.toPromptSummary().take(1200)}") }
+        }
     }
 
     override fun addActionMessage(

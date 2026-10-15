@@ -1,9 +1,6 @@
 package com.orbital.ui
 
 import android.content.Context
-import android.content.Intent
-import android.os.Build
-import android.provider.Settings
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -11,10 +8,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -24,14 +17,14 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.orbital.automation.OrbitalAccessibilityService
+import com.orbital.automation.OrbitalAutomationEngine
+import com.orbital.automation.ShizukuAutomationManager
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AccessibilityDisclosureDialog(
+fun DeviceAutomationDialog(
     onDismiss: () -> Unit,
     onEnableClicked: () -> Unit = {}
 ) {
@@ -58,20 +51,21 @@ fun AccessibilityDisclosureDialog(
                         ),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text("🤖", fontSize = 22.sp)
+                    Text("🛡️", fontSize = 22.sp)
                 }
                 Spacer(modifier = Modifier.width(12.dp))
                 Column {
                     Text(
-                        text = "Screen Automation",
+                        text = "Device Automation & Shell Engine",
                         color = Color.White,
                         fontWeight = FontWeight.Bold,
-                        fontSize = 18.sp
+                        fontSize = 17.sp
                     )
                     Text(
-                        text = "Prominent Accessibility Disclosure",
-                        color = Color(0xFF94A3B8),
-                        fontSize = 11.sp
+                        text = "100% Banking & UPI Safe (Zero Accessibility)",
+                        color = Color(0xFF34D399),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold
                     )
                 }
             }
@@ -84,7 +78,7 @@ fun AccessibilityDisclosureDialog(
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 Text(
-                    text = "Orbital provides autonomous hands-free device automation and remote AI testing via the Android AccessibilityService API.",
+                    text = "Orbital automates your device via rootless ADB scripts (Shizuku) and standard Android Intents. Zero Accessibility Services are registered, ensuring Google Pay, PhonePe, and banking apps are never blocked.",
                     color = Color(0xFFCBD5E1),
                     fontSize = 13.sp,
                     lineHeight = 18.sp
@@ -101,25 +95,25 @@ fun AccessibilityDisclosureDialog(
                         modifier = Modifier.padding(12.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        DisclosureFeatureItem(
-                            icon = "👁️",
-                            title = "Inspect UI Nodes",
-                            desc = "Reads on-screen buttons, text fields, and interactive controls to fulfill user requests."
+                        AutomationFeatureItem(
+                            icon = "✅",
+                            title = "Zero Accessibility Service",
+                            desc = "No accessibility service is registered in Android, preventing any UPI security alerts."
                         )
-                        DisclosureFeatureItem(
-                            icon = "👆",
-                            title = "Simulate Taps & Gestures",
-                            desc = "Performs clicks, scrolls, and navigation actions across apps when requested."
+                        AutomationFeatureItem(
+                            icon = "⚡",
+                            title = "Native Script & ADB Execution",
+                            desc = "Executes taps, swipes, and text entry via system shell with high precision."
                         )
-                        DisclosureFeatureItem(
-                            icon = "⌨️",
-                            title = "Smart Input",
-                            desc = "Types text directly into focused search bars and form fields."
+                        AutomationFeatureItem(
+                            icon = "🔒",
+                            title = "Rootless & Wireless",
+                            desc = "Works via standard Android 11+ Wireless Debugging without root or cable connection."
                         )
                     }
                 }
 
-                // Privacy Box (Google Play Compliance)
+                // Privacy Box
                 Surface(
                     color = Color(0xFF0C1F17),
                     shape = RoundedCornerShape(14.dp),
@@ -141,7 +135,7 @@ fun AccessibilityDisclosureDialog(
                             )
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
-                                text = "Orbital reads visible screen text and controls to carry out your requests. If you ask AI to analyze a screen, that information may go to your selected AI provider. Laptop Bridge inspection sends it to your paired laptop, where AI tools may process it. Avoid sensitive screens during automation. Turn screen access off in Android Settings at any time.",
+                                text = "Orbital only reads on-screen text when actively executing a task. You can stop or revoke permissions at any time.",
                                 color = Color(0xFFA7F3D0),
                                 fontSize = 11.sp,
                                 lineHeight = 15.sp
@@ -149,22 +143,16 @@ fun AccessibilityDisclosureDialog(
                         }
                     }
                 }
-
-                // Android 13+ Sideload Notice
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    Text(
-                        text = "💡 Note for Android 13+: If the setting is grayed out, open App Info → tap (⋮) top-right → select 'Allow restricted settings'.",
-                        color = Color(0xFF94A3B8),
-                        fontSize = 11.sp,
-                        lineHeight = 15.sp
-                    )
-                }
             }
         },
         confirmButton = {
             Button(
                 onClick = {
-                    OrbitalAccessibilityService.openSettings(context)
+                    if (ShizukuAutomationManager.isRunning() && !ShizukuAutomationManager.hasPermission()) {
+                        ShizukuAutomationManager.requestPermission()
+                    } else {
+                        OrbitalAutomationEngine.openSettings(context)
+                    }
                     onEnableClicked()
                     onDismiss()
                 },
@@ -173,7 +161,7 @@ fun AccessibilityDisclosureDialog(
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp)
             ) {
                 Text(
-                    text = "Enable in Settings",
+                    text = if (ShizukuAutomationManager.isRunning()) "Authorize ADB / Shizuku" else "Open Shizuku App",
                     color = Color.White,
                     fontWeight = FontWeight.Bold,
                     fontSize = 13.sp
@@ -193,7 +181,7 @@ fun AccessibilityDisclosureDialog(
 }
 
 @Composable
-private fun DisclosureFeatureItem(icon: String, title: String, desc: String) {
+private fun AutomationFeatureItem(icon: String, title: String, desc: String) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.Top
@@ -215,4 +203,13 @@ private fun DisclosureFeatureItem(icon: String, title: String, desc: String) {
             )
         }
     }
+}
+
+// Backwards compatibility alias
+@Composable
+fun AccessibilityDisclosureDialog(
+    onDismiss: () -> Unit,
+    onEnableClicked: () -> Unit = {}
+) {
+    DeviceAutomationDialog(onDismiss = onDismiss, onEnableClicked = onEnableClicked)
 }

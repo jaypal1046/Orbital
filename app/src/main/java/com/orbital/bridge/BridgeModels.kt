@@ -21,8 +21,11 @@ enum class BridgeActionType {
     DEVICE_ACTION,
     CUSTOM_PROMPT,
     EXECUTE_BATCH,
-    MANAGE_SESSION
+    MANAGE_SESSION,
+    EXECUTE_SCRIPT,
+    AUTONOMOUS_TASK
 }
+
 
 @Serializable
 data class ScreenNodeDto(

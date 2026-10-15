@@ -29,3 +29,7 @@
 # Room
 -keep class * extends androidx.room.RoomDatabase
 -dontwarn androidx.room.paging.**
+
+# Firebase Crashlytics & Analytics
+-keepattributes SourceFile,LineNumberTable
+-keep public class * extends java.lang.Exception

@@ -19,6 +19,7 @@ import android.provider.Settings
 import android.net.wifi.WifiManager
 import android.util.Log
 import com.orbital.power.PowerAwareScheduler
+import com.orbital.automation.testStateHash
 import kotlinx.serialization.Serializable
 
 sealed class ActionResult {
@@ -58,7 +59,8 @@ data class DeviceAction(
     val col: Int? = null,
     val value: String? = null,
     val rowData: List<String>? = null,
-    val overwrite: Boolean? = null
+    val overwrite: Boolean? = null,
+    val expectedUiText: String? = null
 )
 
 open class DeviceActionExecutor(private val context: Context) {
@@ -78,7 +80,7 @@ open class DeviceActionExecutor(private val context: Context) {
     }
 
     open fun execute(action: DeviceAction): ActionResult {
-        Log.i(TAG, "Executing dynamic device action: ${action.action} on target: ${action.target ?: action.query ?: action.url ?: action.path}")
+        Log.i(TAG, "Executing dynamic device action: ${action.action} on target: ${action.target ?: if (action.action.uppercase() in setOf("INPUT_TEXT", "TYPE_TEXT", "TYPE")) "input field" else action.query ?: action.url ?: action.path}")
         return try {
             action.ifBatteryBelow?.let { threshold ->
                 val battery = batteryPercent()
@@ -111,8 +113,7 @@ open class DeviceActionExecutor(private val context: Context) {
                 "LIST_MONITORS", "ACTIVE_MONITORS" -> listActiveMonitors()
                 "CANCEL_MONITOR", "STOP_MONITOR" -> cancelCronMonitoring(action.target ?: action.query ?: "")
                 "PERFORM_TESTING", "TEST_APP", "AUTO_TEST", "SCREEN_TEST" -> performAppTesting(
-                    targetApp = action.target ?: action.query ?: "",
-                    testAction = action.query
+                    targetApp = action.target ?: action.query ?: ""
                 )
                 "READ_SCREEN", "INSPECT_SCREEN" -> readActiveScreen()
                 "TAKE_SCREENSHOT", "SCREENSHOT", "CAPTURE_SCREEN" -> takeScreenshot()
@@ -162,6 +163,9 @@ open class DeviceActionExecutor(private val context: Context) {
                 "SEARCH_DEVICE", "SPOTLIGHT_SEARCH" -> searchDevice(action.query ?: action.target ?: "")
                 "RUN_SMOKE_TEST", "SMOKE_TEST" -> runSmokeTest()
                 "AUDIT_ACCESSIBILITY", "ACCESSIBILITY_AUDIT" -> auditAccessibility()
+                "EXECUTE_SCRIPT", "RUN_SCRIPT", "SHELL_SCRIPT", "RUN_SHELL" -> executeDynamicScript(
+                    script = action.content ?: action.query ?: action.message ?: ""
+                )
                 else -> ActionResult.Error("Unknown action type: ${action.action}")
             }
         } catch (e: Exception) {
@@ -819,11 +823,12 @@ open class DeviceActionExecutor(private val context: Context) {
         return ActionResult.Success("Composing SMS message")
     }
 
-    fun performAppTesting(targetApp: String, testAction: String? = null): ActionResult {
+    fun performAppTesting(targetApp: String): ActionResult {
         val cleanTarget = targetApp.trim()
+        var expectedPackage: String? = null
         
-        // Step 1: Check if Accessibility Service is enabled
-        val isA11yEnabled = com.orbital.automation.OrbitalAccessibilityService.isEnabled(context)
+        // Step 1: Check if Automation Engine (Shizuku / ADB) is enabled
+        val isA11yEnabled = com.orbital.automation.OrbitalAutomationEngine.isEnabled(context)
         
         // Step 2: Open target app if specified
         if (cleanTarget.isNotBlank()) {
@@ -831,42 +836,42 @@ open class DeviceActionExecutor(private val context: Context) {
             if (openResult is ActionResult.Error) {
                 return openResult
             }
+            expectedPackage = (openResult as? ActionResult.Success)?.details
+                ?.takeIf { context.packageManager.getLaunchIntentForPackage(it) != null }
         }
 
         if (!isA11yEnabled) {
-            return ActionResult.Success(
-                message = "Opened $cleanTarget.",
-                details = "Launched $cleanTarget. Companion floating HUD is active and ready."
-            )
+            return ActionResult.Error("Opened $cleanTarget, but ADB/Shizuku automation is disabled, so the screen cannot be tested.")
         }
 
-        // Step 3: Resilient window polling (up to 3.5s across 5 attempts) to allow app window to settle
-        val service = com.orbital.automation.OrbitalAccessibilityService.instance
-            ?: return ActionResult.Success("Opened $cleanTarget for testing. Companion overlay is observing.")
+        // Wait for the launched app's window; the previous app can remain readable during transition.
+        val service = com.orbital.automation.OrbitalAutomationEngine.instance
+            ?: return ActionResult.Error("Opened $cleanTarget, but the automation engine is not connected.")
 
         var snapshot: com.orbital.automation.ScreenHierarchySnapshot? = null
-        for (attempt in 1..5) {
+        for (attempt in 1..10) {
             if (android.os.Looper.myLooper() != android.os.Looper.getMainLooper()) {
                 try {
                     Thread.sleep(400)
                 } catch (_: InterruptedException) {}
             }
             snapshot = service.captureScreenHierarchy()
-            if (snapshot != null && snapshot.elements.isNotEmpty()) {
+            if (snapshot != null && snapshot.elements.isNotEmpty() &&
+                (expectedPackage == null || snapshot.packageName == expectedPackage)) {
                 break
             }
         }
 
 
         if (snapshot == null || snapshot.elements.isEmpty()) {
-            return ActionResult.Success(
-                message = "Opened $cleanTarget for automated testing.",
-                details = "Screen loaded. Companion overlay is active and ready for further screen actions."
-            )
+            return ActionResult.Error("Opened $cleanTarget, but no readable screen elements were found.")
+        }
+        if (expectedPackage != null && snapshot.packageName != expectedPackage) {
+            return ActionResult.Error("Opened $cleanTarget, but the visible screen belongs to ${snapshot.packageName}. Testing stopped before interacting with another app.")
         }
 
         val testSummary = StringBuilder()
-        testSummary.append("📱 Automated Testing Report for ${snapshot.packageName}:\n")
+        testSummary.append("📱 Screen inspection for ${snapshot.packageName}:\n")
 
         // Step 4: Inspect and categorize interactive controls
         val clickables = snapshot.elements.filter { it.isClickable }
@@ -879,10 +884,10 @@ open class DeviceActionExecutor(private val context: Context) {
             .distinct()
             .take(6)
         if (buttonLabels.isNotEmpty()) {
-            testSummary.append("• Verified Controls: ${buttonLabels.joinToString(", ")}\n")
+            testSummary.append("• Visible Controls: ${buttonLabels.joinToString(", ")}\n")
         }
 
-        val inputLabels = editables.mapNotNull { it.text.ifBlank { it.contentDescription ?: it.viewId } }
+        val inputLabels = editables.mapNotNull { it.hintText ?: it.contentDescription ?: it.viewId }
             .filter { it.isNotBlank() }
             .distinct()
             .take(4)
@@ -890,61 +895,45 @@ open class DeviceActionExecutor(private val context: Context) {
             testSummary.append("• Form Fields: ${inputLabels.joinToString(", ")}\n")
         }
 
-        // Step 5: Execute primary interaction test
-        val targetButtonToClick = testAction?.takeIf { it.isNotBlank() }
-            ?: buttonLabels.firstOrNull { 
-                it.contains("Search", ignoreCase = true) || 
-                it.contains("Submit", ignoreCase = true) ||
-                it.contains("Continue", ignoreCase = true) ||
-                it.contains("Next", ignoreCase = true)
-            } ?: buttonLabels.firstOrNull()
-
-        var clickResult = false
-        if (!targetButtonToClick.isNullOrBlank()) {
-            clickResult = service.clickElementByText(targetButtonToClick)
-            if (!clickResult) {
-                // Try clicking by partial or lowercase match
-                clickResult = service.clickElementByText(targetButtonToClick.lowercase())
-            }
-            if (clickResult) {
-                testSummary.append("⚡ Tested & Clicked primary control: '$targetButtonToClick' (OK)\n")
-                // Wait for resulting UI transition
-                if (android.os.Looper.myLooper() != android.os.Looper.getMainLooper()) {
-                    try {
-                        Thread.sleep(450)
-                    } catch (_: InterruptedException) {}
-                }
-                val nextSnapshot = service.captureScreenHierarchy()
-
-                if (nextSnapshot != null) {
-                    testSummary.append("• New screen state after tap: ${nextSnapshot.elements.size} elements loaded.\n")
-                }
-            } else {
-                testSummary.append("• Verified control presence: '$targetButtonToClick'\n")
-            }
+        // Cache observed structure only; editable values can contain credentials or other private data.
+        runCatching {
+            com.orbital.automation.AppTestCache(context).save(
+                com.orbital.automation.AppTestRecord(
+                    packageName = snapshot.packageName,
+                    appName = cleanTarget.ifBlank { snapshot.packageName },
+                    screens = listOf(com.orbital.automation.TestedScreen(
+                        stateHash = snapshot.testStateHash(),
+                        controls = buttonLabels,
+                        fields = inputLabels
+                    )),
+                    blockedReason = if (clickables.isNotEmpty()) "Further controls need safety classification before testing" else null
+                )
+            )
         }
+
+        testSummary.append("• Stopped before tapping controls: navigation and data-changing actions cannot be distinguished reliably from this screen alone.\n")
 
         // Step 6: Trigger companion mascot event
         com.orbital.ui.MascotEventBus.postEvent(
             com.orbital.ui.MascotEvent.ActionSuccess(
-                "Tested $cleanTarget: ${clickables.size} controls verified" + if (clickResult) ", tapped '$targetButtonToClick'" else ""
+                "Inspected $cleanTarget: ${clickables.size} controls found"
             )
         )
 
         return ActionResult.Success(
-            message = "Tested $cleanTarget (${clickables.size} controls verified${if (clickResult) ", clicked '$targetButtonToClick'" else ""})",
+            message = "Inspected $cleanTarget (${clickables.size} controls found; stopped before unclassified controls)",
             details = testSummary.toString().trim()
         )
     }
 
     fun readActiveScreen(): ActionResult {
-        val service = com.orbital.automation.OrbitalAccessibilityService.instance
+        val service = com.orbital.automation.OrbitalAutomationEngine.instance
         if (service == null) {
-            val isEnabledInSettings = com.orbital.automation.OrbitalAccessibilityService.isEnabled(context)
+            val isEnabledInSettings = com.orbital.automation.OrbitalAutomationEngine.isEnabled(context)
             return if (!isEnabledInSettings) {
-                ActionResult.Error("Accessibility service is disabled. Please enable 'Orbital' in Settings > Accessibility.")
+                ActionResult.Error("ADB/Shizuku automation is disabled. Please authorize Orbital in Shizuku or via Wireless Debugging (keeping your banking apps 100% safe without Accessibility).")
             } else {
-                ActionResult.Error("Accessibility service is enabled in Settings, but not yet connected to the app process. Please toggle Orbital in Accessibility Settings or restart the app.")
+                ActionResult.Error("Automation engine is enabled, but not yet connected to the app process.")
             }
         }
 
@@ -965,13 +954,13 @@ open class DeviceActionExecutor(private val context: Context) {
     }
 
     fun takeScreenshot(): ActionResult {
-        val service = com.orbital.automation.OrbitalAccessibilityService.instance
+        val service = com.orbital.automation.OrbitalAutomationEngine.instance
         if (service == null) {
-            val isEnabledInSettings = com.orbital.automation.OrbitalAccessibilityService.isEnabled(context)
+            val isEnabledInSettings = com.orbital.automation.OrbitalAutomationEngine.isEnabled(context)
             return if (!isEnabledInSettings) {
-                ActionResult.Error("Accessibility service is disabled. Please enable 'Orbital' in Settings > Accessibility to capture screenshots.")
+                ActionResult.Error("ADB/Shizuku automation is disabled. Please authorize Orbital in Shizuku or via Wireless Debugging to capture screenshots.")
             } else {
-                ActionResult.Error("Accessibility service is enabled in Settings, but not yet connected to the app process.")
+                ActionResult.Error("Automation engine is enabled, but not yet connected to the app process.")
             }
         }
 
@@ -1003,9 +992,9 @@ open class DeviceActionExecutor(private val context: Context) {
         val clean = targetTextOrId.trim()
         if (clean.isBlank()) return ActionResult.Error("Element label or text is required.")
 
-        val service = com.orbital.automation.OrbitalAccessibilityService.instance
+        val service = com.orbital.automation.OrbitalAutomationEngine.instance
         if (service == null) {
-            return ActionResult.Error("Orbital accessibility service is not active.")
+            return ActionResult.Error("Orbital automation engine is not active.")
         }
 
         val success = if (clean.contains(":id/")) {
@@ -1022,21 +1011,21 @@ open class DeviceActionExecutor(private val context: Context) {
     }
 
     fun inputScreenText(text: String, targetField: String? = null): ActionResult {
-        val cleanText = text.trim()
-        val service = com.orbital.automation.OrbitalAccessibilityService.instance
-            ?: return ActionResult.Error("Orbital accessibility service is not active.")
+        if (text.isEmpty()) return ActionResult.Error("Text to enter is required.")
+        val service = com.orbital.automation.OrbitalAutomationEngine.instance
+            ?: return ActionResult.Error("Orbital automation engine is not active.")
 
-        val success = service.inputText(cleanText, targetField)
+        val success = service.inputText(text, targetField)
         return if (success) {
-            ActionResult.Success("Entered '$cleanText'${if (!targetField.isNullOrBlank()) " into $targetField" else ""}")
+            ActionResult.Success("Entered text${if (!targetField.isNullOrBlank()) " into $targetField" else " into the only visible input field"}")
         } else {
-            ActionResult.Error("Could not find input field on current screen.")
+            ActionResult.Error("Could not uniquely match input field${targetField?.let { " '$it'" }.orEmpty()} on current screen.")
         }
     }
 
     fun scrollScreen(forward: Boolean = true): ActionResult {
-        val service = com.orbital.automation.OrbitalAccessibilityService.instance
-            ?: return ActionResult.Error("Orbital accessibility service is not active.")
+        val service = com.orbital.automation.OrbitalAutomationEngine.instance
+            ?: return ActionResult.Error("Orbital automation engine is not active.")
 
         val success = service.performScroll(forward)
         return if (success) {
@@ -1315,17 +1304,37 @@ open class DeviceActionExecutor(private val context: Context) {
     }
 
     fun auditAccessibility(): ActionResult {
-        val service = com.orbital.automation.OrbitalAccessibilityService.instance
-            ?: return ActionResult.Error("Orbital Accessibility Service is not active. Please enable it in Settings.")
+        val service = com.orbital.automation.OrbitalAutomationEngine.instance
+            ?: return ActionResult.Error("Orbital Automation Engine is not active. Please authorize Shizuku or ADB.")
 
         val snapshot = service.captureScreenHierarchy()
             ?: return ActionResult.Error("Could not inspect current screen hierarchy.")
 
-        val report = com.orbital.automation.AccessibilityAuditorEngine.auditScreen(snapshot)
+        val report = com.orbital.automation.UiAuditorEngine.auditScreen(snapshot)
         return ActionResult.Success(
-            "Screen accessibility audit complete (Health Score: ${report.overallScore}/100)",
+            "Screen UI audit complete (Health Score: ${report.overallScore}/100)",
             report.toMarkdownReport()
         )
     }
+
+    fun executeDynamicScript(script: String): ActionResult {
+        val cleanScript = script.trim()
+        if (cleanScript.isBlank()) return ActionResult.Error("Script content is empty")
+
+        val result = kotlinx.coroutines.runBlocking {
+            com.orbital.automation.OrbitalAutomationEngine.instance?.executeScript(context, cleanScript)
+                ?: com.orbital.automation.ShizukuAutomationManager.exec(cleanScript)
+        }
+
+        return if (result.isSuccess) {
+            ActionResult.Success(
+                message = "Script executed successfully",
+                details = result.stdout.ifBlank { "Exit code: 0" }
+            )
+        } else {
+            ActionResult.Error("Script failed (code ${result.exitCode}): ${result.stderr.ifBlank { result.stdout }}")
+        }
+    }
 }
+
 

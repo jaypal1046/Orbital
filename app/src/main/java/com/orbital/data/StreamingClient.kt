@@ -203,6 +203,8 @@ class StreamingClient(
                     val deltaObj = firstChoice.optJSONObject("delta")
                     val content = deltaObj?.optString("content")?.takeIf { it.isNotBlank() }
                         ?: deltaObj?.optString("text")?.takeIf { it.isNotBlank() }
+                        ?: deltaObj?.optString("reasoning_content")?.takeIf { it.isNotBlank() }
+                        ?: deltaObj?.optString("reasoning")?.takeIf { it.isNotBlank() }
                         ?: firstChoice.optJSONObject("message")?.optString("content")?.takeIf { it.isNotBlank() }
                         ?: firstChoice.optString("text").takeIf { it.isNotBlank() }
                     if (!content.isNullOrBlank()) {
@@ -261,6 +263,24 @@ class StreamingClient(
                 put("temperature", 0.7)
                 put("maxOutputTokens", 2048)
             })
+
+            // Unblock false-positive safety triggers for device commands, testing, and credentials
+            val safetySettings = JSONArray().apply {
+                val categories = listOf(
+                    "HARM_CATEGORY_HARASSMENT",
+                    "HARM_CATEGORY_HATE_SPEECH",
+                    "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+                    "HARM_CATEGORY_DANGEROUS_CONTENT",
+                    "HARM_CATEGORY_CIVIC_INTEGRITY"
+                )
+                for (cat in categories) {
+                    put(JSONObject().apply {
+                        put("category", cat)
+                        put("threshold", "BLOCK_NONE")
+                    })
+                }
+            }
+            put("safetySettings", safetySettings)
         }
     }
 

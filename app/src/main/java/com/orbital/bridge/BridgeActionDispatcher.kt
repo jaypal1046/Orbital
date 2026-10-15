@@ -243,6 +243,27 @@ class BridgeActionDispatcher @Inject constructor(
                 }
             }
 
+            BridgeActionType.EXECUTE_SCRIPT -> {
+                val script = customPrompt ?: textToType ?: query.orEmpty()
+                val execResult = actionExecutor.executeDynamicScript(script)
+                when (execResult) {
+                    is ActionResult.Success -> true to "${execResult.message}${if (execResult.details != null) "\n${execResult.details}" else ""}"
+                    is ActionResult.Error -> false to execResult.errorMessage
+                }
+            }
+
+            BridgeActionType.AUTONOMOUS_TASK -> {
+                val instruction = customPrompt ?: textToType ?: query.orEmpty()
+                val targetApp = target ?: packageName ?: targetText
+                val taskResult = com.orbital.automation.AutonomousScriptEngine.planAndExecuteTask(
+                    context = context,
+                    instruction = instruction,
+                    targetApp = targetApp,
+                    scriptName = targetId
+                )
+                taskResult.success to taskResult.toJsonString()
+            }
+
             BridgeActionType.CUSTOM_PROMPT -> {
                 val prompt = customPrompt ?: targetText.orEmpty()
                 val slashResult = com.orbital.chat.SlashCommandRouter.route(prompt, context)
@@ -584,6 +605,28 @@ class BridgeActionDispatcher @Inject constructor(
                             sessionTitle = sessionTitle
                         )
                     }
+
+                BridgeActionType.AUTONOMOUS_TASK -> {
+                    val instruction = action.customPrompt ?: action.targetText.orEmpty()
+                    val targetApp = action.target ?: action.packageName
+                    val taskResult = com.orbital.automation.AutonomousScriptEngine.planAndExecuteTask(
+                        context = context,
+                        instruction = instruction,
+                        targetApp = targetApp,
+                        scriptName = action.sessionTitle
+                    )
+                    val state = captureScreenState()
+                    ActionResultPayload(
+                        actionId = action.actionId,
+                        success = taskResult.success,
+                        message = taskResult.summary,
+                        aiResponse = taskResult.toJsonString(),
+                        executionDurationMs = System.currentTimeMillis() - startTime,
+                        updatedScreenState = state,
+                        screenshotFilePath = taskResult.screenshotPath,
+                        sessionTitle = action.sessionTitle
+                    )
+                }
 
                 BridgeActionType.TAKE_SCREENSHOT -> {
                     var file: java.io.File? = null

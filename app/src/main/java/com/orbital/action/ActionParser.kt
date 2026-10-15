@@ -30,7 +30,7 @@ SMART ACTION SELECTION RULES:
 5. Background & Recurring Monitoring: When the user requests periodic automation or recurring checks (e.g. "every hour", "hourly check when internet is available", "alert me daily"), use SCHEDULE_MONITOR with repeat_minutes (e.g. 60) and a descriptive title/query.
 6. Ambiguity & Missing Parameters: If a command is missing mandatory parameters for hardware/app settings (e.g. phone number for calling), ask a concise question. However, for creative, generative, or document/report tasks, DO NOT ask clarifying questions—immediately take initiative to draft and create the full document!
 7. Security & Sensitive Boundaries: For financial, banking, or payment applications, inform the user that sensitive financial transactions require direct user control.
-8. Multi-step Requests: For requests that require multiple actions (e.g., opening an app and reading screen or setting up a schedule), return one action block with an "actions" array containing all steps.
+8. Multi-step Requests: Return an "actions" array only when each next step is valid for the expected observed state. When later steps depend on an unknown screen, execute one step and use the observed state on the next turn.
 9. Comprehensive Document & Report Generation (Word .docx, PowerPoint .pptx, Markdown .md, Text .txt, JSON .json, XML .xml):
    - When asked to create, draft, or write a document, report, presentation, or data file on ANY topic (e.g. "Create a report on AI Roadmap"), IMMEDIATELY draft and generate a comprehensive, in-depth, multi-paragraph document! DO NOT ask the user what sections to include; create a complete professional outline yourself.
    - Stream and show the rich report content in your chat response.
@@ -40,6 +40,20 @@ SMART ACTION SELECTION RULES:
 10. Precision File Updates & Edits:
    - When asked to update, modify, or edit a file, explain the updates clearly.
    - Output `EDIT_FILE` targeting specific `target_content` with `replacement_content`, or `WRITE_FILE` with the full updated content.
+11. App Testing Continuity:
+   - Treat follow-up requests in this chat as continuation of the current test unless the user changes the goal.
+   - Use previous and current screen states, their changes, and action outcomes to decide the next step. Never claim a step passed without an observed result.
+   - If the screen does not match the expected flow, inspect the actual UI before choosing another action. Report the blocked step and observed state when progress stops.
+   - In multi-action app tests, include `expected_ui_text` on each action when a visible result is known. If the result is unknown, issue one action, inspect the new screen, then plan the next action.
+12. Forms:
+   - Read the live screen before filling a form. Use one `INPUT_TEXT` action per editable field, with `target` copied from its observed label, hint, or resource ID and `query` taken from the user's supplied data.
+   - If a required value or field identity is missing, ask for that specific information. Do not guess values or type into an unrelated field. Fill fields first; submit only when requested.
+   - When chaining field entries, set `expected_ui_text` only if the entered value should remain visible. Otherwise enter one field, observe its result, then continue.
+13. App testing safety:
+   - For a request to test an app, use PERFORM_TESTING with the installed app target; its tester will inspect each reached screen and handle safe navigation. Do not output a batch of speculative taps.
+   - Use only passwords supplied by the user in this chat. Never invent credentials or repeat them in reports.
+   - Stop and report controls that submit, delete, purchase, or change account data. Stop when a control's effect is uncertain.
+   - Report only screens actually observed; do not claim an app was fully tested after a single screen inspection.
 
 CRITICAL EXECUTION RULE:
 Whenever the user asks you to perform an action or confirms a plan, you MUST ALWAYS generate the ```action JSON block at the very end of your response so the phone performs the action immediately!
@@ -59,7 +73,6 @@ Whenever the user asks you to perform an action or confirms a plan, you MUST ALW
         val nonSystemMessages = messages.filter { it.role != "system" }
         val lastUserMessage = nonSystemMessages.lastOrNull { it.role == "user" }?.content?.trim().orEmpty()
         val previousAssistant = nonSystemMessages.dropLast(1).lastOrNull { it.role == "assistant" }
-        val earlierUserMessages = nonSystemMessages.dropLast(1).filter { it.role == "user" }
 
         // 3. Direct parse on the last user message
         if (lastUserMessage.isNotBlank()) {
@@ -75,16 +88,25 @@ Whenever the user asks you to perform an action or confirms a plan, you MUST ALW
             Regex("(?i)^(yes|yep|yeah|yup|sure|ok|okay|do it|proceed|confirm|go ahead|please do|sounds good|yes please|right|correct|fine|all right|alright)$")
         )
 
-        // Combine recent context (previous turns + model response text + last user message)
+        // Only an unexecuted assistant proposal can be confirmed. Older requests have already run.
         val combinedContext = buildString {
-            earlierUserMessages.takeLast(2).forEach { append("${it.content} ") }
-            previousAssistant?.let { append("${it.content} ") }
-            if (modelResponseText.isNotBlank()) append("$modelResponseText ")
-            append(lastUserMessage)
+            if (isAffirmation && previousAssistant?.actionLabel == null) {
+                append(previousAssistant?.content.orEmpty())
+                append(' ')
+                append(lastUserMessage)
+            }
         }.trim()
 
         if (combinedContext.isNotBlank()) {
-            // Check if combined context has a natural intent
+            // Check if combined context has a natural intent or compound intents
+            val compoundContextActions = parseCompoundIntents(combinedContext)
+            if (compoundContextActions.isNotEmpty()) {
+                val label = compoundContextActions.first().action.replace('_', ' ').lowercase()
+                return ParsedResponse(
+                    userDisplayText = "Executing $label...",
+                    actions = compoundContextActions
+                )
+            }
             val naturalAction = parseNaturalIntent(combinedContext)
             if (naturalAction != null) {
                 return ParsedResponse(
@@ -155,6 +177,15 @@ Whenever the user asks you to perform an action or confirms a plan, you MUST ALW
         }
 
         // Natural Language Intent Heuristic Fallback (Offline / Zero-LLM resilience)
+        val compoundActions = parseCompoundIntents(rawResponse)
+        if (compoundActions.isNotEmpty()) {
+            val label = compoundActions.first().action.replace('_', ' ').lowercase()
+            return ParsedResponse(
+                userDisplayText = "Executing $label...",
+                actions = compoundActions
+            )
+        }
+
         val naturalAction = parseNaturalIntent(rawResponse)
         if (naturalAction != null) {
             return ParsedResponse(
@@ -172,7 +203,32 @@ Whenever the user asks you to perform an action or confirms a plan, you MUST ALW
         )
     }
 
-    fun parseNaturalIntent(text: String): DeviceAction? {
+    fun parseCompoundIntents(text: String, fallbackContextTarget: String? = null): List<DeviceAction> {
+        val trimmed = text.trim()
+        if (trimmed.isBlank()) return emptyList()
+
+        val actionVerbLookahead = """\b(?:and(?:\s+then)?|then|,)\s+(?=(?:open|launch|start|type|enter|input|fill|test|auto[- ]?test|screen[- ]?test|perform[- ]?testing|click|tap|press|scroll|search|take\s+screenshot|read\s+screen|set\s+timer|turn\s+on|turn\s+off)\b)"""
+        val clauses = trimmed.split(Regex(actionVerbLookahead, RegexOption.IGNORE_CASE))
+            .map { it.trim().removePrefix("and ").removePrefix("then ").trim() }
+            .filter { it.isNotBlank() }
+
+        val actions = mutableListOf<DeviceAction>()
+        var activeTarget = fallbackContextTarget
+
+        for (clause in clauses) {
+            val action = parseNaturalIntent(clause, contextTarget = activeTarget)
+            if (action != null) {
+                if (!action.target.isNullOrBlank() && action.action in setOf("OPEN_APP", "LAUNCH_APP", "PERFORM_TESTING")) {
+                    activeTarget = action.target
+                }
+                actions.add(action)
+            }
+        }
+
+        return actions
+    }
+
+    fun parseNaturalIntent(text: String, contextTarget: String? = null): DeviceAction? {
         val clean = text.lowercase().trim()
         
         // Battery & Device Status Intents
@@ -227,6 +283,52 @@ Whenever the user asks you to perform an action or confirms a plan, you MUST ALW
             return DeviceAction(action = "AUDIT_ACCESSIBILITY")
         }
 
+        // App Testing Intents (e.g. "test that app", "test the app", "test Encyra", "test app Encyra", "auto test Encyra")
+        val testAppMatch = Regex(
+            """^(?:test|auto[- ]?test|screen[- ]?test|perform[- ]?testing(?:\s+on)?)\s+(?:the\s+app|that\s+app|app\s+([A-Za-z0-9\s._-]+)|([A-Za-z0-9\s._-]+))?$""",
+            RegexOption.IGNORE_CASE
+        ).find(text.trim())
+        if (testAppMatch != null) {
+            val appParam = (testAppMatch.groupValues.getOrNull(1)?.takeIf { it.isNotBlank() }
+                ?: testAppMatch.groupValues.getOrNull(2)?.takeIf { it.isNotBlank() })?.trim()
+            val target = if (!appParam.isNullOrBlank() && !appParam.equals("that app", ignoreCase = true) && !appParam.equals("the app", ignoreCase = true)) {
+                appParam
+            } else {
+                contextTarget
+            }
+            return DeviceAction(action = "PERFORM_TESTING", target = target)
+        }
+
+        // Text Input / Typing Intents (e.g. "type 4444 password", "enter 4444 into password field", "type 4444", "input hello in search")
+        val inputMatch = Regex(
+            """^(?:type|enter|input|fill(?:\s+in)?)\s+(?:the\s+)?(?:password|pin|code|text)?\s*["']?([^"'\n\r]+?)["']?(?:\s+(?:into|in|for|as)?\s+(?:the\s+)?(password|pin|code|search|field|[A-Za-z0-9._-]+))?$""",
+            RegexOption.IGNORE_CASE
+        ).find(text.trim())
+        if (inputMatch != null) {
+            val query = inputMatch.groupValues[1].trim().removeSurrounding("\"").removeSurrounding("'")
+            val rawTarget = inputMatch.groupValues.getOrNull(2)?.trim()?.takeIf { it.isNotBlank() }
+            if (query.isNotBlank()) {
+                return DeviceAction(action = "INPUT_TEXT", query = query, target = rawTarget)
+            }
+        }
+
+        // Click / Tap Element Intents (e.g. "click login", "tap submit button", "press ok")
+        val clickMatch = Regex(
+            """^(?:click|tap|press)\s+(?:on\s+)?(?:the\s+)?["']?([^"'\n\r]+?)["']?(?:\s+(?:button|icon|tab|link))?$""",
+            RegexOption.IGNORE_CASE
+        ).find(text.trim())
+        if (clickMatch != null) {
+            val target = clickMatch.groupValues[1].trim().removeSurrounding("\"").removeSurrounding("'")
+            if (target.isNotBlank() && !target.equals("the", ignoreCase = true)) {
+                return DeviceAction(action = "CLICK_ELEMENT", target = target)
+            }
+        }
+
+        // Scroll Intents (e.g. "scroll down", "scroll up")
+        val scrollMatch = Regex("""^scroll\s+(down|up)$""", RegexOption.IGNORE_CASE).find(clean)
+        if (scrollMatch != null) {
+            return DeviceAction(action = "SCROLL", target = scrollMatch.groupValues[1].lowercase())
+        }
 
         // File Open & Launch Intents (e.g. "open the file pitch.pptx", "open pitch.pptx", "launch file test.pdf")
         val openFileMatch = Regex(
@@ -238,9 +340,21 @@ Whenever the user asks you to perform an action or confirms a plan, you MUST ALW
             return DeviceAction(action = "OPEN_FILE", path = path)
         }
 
+        // App Launch / Open Intents (e.g. "open Encyra", "launch Chrome", "open WhatsApp", "start Camera")
+        val openAppMatch = Regex(
+            """^(?:open|launch|start)\s+(?:the\s+)?([A-Za-z0-9\s._-]+?)(?:\s+app)?$""",
+            RegexOption.IGNORE_CASE
+        ).find(text.trim())
+        if (openAppMatch != null) {
+            val appTarget = openAppMatch.groupValues[1].trim()
+            if (appTarget.isNotBlank() && !appTarget.contains(".") && !appTarget.equals("the", ignoreCase = true) && !appTarget.equals("app", ignoreCase = true)) {
+                return DeviceAction(action = "OPEN_APP", target = appTarget)
+            }
+        }
+
         // File Reading Intents (e.g. "read the file /sdcard/Download/test.txt", "read presentation pitch.pptx", "inspect file doc.pdf")
         val readFileMatch = Regex(
-            """(?:read|inspect|show\s+content\s+of|print)\s+(?:the\s+)?(?:file|presentation|document|spreadsheet|sheet|pdf|docx?|pptx?|xlsx?)?\s*([^\s:]+)""",
+            """(?:read|inspect|show\s+content\s+of|print)\s+(?:the\s+)?(?:(?:file|presentation|document|spreadsheet|sheet|pdf|docx?|pptx?|xlsx?)\s+)?([^\s:]+\.[a-zA-Z0-9]{2,6}|/[^\s:]+)""",
             RegexOption.IGNORE_CASE
         ).find(text.trim())
         if (readFileMatch != null) {
@@ -381,7 +495,8 @@ Whenever the user asks you to perform an action or confirms a plan, you MUST ALW
             col = json.optInt("col", -1).takeIf { it >= 0 }
                 ?: json.optInt("column", -1).takeIf { it >= 0 },
             value = json.optString("value").takeIf { it.isNotBlank() },
-            overwrite = json.takeIf { it.has("overwrite") }?.optBoolean("overwrite")
+            overwrite = json.takeIf { it.has("overwrite") }?.optBoolean("overwrite"),
+            expectedUiText = json.optString("expected_ui_text").takeIf { it.isNotBlank() }
         )
     }
 }

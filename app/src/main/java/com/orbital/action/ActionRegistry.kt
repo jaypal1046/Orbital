@@ -145,14 +145,14 @@ object ActionRegistry {
             type = "CLICK_ELEMENT",
             description = "Click or tap a specific button, tab, link, or item by its visible label on the active screen",
             requiredParams = listOf("target"),
-            exampleJson = """{"action": "CLICK_ELEMENT", "target": "Find trains"}"""
+            exampleJson = """{"action": "CLICK_ELEMENT", "target": "<observed-control>"}"""
         ),
         ActionDefinition(
             type = "INPUT_TEXT",
-            description = "Type text into a designated input field or search bar on the active screen",
+            description = "Enter user-supplied text into a field identified from the live screen; target is required when multiple fields are visible",
             requiredParams = listOf("query"),
             optionalParams = listOf("target"),
-            exampleJson = """{"action": "INPUT_TEXT", "target": "From station", "query": "Mumbai LTT"}"""
+            exampleJson = """{"action": "INPUT_TEXT", "target": "<observed-field>", "query": "<user-supplied-value>"}"""
         ),
         ActionDefinition(
             type = "SCROLL",
@@ -162,10 +162,10 @@ object ActionRegistry {
         ),
         ActionDefinition(
             type = "PERFORM_TESTING",
-            description = "Launch target app, explore active screen structure, interact with primary buttons, and perform automated screen verification",
+            description = "Launch target app, inspect live screens, explore controls classified as safe navigation, return with Back, and report controls left untouched",
             requiredParams = listOf("target"),
             optionalParams = listOf("query"),
-            exampleJson = """{"action": "PERFORM_TESTING", "target": "App Name", "query": "Search query or button label"}"""
+            exampleJson = """{"action": "PERFORM_TESTING", "target": "<installed-app>"}"""
         ),
         ActionDefinition(
             type = "SCHEDULE_MONITOR",

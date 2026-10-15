@@ -35,6 +35,7 @@ androidxHiltWork = "1.2.0"
 androidxLifecycleViewmodelCompose = "2.8.0"
 room = "2.6.1"
 coil = "2.6.0"
+shizuku = "13.1.5"
 
 
 [libraries]
@@ -89,6 +90,11 @@ mlkit-barcode-scanning = { group = "com.google.mlkit", name = "barcode-scanning"
 coil-compose = { group = "io.coil-kt", name = "coil-compose", version.ref = "coil" }
 play-app-update = { group = "com.google.android.play", name = "app-update-ktx", version = "2.1.0" }
 androidx-browser = { group = "androidx.browser", name = "browser", version = "1.8.0" }
+firebase-bom = { group = "com.google.firebase", name = "firebase-bom", version = "33.4.0" }
+firebase-crashlytics = { group = "com.google.firebase", name = "firebase-crashlytics-ktx" }
+firebase-analytics = { group = "com.google.firebase", name = "firebase-analytics-ktx" }
+shizuku-api = { group = "dev.rikka.shizuku", name = "api", version.ref = "shizuku" }
+shizuku-provider = { group = "dev.rikka.shizuku", name = "provider", version.ref = "shizuku" }
 
 
 [plugins]
@@ -96,3 +102,5 @@ android-application = { id = "com.android.application", version.ref = "agp" }
 kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
 kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
 navigation-safe-args = { id = "androidx.navigation.safeargs.kotlin", version.ref = "navigationSafeArgs" }
+google-services = { id = "com.google.gms.google-services", version = "4.4.2" }
+firebase-crashlytics = { id = "com.google.firebase.crashlytics", version = "3.0.2" }

@@ -125,7 +125,7 @@ fun SideNavDrawer(
                 Spacer(Modifier.height(20.dp))
                 DrawerSection("Support")
                 DrawerNavItem(Icons.Default.Warning, "Send feedback", null, false) { onOpenFeedback(); onCloseDrawer() }
-                DrawerNavItem(Icons.Default.Settings, "Screen access", null, false) { onOpenAccessibilityDisclosure(); onCloseDrawer() }
+                DrawerNavItem(Icons.Default.Settings, "Automation & ADB access", null, false) { onOpenAccessibilityDisclosure(); onCloseDrawer() }
                 DrawerNavItem(Icons.Default.Refresh, "Check for updates", null, false) { onCheckForUpdates(); onCloseDrawer() }
                 DrawerNavItem(Icons.Default.Lock, "Privacy and terms", null, false) { onOpenLegal(LegalTab.PRIVACY); onCloseDrawer() }
                 DrawerNavItem(Icons.Default.Info, "About Orbital", null, false) { onOpenAbout(); onCloseDrawer() }

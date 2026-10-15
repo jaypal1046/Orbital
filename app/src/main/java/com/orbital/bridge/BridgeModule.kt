@@ -2,6 +2,7 @@ package com.orbital.bridge
 
 import android.content.Context
 import com.orbital.action.DeviceActionExecutor
+import com.orbital.chat.ChatEngine
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -18,9 +19,10 @@ object BridgeModule {
     fun provideBridgeActionDispatcher(
         @ApplicationContext context: Context,
         actionExecutor: DeviceActionExecutor,
+        chatEngine: ChatEngine,
         chatHistoryRepository: com.orbital.data.db.ChatHistoryRepository
     ): BridgeActionDispatcher {
-        return BridgeActionDispatcher(context, actionExecutor, chatHistoryRepository = chatHistoryRepository)
+        return BridgeActionDispatcher(context, actionExecutor, chatEngine, chatHistoryRepository)
     }
 
     @Provides

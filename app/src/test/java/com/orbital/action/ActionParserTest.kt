@@ -89,5 +89,7 @@ class ActionParserTest {
         assertEquals(1, readIntent.actions.size)
         assertEquals("READ_FILE", readIntent.actions[0].action)
         assertEquals("report.pdf", readIntent.actions[0].path)
+
+        assertEquals(null, ActionParser.parseNaturalIntent("Inspect each safe screen and return"))
     }
 }

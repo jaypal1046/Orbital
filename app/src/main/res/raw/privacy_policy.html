@@ -20,15 +20,9 @@
         <li><strong>Media & Documents:</strong> Images, PDFs, and files attached to chat queries are processed in memory and sent directly over TLS to your selected AI provider for multi-modal inference.</li>
     </ul>
 
-    <h4>3. Mandatory Accessibility Service Disclosure (Google Play Compliance)</h4>
-    <p>Orbital includes an optional <strong>Accessibility Service</strong> (<code>com.orbital.automation.OrbitalAccessibilityService</code>) to provide autonomous device automation, on-screen inspection, and remote AI testing. In strict adherence to the Google Play Accessibility Guidelines and User Data Policies:</p>
-    <ul>
-        <li><strong>Specific API Usage:</strong> Orbital utilizes Android's official <code>AccessibilityService</code> API to retrieve window content, inspect visible accessibility nodes (view IDs, text labels, clickable states, and bounding boxes), and dispatch user-directed gestures (e.g. clicks, swipes, and text input).</li>
-        <li><strong>Legitimate Purpose:</strong> The service is used exclusively to fulfill explicit user automation commands (e.g. navigating settings, clicking buttons, testing app flows, and answering questions about on-screen content).</li>
-        <li><strong>Screen data:</strong> Accessibility snapshots can contain visible text and controls from other apps. Orbital processes them on the device for automation. If you request AI screen analysis, screen information may be sent to your selected AI provider. Optional Laptop Bridge inspection sends the snapshot to your paired laptop, where AI tools may process it. Avoid sensitive screens during automation. Orbital does not sell this data.</li>
-        <li><strong>No Advertising or Tracking:</strong> Accessibility data is not used for advertising, profiling, or behavioral analytics. Screen snapshots are sent to your paired laptop only when you request inspection through the Laptop Bridge.</li>
-        <li><strong>Voluntary Consent & Revocation:</strong> The Accessibility Service is disabled by default and requires explicit, voluntary user activation via a prominent disclosure dialog. You can revoke or disable this permission at any time in Android System Settings &rarr; Accessibility.</li>
-    </ul>
+    <h4>3. Zero Accessibility Service Architecture (Banking & UPI Safe)</h4>
+    <p>Orbital does <strong>not</strong> register, request, or run any Android Accessibility Service. This guarantees that banking apps, Google Pay, PhonePe, and payment systems operate without interruption or suspicious activity warnings. Device actions are performed dynamically via standard Android Intents and rootless ADB Wireless (Shizuku) shell scripts pursuant strictly to user commands.</p>
+
 
     <h4>4. Remote Laptop AI Bridge & Cryptographic Security</h4>
     <p>Orbital features an optional wireless Laptop AI Bridge allowing verified desktop development environments (e.g. Antigravity IDE, Claude Code, Cursor, ChatGPT MCP) to dispatch remote automation commands to your device over local Wi-Fi, USB reverse forwarding, or encrypted WebSockets:</p>
@@ -51,7 +45,6 @@
     <ul>
         <li><code>RECORD_AUDIO</code>: Required for voice input when the microphone button is pressed.</li>
         <li><code>SYSTEM_ALERT_WINDOW</code>: Required for rendering the optional floating mascot overlay.</li>
-        <li><code>BIND_ACCESSIBILITY_SERVICE</code>: Required for on-screen node inspection and simulated touch automation.</li>
         <li><code>POST_NOTIFICATIONS</code>: Required for automated status alerts and scheduled briefings (Android 13+).</li>
         <li><code>ACCESS_NETWORK_STATE</code> & <code>INTERNET</code>: Required for connecting directly to your chosen AI model endpoints and local bridge.</li>
         <li><code>PACKAGE_USAGE_STATS</code>: Used strictly on-device to pause assistant overlays during payment or banking app usage.</li>
