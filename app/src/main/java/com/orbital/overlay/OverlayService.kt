@@ -1068,7 +1068,7 @@ class OverlayService : Service() {
                     if (isFailure) {
                         // Failure recovery buttons
                         val settingsBtn = TextView(this).apply {
-                            text = "⚙️ Accessibility Settings"
+                            text = "⚙️ Automation Settings"
                             textSize = 10.5f
                             setTextColor(Color.parseColor("#FCA5A5"))
                             setBackgroundResource(R.drawable.bg_chip_suggestion)
@@ -1077,7 +1077,7 @@ class OverlayService : Service() {
                                 marginEnd = (4 * density).toInt()
                             }
                             setOnClickListener {
-                                com.orbital.automation.OrbitalAccessibilityService.openSettings(this@OverlayService)
+                                com.orbital.automation.OrbitalAutomationEngine.openSettings(this@OverlayService)
                             }
                         }
 
@@ -1137,7 +1137,7 @@ class OverlayService : Service() {
                                             chatEngine.sendMessage("Screen Harvest Report:\n$detailsText\nWhat should we do next?")
                                         }
                                         is ActionResult.Error -> {
-                                            chatEngine.sendMessage("Screen Harvest Alert: ${result.errorMessage}. You can tap '⚙️ Accessibility Settings' or search on the web.")
+                                            chatEngine.sendMessage("Screen Harvest Alert: ${result.errorMessage}. You can tap '⚙️ Automation Settings' or search on the web.")
                                         }
                                     }
                                 }
@@ -1607,11 +1607,12 @@ class OverlayService : Service() {
                         }
 
                         get("/api/screen/snapshot") {
-                            val snapshot = com.orbital.automation.OrbitalAccessibilityService.instance?.captureScreenHierarchy()
+                            val snapshot = com.orbital.automation.OrbitalAutomationEngine.instance?.captureScreenHierarchy()
+                                ?: com.orbital.automation.ShizukuAutomationManager.dumpScreenHierarchy()
                             if (snapshot != null) {
                                 call.respond(HttpStatusCode.OK, mapOf("status" to "success", "snapshot" to snapshot))
                             } else {
-                                call.respond(HttpStatusCode.OK, mapOf("status" to "unavailable", "message" to "Accessibility service not active or screen unavailable"))
+                                call.respond(HttpStatusCode.OK, mapOf("status" to "unavailable", "message" to "Automation engine or screen unavailable"))
                             }
                         }
 

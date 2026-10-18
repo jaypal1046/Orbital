@@ -38,7 +38,7 @@ class ActionChainExecutor @Inject constructor(
      */
     suspend fun executeChain(
         chain: MacroChain,
-        serviceProvider: () -> com.orbital.automation.OrbitalAccessibilityService?
+        serviceProvider: () -> com.orbital.automation.OrbitalAutomationEngine?
     ): ReActTaskSummary = withContext(Dispatchers.IO) {
         val reactSteps = chain.steps.mapIndexed { index, macroStep ->
             val criterion = macroStep.assertionText?.let { text ->

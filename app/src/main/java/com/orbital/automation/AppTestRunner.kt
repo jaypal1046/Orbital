@@ -28,8 +28,7 @@ class AppTestRunner(
     suspend fun run(targetApp: String, userMessages: List<String>): ActionResult {
         val opened = withContext(Dispatchers.IO) { executor.performAppTesting(targetApp) }
         if (opened is ActionResult.Error) return opened
-        val service = OrbitalAccessibilityService.instance ?: return ActionResult.Error("Accessibility service disconnected.")
-        val first = stableScreen(service) ?: return ActionResult.Error("App screen could not be read.")
+        val first = stableScreen() ?: return ActionResult.Error("App screen could not be read. Please ensure Orbital automation is active.")
         val appPackage = first.packageName
         val seen = mutableSetOf<String>()
         val report = mutableListOf<String>()
@@ -114,10 +113,10 @@ class AppTestRunner(
             if (frame.remaining.isEmpty() || stack.size > 3) {
                 val finished = stack.removeAt(stack.lastIndex)
                 if (stack.isEmpty()) break
-                val returnedAction = if (finished.arrivedByScroll) service.performScroll(false)
-                    else service.pressGlobalKey("BACK")
+                val returnedAction = if (finished.arrivedByScroll) performScroll(false)
+                    else pressBack()
                 if (!returnedAction) { stopped = "Return navigation failed"; break }
-                val returned = stableScreen(service)
+                val returned = stableScreen()
                 if (returned == null) { stopped = "Return screen unreadable"; break }
                 current = returned
                 if (signature(current) != signature(stack.last().screen)) {
@@ -131,13 +130,13 @@ class AppTestRunner(
 
             val index = frame.remaining.removeAt(0)
             if (index == -1) {
-                if (!service.performScroll(true)) continue
-                val next = stableScreen(service)
+                if (!performScroll(true)) continue
+                val next = stableScreen()
                 if (next == null) { stopped = "Scrolled screen unreadable"; break }
                 if (signature(next) == signature(frame.screen)) continue
                 if (next.packageName != appPackage || signature(next) in seen) {
-                    if (!service.performScroll(false)) { stopped = "Scroll return failed"; break }
-                    val returned = stableScreen(service)
+                    if (!performScroll(false)) { stopped = "Scroll return failed"; break }
+                    val returned = stableScreen()
                     if (returned == null) { stopped = "Scroll return unreadable"; break }
                     current = returned
                     if (signature(current) != signature(frame.screen)) { stopped = "Scroll did not return to prior view"; break }
@@ -150,22 +149,19 @@ class AppTestRunner(
             }
             val control = frame.screen.elements[index]
             val target = label(control) ?: continue
-            val refreshed = service.captureScreenHierarchy()
+            val refreshed = captureScreen()
             if (refreshed == null) { stopped = "Screen unreadable before tap"; break }
             if (signature(refreshed) != signature(frame.screen)) { stopped = "Screen changed before tap"; break }
-            val tapped = withContext(Dispatchers.IO) {
-                if (target.contains(":id/")) service.clickElementById(target)
-                else service.clickElementByText(target, exact = true)
-            }
+            val tapped = tapElement(target, control)
             if (!tapped) { report += "Could not open $target"; continue }
-            val next = stableScreen(service)
+            val next = stableScreen()
             if (next == null) { stopped = "Resulting screen unreadable"; break }
             if (signature(next) == signature(frame.screen)) { report += "$target produced no observed screen change"; continue }
             if (next.packageName != appPackage || signature(next) in seen) {
                 report += if (next.packageName != appPackage) "$target opened another app; returned without interacting there"
                     else "$target opened a previously visited screen; returned"
-                if (!service.pressGlobalKey("BACK")) { stopped = "Back navigation failed"; break }
-                val returned = stableScreen(service)
+                if (!pressBack()) { stopped = "Back navigation failed"; break }
+                val returned = stableScreen()
                 if (returned == null || signature(returned) != signature(frame.screen)) {
                     stopped = "Back did not return to the previous screen"
                     break
@@ -181,10 +177,10 @@ class AppTestRunner(
         if (signature(current) != signature(first)) {
             for (attempt in 1..4) {
                 if (signature(current) == signature(first)) break
-                val returned = if (arrivedByScroll) service.performScroll(false)
-                    else service.pressGlobalKey("BACK")
+                val returned = if (arrivedByScroll) performScroll(false)
+                    else pressBack()
                 if (!returned) break
-                current = stableScreen(service) ?: current
+                current = stableScreen() ?: current
                 arrivedByScroll = stack.lastOrNull { signature(it.screen) == signature(current) }?.arrivedByScroll == true
             }
             if (signature(current) != signature(first)) stopped = stopped ?: "Could not return to the initial screen"
@@ -234,14 +230,64 @@ class AppTestRunner(
 
     private fun signature(screen: ScreenHierarchySnapshot): String = screen.testStateHash()
 
-    private suspend fun stableScreen(service: OrbitalAccessibilityService): ScreenHierarchySnapshot? {
-        var previous = service.captureScreenHierarchy() ?: return null
+    private suspend fun captureScreen(): ScreenHierarchySnapshot? {
+        return OrbitalAutomationEngine.instance?.captureScreenHierarchy()
+            ?: ShizukuAutomationManager.dumpScreenHierarchy()
+    }
+
+    private suspend fun stableScreen(): ScreenHierarchySnapshot? {
+        var previous = captureScreen() ?: return null
         repeat(4) {
             delay(350)
-            val next = service.captureScreenHierarchy() ?: return previous
+            val next = captureScreen() ?: return previous
             if (signature(next) == signature(previous)) return next
             previous = next
         }
         return previous
+    }
+
+    private suspend fun performScroll(forward: Boolean): Boolean {
+        val service = OrbitalAutomationEngine.instance
+        if (service != null) return service.performScroll(forward)
+        val cmd = if (forward) "input swipe 540 1600 540 600 250" else "input swipe 540 600 540 1600 250"
+        val res = ShizukuAutomationManager.exec(cmd)
+        delay(400)
+        return res.isSuccess
+    }
+
+    private suspend fun pressBack(): Boolean {
+        val service = OrbitalAutomationEngine.instance
+        if (service != null) return service.pressGlobalKey("BACK")
+        val res = ShizukuAutomationManager.exec("input keyevent 4")
+        delay(400)
+        return res.isSuccess
+    }
+
+    private suspend fun tapElement(target: String, control: UIElement?): Boolean {
+        val service = OrbitalAutomationEngine.instance
+        if (service != null) {
+            return withContext(Dispatchers.IO) {
+                if (target.contains(":id/")) service.clickElementById(target)
+                else service.clickElementByText(target, exact = true)
+            }
+        }
+        val bounds = control?.bounds
+        if (bounds != null && bounds.width() > 0 && bounds.height() > 0) {
+            val cx = bounds.centerX()
+            val cy = bounds.centerY()
+            val res = ShizukuAutomationManager.exec("input tap $cx $cy")
+            delay(400)
+            return res.isSuccess
+        }
+        val latest = captureScreen()
+        val match = SemanticElementMatcher.findBestElementMatch(target, latest?.elements.orEmpty())
+        if (match != null) {
+            val cx = match.element.bounds.centerX()
+            val cy = match.element.bounds.centerY()
+            val res = ShizukuAutomationManager.exec("input tap $cx $cy")
+            delay(400)
+            return res.isSuccess
+        }
+        return false
     }
 }

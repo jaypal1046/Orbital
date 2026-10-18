@@ -5,7 +5,9 @@ import android.util.Log
 import com.orbital.action.ActionResult
 import com.orbital.action.DeviceAction
 import com.orbital.action.DeviceActionExecutor
-import com.orbital.automation.OrbitalAccessibilityService
+import com.orbital.automation.AutonomousScriptEngine
+import com.orbital.automation.OrbitalAutomationEngine
+import com.orbital.automation.ShizukuAutomationManager
 import com.orbital.chat.ChatEngine
 import com.orbital.data.db.ChatHistoryRepository
 import kotlinx.coroutines.Dispatchers
@@ -35,19 +37,11 @@ class BridgeActionDispatcher @Inject constructor(
     }
 
     /**
-     * Captures current on-screen accessibility tree snapshot.
+     * Captures current on-screen UI hierarchy tree snapshot dynamically without AccessibilityService.
      */
-    suspend fun captureScreenState(): ScreenStatePayload = withContext(Dispatchers.Main) {
-        val service = OrbitalAccessibilityService.instance
-        if (service == null) {
-            val fgPkg = OrbitalAccessibilityService.currentForegroundPackage.value.ifBlank { "unknown" }
-            return@withContext ScreenStatePayload(
-                currentPackage = fgPkg,
-                nodes = emptyList()
-            )
-        }
-
-        val snapshot = service.captureScreenHierarchy()
+    suspend fun captureScreenState(): ScreenStatePayload = withContext(Dispatchers.IO) {
+        val snapshot = OrbitalAutomationEngine.instance?.captureScreenHierarchy()
+            ?: ShizukuAutomationManager.dumpScreenHierarchy()
         val displayMetrics = context.resources.displayMetrics
         val nodesList = snapshot?.elements?.map { el ->
             ScreenNodeDto(
@@ -64,7 +58,7 @@ class BridgeActionDispatcher @Inject constructor(
         } ?: emptyList()
 
         ScreenStatePayload(
-            currentPackage = snapshot?.packageName ?: OrbitalAccessibilityService.currentForegroundPackage.value.ifBlank { "com.ai.orbital" },
+            currentPackage = snapshot?.packageName ?: OrbitalAutomationEngine.currentForegroundPackage.value.ifBlank { "com.ai.orbital" },
             currentActivity = snapshot?.activityTitle ?: "",
             screenWidth = displayMetrics.widthPixels,
             screenHeight = displayMetrics.heightPixels,
@@ -91,9 +85,8 @@ class BridgeActionDispatcher @Inject constructor(
         query: String? = null,
         url: String? = null,
         target: String? = null,
-        customPrompt: String? = null,
-        service: OrbitalAccessibilityService?
-    ): Pair<Boolean, String> = withContext(Dispatchers.Main) {
+        customPrompt: String? = null
+    ): Pair<Boolean, String> = withContext(Dispatchers.IO) {
         when (actionType) {
             BridgeActionType.INSPECT_SCREEN -> {
                 val state = captureScreenState()
@@ -101,105 +94,87 @@ class BridgeActionDispatcher @Inject constructor(
             }
 
             BridgeActionType.TAKE_SCREENSHOT -> {
-                var success = false
-                var msg = "Failed to capture screenshot"
-                if (service != null && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
-                    val file = service.captureScreenshotAsync()
-                    if (file != null && file.exists()) {
-                        success = true
-                        msg = "Captured screenshot: ${file.name} (${file.length() / 1024} KB)"
-                    }
-                } else if (service != null) {
-                    success = service.pressGlobalKey("TAKE_SCREENSHOT")
-                    msg = "Dispatched system screenshot key"
-                }
+                val screenshotDir = java.io.File(context.filesDir, "screenshots").apply { mkdirs() }
+                val file = java.io.File(screenshotDir, "screen_${System.currentTimeMillis()}.png")
+                val success = ShizukuAutomationManager.captureScreenshot(file)
+                val msg = if (success) "Captured screenshot: ${file.name} (${file.length() / 1024} KB)" else "Failed to capture screenshot"
                 success to msg
             }
 
             BridgeActionType.CLICK_NODE -> {
                 val textQuery = targetText.orEmpty()
-                var success = false
-                if (service != null) {
-                    if (!targetId.isNullOrBlank()) {
-                        success = service.clickElementById(targetId)
-                    }
-                    if (!success && textQuery.isNotBlank()) {
-                        success = service.clickElementSmart(textQuery)
-                    }
-                    // Obstacle recovery attempt: if failed, check for blocking popup, dismiss, and retry
-                    if (!success) {
-                        val cleared = resolvedObstacleEngine.autoClearIfPresent(service)
-                        if (cleared) {
-                            kotlinx.coroutines.delay(250)
-                            if (!targetId.isNullOrBlank()) {
-                                success = service.clickElementById(targetId)
-                            }
-                            if (!success && textQuery.isNotBlank()) {
-                                success = service.clickElementSmart(textQuery)
-                            }
-                        }
-                    }
+                var success = if (!targetId.isNullOrBlank()) {
+                    OrbitalAutomationEngine.instance?.clickElementById(targetId) ?: false
+                } else false
+                if (!success && textQuery.isNotBlank()) {
+                    success = OrbitalAutomationEngine.instance?.clickElementByText(textQuery) ?: false
                 }
                 success to (if (success) "Clicked target '$textQuery'" else "Element '$textQuery' not found on screen")
             }
 
             BridgeActionType.CLICK_COORDINATES -> {
-                val success = if (coordinates != null && coordinates.size >= 2 && service != null) {
-                    service.tapCoordinates(coordinates[0].toFloat(), coordinates[1].toFloat())
+                val success = if (coordinates != null && coordinates.size >= 2) {
+                    OrbitalAutomationEngine.instance?.tapCoordinates(coordinates[0].toFloat(), coordinates[1].toFloat())
+                        ?: ShizukuAutomationManager.tap(coordinates[0], coordinates[1])
                 } else false
                 success to (if (success) "Tapped at (${coordinates?.get(0)}, ${coordinates?.get(1)})" else "Failed to tap coordinates")
             }
 
             BridgeActionType.TYPE_TEXT -> {
                 val text = textToType.orEmpty()
-                var success = service?.inputText(text, targetText) ?: false
-                if (!success && service != null) {
-                    val cleared = resolvedObstacleEngine.autoClearIfPresent(service)
-                    if (cleared) {
-                        kotlinx.coroutines.delay(250)
-                        success = service.inputText(text, targetText)
-                    }
-                }
+                val success = OrbitalAutomationEngine.instance?.inputText(text, targetText)
+                    ?: ShizukuAutomationManager.typeText(text)
                 success to (if (success) "Typed '$text'" else "Failed to type text into target field")
             }
 
             BridgeActionType.SWIPE -> {
-                val success = if (startCoordinates != null && endCoordinates != null && service != null) {
-                    service.swipeCoordinates(
+                val success = if (startCoordinates != null && endCoordinates != null) {
+                    OrbitalAutomationEngine.instance?.swipeCoordinates(
                         startCoordinates[0].toFloat(),
                         startCoordinates[1].toFloat(),
                         endCoordinates[0].toFloat(),
                         endCoordinates[1].toFloat(),
                         300
+                    ) ?: ShizukuAutomationManager.swipe(
+                        startCoordinates[0], startCoordinates[1],
+                        endCoordinates[0], endCoordinates[1], 300
                     )
                 } else {
                     val dir = swipeDirection?.uppercase() ?: "UP"
-                    service?.swipeDirection(dir) ?: false
+                    OrbitalAutomationEngine.instance?.swipeDirection(dir)
+                        ?: ShizukuAutomationManager.swipe(540, 1800, 540, 600, 300)
                 }
                 success to "Swiped ${swipeDirection ?: "gesture"} (success=$success)"
             }
 
             BridgeActionType.OPEN_APP -> {
                 val targetApp = packageName ?: targetText ?: target.orEmpty()
+                val resolvedPkg = AutonomousScriptEngine.resolveAppPackage(context, targetApp) ?: targetApp
                 var success = false
                 var message = ""
 
-                val directIntent = context.packageManager.getLaunchIntentForPackage(targetApp)
-                if (directIntent != null) {
-                    directIntent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-                    context.startActivity(directIntent)
+                val shellLaunch = ShizukuAutomationManager.exec("monkey -p $resolvedPkg -c android.intent.category.LAUNCHER 1")
+                if (shellLaunch.isSuccess) {
                     success = true
-                    message = "Launched app package $targetApp"
+                    message = "Launched app $resolvedPkg via privileged shell"
                 } else {
-                    val execResult = actionExecutor.execute(DeviceAction(action = "OPEN_APP", target = targetApp))
-                    when (execResult) {
-                        is ActionResult.Success -> {
-                            success = true
-                            message = execResult.message
-                        }
-                        is ActionResult.Error -> {
-                            success = false
-                            message = execResult.errorMessage
+                    val directIntent = context.packageManager.getLaunchIntentForPackage(resolvedPkg)
+                    if (directIntent != null) {
+                        directIntent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                        context.startActivity(directIntent)
+                        success = true
+                        message = "Launched app package $resolvedPkg"
+                    } else {
+                        val execResult = actionExecutor.execute(DeviceAction(action = "OPEN_APP", target = targetApp))
+                        when (execResult) {
+                            is ActionResult.Success -> {
+                                success = true
+                                message = execResult.message
+                            }
+                            is ActionResult.Error -> {
+                                success = false
+                                message = execResult.errorMessage
+                            }
                         }
                     }
                 }
@@ -208,7 +183,8 @@ class BridgeActionDispatcher @Inject constructor(
 
             BridgeActionType.PRESS_KEY -> {
                 val key = keyCode?.uppercase() ?: "BACK"
-                var success = service?.pressGlobalKey(key) ?: false
+                var success = OrbitalAutomationEngine.instance?.pressGlobalKey(key)
+                    ?: ShizukuAutomationManager.pressKey(key)
                 var msg = "Pressed key $key (success=$success)"
 
                 if (!success && key == "HOME") {
@@ -309,7 +285,6 @@ class BridgeActionDispatcher @Inject constructor(
     suspend fun dispatchAction(action: ActionPayload): ActionResultPayload = actionMutex.withLock {
         withContext(Dispatchers.Main) {
             val startTime = System.currentTimeMillis()
-            val service = OrbitalAccessibilityService.instance
 
             try {
                 when (action.actionType) {
@@ -355,8 +330,7 @@ class BridgeActionDispatcher @Inject constructor(
                                 query = step.query,
                                 url = step.url,
                                 target = step.target,
-                                customPrompt = step.customPrompt,
-                                service = service
+                                customPrompt = step.customPrompt
                             )
 
                             var finalOk = stepOk
@@ -370,7 +344,8 @@ class BridgeActionDispatcher @Inject constructor(
                             // Post-step assertion check if specified
                             if (finalOk && !step.assertionText.isNullOrBlank()) {
                                 val assertionQuery = step.assertionText
-                                val snap = service?.captureScreenHierarchy()
+                                val snap = OrbitalAutomationEngine.instance?.captureScreenHierarchy()
+                                    ?: ShizukuAutomationManager.dumpScreenHierarchy()
                                 val criterion = when {
                                     assertionQuery.startsWith("absent:", ignoreCase = true) ->
                                         com.orbital.foreman.StateVerificationCriterion.ElementAbsent(assertionQuery.substringAfter("absent:").trim())
@@ -629,16 +604,12 @@ class BridgeActionDispatcher @Inject constructor(
                 }
 
                 BridgeActionType.TAKE_SCREENSHOT -> {
-                    var file: java.io.File? = null
-                    if (service != null && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
-                        file = service.captureScreenshotAsync()
-                    } else if (service != null) {
-                        service.pressGlobalKey("TAKE_SCREENSHOT")
-                    }
+                    val screenshotDir = java.io.File(context.filesDir, "screenshots").apply { mkdirs() }
+                    val file = java.io.File(screenshotDir, "screen_${System.currentTimeMillis()}.png")
+                    val success = ShizukuAutomationManager.captureScreenshot(file)
 
-                    val success = file != null && file.exists()
-                    val base64 = if (success) {
-                        val bytes = file!!.readBytes()
+                    val base64 = if (success && file.exists()) {
+                        val bytes = file.readBytes()
                         android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
                     } else null
 
@@ -646,9 +617,9 @@ class BridgeActionDispatcher @Inject constructor(
                     ActionResultPayload(
                         actionId = action.actionId,
                         success = success,
-                        message = if (success) "Screenshot captured successfully (${file!!.length() / 1024} KB)" else "Failed to capture screenshot on device",
+                        message = if (success) "Screenshot captured successfully (${file.length() / 1024} KB)" else "Failed to capture screenshot on device",
                         screenshotBase64 = base64,
-                        screenshotFilePath = file?.absolutePath,
+                        screenshotFilePath = file.takeIf { it.exists() }?.absolutePath,
                         executionDurationMs = System.currentTimeMillis() - startTime,
                         updatedScreenState = state
                     )
@@ -671,8 +642,7 @@ class BridgeActionDispatcher @Inject constructor(
                         query = action.query,
                         url = action.url,
                         target = action.target,
-                        customPrompt = action.customPrompt,
-                        service = service
+                        customPrompt = action.customPrompt
                     )
 
                     val state = captureScreenState()

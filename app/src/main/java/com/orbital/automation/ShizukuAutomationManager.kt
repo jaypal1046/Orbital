@@ -27,6 +27,18 @@ object ShizukuAutomationManager {
     private const val TAG = "ShizukuAutomation"
     const val SHIZUKU_PACKAGE = "moe.shizuku.privileged.api"
     const val SHIZUKU_REQUEST_CODE = 4821
+    const val LOCAL_DAEMON_PORT = 19876
+
+    fun isLocalDaemonRunning(): Boolean {
+        return try {
+            val socket = java.net.Socket()
+            socket.connect(java.net.InetSocketAddress("127.0.0.1", LOCAL_DAEMON_PORT), 250)
+            socket.close()
+            true
+        } catch (_: Exception) {
+            false
+        }
+    }
 
     fun isShizukuInstalled(context: Context): Boolean {
         return try {
@@ -53,7 +65,7 @@ object ShizukuAutomationManager {
         }
     }
 
-    fun isReady(): Boolean = isRunning() && hasPermission()
+    fun isReady(): Boolean = (isRunning() && hasPermission()) || isLocalDaemonRunning()
 
     fun requestPermission(requestCode: Int = SHIZUKU_REQUEST_CODE) {
         try {
@@ -86,7 +98,32 @@ object ShizukuAutomationManager {
         }
     }
 
+    private fun execViaLocalDaemon(command: String): ShellResult? {
+        return try {
+            val socket = java.net.Socket()
+            socket.connect(java.net.InetSocketAddress("127.0.0.1", LOCAL_DAEMON_PORT), 400)
+            socket.soTimeout = 20000
+            val writer = java.io.BufferedWriter(java.io.OutputStreamWriter(socket.getOutputStream()))
+            val reader = java.io.BufferedReader(java.io.InputStreamReader(socket.getInputStream()))
+
+            writer.write("$command\nexit\n")
+            writer.flush()
+
+            val stdout = reader.readText().trim()
+            socket.close()
+            ShellResult(0, stdout, "")
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     suspend fun exec(command: String): ShellResult = withContext(Dispatchers.IO) {
+        // Backend 0: Native Local Loopback Daemon (UID 2000 shell)
+        val daemonResult = execViaLocalDaemon(command)
+        if (daemonResult != null) {
+            return@withContext daemonResult
+        }
+
         // Backend 1: Shizuku (Rootless ADB Wireless)
         if (isRunning() && hasPermission()) {
             try {
@@ -113,9 +150,7 @@ object ShizukuAutomationManager {
             val stdout = process.inputStream.bufferedReader().use { it.readText() }
             val stderr = process.errorStream.bufferedReader().use { it.readText() }
             val exitCode = process.waitFor()
-            if (exitCode == 0) {
-                return@withContext ShellResult(exitCode, stdout.trim(), stderr.trim())
-            }
+            return@withContext ShellResult(exitCode, stdout.trim(), stderr.trim())
         } catch (_: Exception) {}
 
         // Backend 3: Root SU execution
@@ -193,20 +228,19 @@ object ShizukuAutomationManager {
         val parent = targetFile.parentFile
         if (parent != null && !parent.exists()) parent.mkdirs()
         val tempPath = "/data/local/tmp/orbital_screenshot_${System.currentTimeMillis()}.png"
-        val capResult = exec("screencap -p $tempPath")
-        if (!capResult.isSuccess) return false
-
-        // Pull from tempPath to app storage
-        val copyResult = exec("cp $tempPath ${targetFile.absolutePath} && rm $tempPath")
-        return copyResult.isSuccess || targetFile.exists() && targetFile.length() > 0
+        val capResult = exec("screencap -p $tempPath >/dev/null 2>&1; cat $tempPath > ${targetFile.absolutePath}; rm -f $tempPath")
+        return targetFile.exists() && targetFile.length() > 0
     }
 
     suspend fun dumpScreenHierarchy(): ScreenHierarchySnapshot? = withContext(Dispatchers.IO) {
-        if (!isReady()) return@withContext null
+        if (!isReady()) {
+            Log.w(TAG, "Automation backend not ready (neither Shizuku nor Local Daemon active)")
+            return@withContext null
+        }
         val dumpPath = "/data/local/tmp/orbital_dump.xml"
-        val dumpCmd = exec("uiautomator dump $dumpPath && cat $dumpPath && rm $dumpPath")
-        if (!dumpCmd.isSuccess || dumpCmd.stdout.isBlank()) {
-            Log.w(TAG, "uiautomator dump failed: ${dumpCmd.stderr}")
+        val dumpCmd = exec("uiautomator dump $dumpPath >/dev/null 2>&1; cat $dumpPath; rm -f $dumpPath")
+        if (dumpCmd.stdout.isBlank()) {
+            Log.w(TAG, "uiautomator dump produced empty output: ${dumpCmd.stderr}")
             return@withContext null
         }
 

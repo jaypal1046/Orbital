@@ -205,9 +205,8 @@ private fun AutomationFeatureItem(icon: String, title: String, desc: String) {
     }
 }
 
-// Backwards compatibility alias
 @Composable
-fun AccessibilityDisclosureDialog(
+fun DeviceAutomationDisclosureDialog(
     onDismiss: () -> Unit,
     onEnableClicked: () -> Unit = {}
 ) {

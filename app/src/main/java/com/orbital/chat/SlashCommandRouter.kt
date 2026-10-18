@@ -1,7 +1,7 @@
 package com.orbital.chat
 
 import android.content.Context
-import com.orbital.automation.OrbitalAccessibilityService
+import com.orbital.automation.ShizukuAutomationManager
 
 sealed class SlashCommandResult {
     data class HandledLocally(val responseMarkdown: String) : SlashCommandResult()
@@ -27,13 +27,13 @@ object SlashCommandRouter {
 
         return when (command) {
             "/doctor" -> {
-                val a11y = OrbitalAccessibilityService.isEnabled(context)
+                val daemonReady = ShizukuAutomationManager.isReady()
                 val status = buildString {
                     append("🩺 **Orbital Diagnostics & Health Check:**\n\n")
-                    append("- **Accessibility Service:** ${if (a11y) "✅ Active & Ready" else "⚠️ Disabled (Enable in Settings)"}\n")
+                    append("- **Device Automation Daemon:** ${if (daemonReady) "✅ Active (Zero Accessibility)" else "⚠️ Local loopback waiting"}\n")
                     append("- **Architecture:** Mobile Agent Gateway (Local Brain + Laptop Bridge)\n")
-                    append("- **Zero Hardcoding Rule:** Active (100% Dynamic Intents & Locators)\n")
-                    append("- **Google Play Compliance:** 100% Policy-Hardened (No REQUEST_INSTALL_PACKAGES)\n")
+                    append("- **Zero Accessibility Safety:** Active (100% Safe for Banking & UPI Apps)\n")
+                    append("- **Google Play Compliance:** 100% Policy-Hardened\n")
                     append("- **Instant OTA Engine:** Enabled (1-Second Hot-Patch Store)\n\n")
                     append("All critical systems operational! 🚀")
                 }

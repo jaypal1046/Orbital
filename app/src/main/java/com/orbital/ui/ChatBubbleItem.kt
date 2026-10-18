@@ -711,33 +711,6 @@ fun AntigravityExecutionTimeline(
                                         lineHeight = 14.sp
                                     )
 
-                                    if (step.details?.contains("Accessibility", ignoreCase = true) == true ||
-                                        step.details?.contains("Settings > Accessibility", ignoreCase = true) == true) {
-                                        Spacer(modifier = Modifier.height(6.dp))
-                                        Surface(
-                                            shape = RoundedCornerShape(4.dp),
-                                            color = Color(0xFF6366F1).copy(alpha = 0.2f),
-                                            border = BorderStroke(1.dp, Color(0xFF6366F1)),
-                                            modifier = Modifier.clickable {
-                                                com.orbital.automation.OrbitalAccessibilityService.openSettings(context)
-                                            }
-                                        ) {
-                                            Row(
-                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                            ) {
-                                                Text("⚙️", fontSize = 10.sp)
-                                                Text(
-                                                    "Open Accessibility Settings",
-                                                    fontSize = 10.sp,
-                                                    fontWeight = FontWeight.SemiBold,
-                                                    color = Color(0xFFA5B4FC)
-                                                )
-                                            }
-                                        }
-                                    }
-
                                     // File & Media Quick Actions (Open, Share, Copy Path)
                                     val stepFile = remember(step.details, step.title) {
                                         com.orbital.file.FileViewHelper.findExistingFile(context, "${step.details.orEmpty()} ${step.title}")

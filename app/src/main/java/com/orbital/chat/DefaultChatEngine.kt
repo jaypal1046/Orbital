@@ -4,7 +4,7 @@ import com.orbital.action.ActionParser
 import com.orbital.action.ActionResult
 import com.orbital.action.DeviceAction
 import com.orbital.action.DeviceActionExecutor
-import com.orbital.automation.OrbitalAccessibilityService
+import com.orbital.automation.OrbitalAutomationEngine
 import com.orbital.automation.ScreenHierarchySnapshot
 import com.orbital.foreman.StateVerificationCriterion
 import com.orbital.foreman.StateVerificationEngine
@@ -181,12 +181,12 @@ class DefaultChatEngine @Inject constructor(
         // 1. Check for immediate natural device action intents (zero-latency edge execution)
         val naturalAction = ActionParser.parseNaturalIntent(effectiveQuery)
         if (naturalAction != null) {
-            val beforeSnapshot = OrbitalAccessibilityService.instance?.captureScreenHierarchy()
+            val beforeSnapshot = OrbitalAutomationEngine.instance?.captureScreenHierarchy()
             val result = kotlinx.coroutines.withContext(Dispatchers.IO) {
                 deviceActionExecutor.execute(naturalAction)
             }
             val stateTransition = describeStateTransition(
-                beforeSnapshot, OrbitalAccessibilityService.instance?.captureScreenHierarchy()
+                beforeSnapshot, OrbitalAutomationEngine.instance?.captureScreenHierarchy()
             )
             val label = "⚡ " + naturalAction.action.replace('_', ' ').lowercase().replaceFirstChar { it.uppercase() }
             val fullContent = when (result) {
@@ -244,11 +244,11 @@ class DefaultChatEngine @Inject constructor(
 
         val promptWithSkills = if (skillsContext.isNotBlank()) "$promptWithOta$skillsContext" else promptWithOta
         val liveScreen = try {
-            OrbitalAccessibilityService.instance?.captureScreenHierarchy()?.toPromptSummary()?.take(6000)
+            OrbitalAutomationEngine.instance?.captureScreenHierarchy()?.toPromptSummary()?.take(6000)
         } catch (_: Exception) { null }
         val appTestHistory = try {
             com.orbital.automation.AppTestCache(context).relevantContext(
-                effectiveQuery, OrbitalAccessibilityService.currentForegroundPackage.value
+                effectiveQuery, OrbitalAutomationEngine.currentForegroundPackage.value
             )
         } catch (_: Exception) { "" }
         val finalSystemPrompt = buildString {
@@ -407,7 +407,7 @@ class DefaultChatEngine @Inject constructor(
                     }
 
                     val actionStartTime = System.currentTimeMillis()
-                    val beforeSnapshot = OrbitalAccessibilityService.instance?.captureScreenHierarchy()
+                    val beforeSnapshot = OrbitalAutomationEngine.instance?.captureScreenHierarchy()
                     com.orbital.ui.MascotEventBus.postEvent(com.orbital.ui.MascotEvent.ActionExecuting(action.action))
                     val isInput = action.action.uppercase() in setOf("INPUT_TEXT", "TYPE_TEXT", "TYPE")
                     val passwordTarget = isInput && beforeSnapshot?.elements?.any { field ->
@@ -435,9 +435,9 @@ class DefaultChatEngine @Inject constructor(
                     } else kotlinx.coroutines.withContext(Dispatchers.IO) {
                         deviceActionExecutor.execute(action)
                     }
-                    val snapshot = if (OrbitalAccessibilityService.instance != null) {
+                    val snapshot = if (OrbitalAutomationEngine.instance != null) {
                         kotlinx.coroutines.delay(250)
-                        OrbitalAccessibilityService.instance?.captureScreenHierarchy()
+                        OrbitalAutomationEngine.instance?.captureScreenHierarchy()
                     } else null
                     val stateTransition = describeStateTransition(beforeSnapshot, snapshot)
                     val verificationFailure = if (result is ActionResult.Success) {
@@ -641,13 +641,13 @@ class DefaultChatEngine @Inject constructor(
         _pendingConfirmation.value = null
         scope.launch {
             val startTime = System.currentTimeMillis()
-            val beforeSnapshot = OrbitalAccessibilityService.instance?.captureScreenHierarchy()
+            val beforeSnapshot = OrbitalAutomationEngine.instance?.captureScreenHierarchy()
             com.orbital.ui.MascotEventBus.postEvent(com.orbital.ui.MascotEvent.ActionExecuting(action.action))
             val result = kotlinx.coroutines.withContext(Dispatchers.IO) {
                 deviceActionExecutor.execute(action)
             }
             val stateTransition = describeStateTransition(
-                beforeSnapshot, OrbitalAccessibilityService.instance?.captureScreenHierarchy()
+                beforeSnapshot, OrbitalAutomationEngine.instance?.captureScreenHierarchy()
             )
             val duration = System.currentTimeMillis() - startTime
             val isSuccess = result is ActionResult.Success

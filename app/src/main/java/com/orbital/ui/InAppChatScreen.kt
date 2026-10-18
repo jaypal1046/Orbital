@@ -57,7 +57,7 @@ fun InAppChatScreen(
     var showAboutDialog by remember { mutableStateOf(false) }
     var showBridgeScreen by remember { mutableStateOf(false) }
     var showFeedbackDialog by remember { mutableStateOf(false) }
-    var showAccessibilityDisclosure by remember { mutableStateOf(false) }
+    var showDeviceAutomationDialog by remember { mutableStateOf(false) }
     var feedbackInitialLog by remember { mutableStateOf<String?>(null) }
     var showAttachmentSheet by remember { mutableStateOf(false) }
 
@@ -183,7 +183,7 @@ fun InAppChatScreen(
                     chatViewModel.checkForUpdates(force = true)
                 },
                 onOpenBridge = { showBridgeScreen = true },
-                onOpenAccessibilityDisclosure = { showAccessibilityDisclosure = true },
+                onOpenAccessibilityDisclosure = { showDeviceAutomationDialog = true },
                 onCloseDrawer = {
                     coroutineScope.launch { drawerState.close() }
                 }
@@ -733,11 +733,11 @@ fun InAppChatScreen(
         )
     }
 
-    // Prominent Accessibility Disclosure Modal (Google Play & Privacy Compliant)
-    if (showAccessibilityDisclosure) {
-        AccessibilityDisclosureDialog(
-            onDismiss = { showAccessibilityDisclosure = false },
-            onEnableClicked = { showAccessibilityDisclosure = false }
+    // Prominent Device Automation Information Modal (Zero Accessibility)
+    if (showDeviceAutomationDialog) {
+        DeviceAutomationDisclosureDialog(
+            onDismiss = { showDeviceAutomationDialog = false },
+            onEnableClicked = { showDeviceAutomationDialog = false }
         )
     }
 

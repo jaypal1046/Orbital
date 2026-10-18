@@ -5,7 +5,7 @@ import com.orbital.crash.CrashReporterEngine
 import com.orbital.action.ExecutionStep as ChatExecutionStep
 import com.orbital.action.StepStatus as ChatStepStatus
 import com.orbital.automation.ObstacleClearanceEngine
-import com.orbital.automation.OrbitalAccessibilityService
+import com.orbital.automation.OrbitalAutomationEngine
 import com.orbital.automation.ScreenHierarchySnapshot
 import kotlinx.coroutines.delay
 
@@ -59,7 +59,7 @@ class ReActExecutor(
     suspend fun executeStep(
         context: ReActStepContext,
         actionRunner: suspend () -> Boolean,
-        serviceProvider: () -> OrbitalAccessibilityService?
+        serviceProvider: () -> OrbitalAutomationEngine?
     ): ReActStepResult {
         val startTime = System.currentTimeMillis()
         val timeline = mutableListOf<ChatExecutionStep>()
@@ -281,7 +281,7 @@ class ReActExecutor(
     suspend fun executePlan(
         steps: List<ReActStepContext>,
         stepRunner: suspend (ReActStepContext) -> Boolean,
-        serviceProvider: () -> OrbitalAccessibilityService?,
+        serviceProvider: () -> OrbitalAutomationEngine?,
         stopOnError: Boolean = true
     ): ReActTaskSummary {
         val overallStart = System.currentTimeMillis()

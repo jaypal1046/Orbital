@@ -71,13 +71,18 @@ object AutonomousScriptEngine {
             val resolvedPkg = resolveAppPackage(context, targetApp)
             if (resolvedPkg != null) {
                 Log.i(TAG, "🚀 Launching target app package: $resolvedPkg for '$targetApp'")
-                val launchIntent = context.packageManager.getLaunchIntentForPackage(resolvedPkg)
-                if (launchIntent != null) {
-                    launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    context.startActivity(launchIntent)
-                    delay(1500)
-                    activePackage = resolvedPkg
-                }
+                // 1. Privileged shell launch (bypasses Android 10+ background activity restrictions)
+                ShizukuAutomationManager.exec("monkey -p $resolvedPkg -c android.intent.category.LAUNCHER 1")
+                // 2. Standard Intent launch fallback
+                try {
+                    val launchIntent = context.packageManager.getLaunchIntentForPackage(resolvedPkg)
+                    if (launchIntent != null) {
+                        launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        context.startActivity(launchIntent)
+                    }
+                } catch (_: Exception) {}
+                delay(2200)
+                activePackage = resolvedPkg
             }
         }
 
@@ -97,20 +102,17 @@ object AutonomousScriptEngine {
 
         val scriptCode = synthesizeScript(cleanInstruction, activePackage, elements)
 
-        // Step 4: Write script file to phone filesystem
+        // Step 4: Write script file to phone private storage (for audit & session history)
         val phoneScriptDir = File(context.filesDir, "autonomous_scripts").apply { mkdirs() }
         val phoneScriptFile = File(phoneScriptDir, baseScriptName)
         phoneScriptFile.writeText(scriptCode)
-        phoneScriptFile.setExecutable(true, false)
 
-        val deviceSharedPath = "/data/local/tmp/scripts/$baseScriptName"
-        ShizukuAutomationManager.exec("mkdir -p /data/local/tmp/scripts && cp ${phoneScriptFile.absolutePath} $deviceSharedPath && chmod 755 $deviceSharedPath")
-
-        Log.i(TAG, "📝 Script written to $deviceSharedPath (${scriptCode.lines().size} lines)")
+        Log.i(TAG, "📝 Script written to ${phoneScriptFile.absolutePath} (${scriptCode.lines().size} lines)")
 
         // Step 5: Execute the dynamically generated script on the phone
-        val execResult = ShizukuAutomationManager.exec("sh $deviceSharedPath")
-        Log.i(TAG, "⚡ Script executed with exit code ${execResult.exitCode}")
+        // Stream scriptCode directly into the shell via STDIN to bypass Android app sandbox file permissions
+        val execResult = ShizukuAutomationManager.exec(scriptCode)
+        Log.i(TAG, "⚡ Script executed with exit code ${execResult.exitCode}, stderr: ${execResult.stderr}")
 
         delay(1000)
 
@@ -121,13 +123,16 @@ object AutonomousScriptEngine {
         val extractedData = extractResultData(cleanInstruction, elements, postSnapshot?.elements.orEmpty())
 
         // Step 7: Capture result screenshot
-        val screenshotDevicePath = "/data/local/tmp/scripts/${baseScriptName.removeSuffix(".sh")}.png"
-        ShizukuAutomationManager.exec("/data/local/tmp/orbital_agent.sh screenshot $screenshotDevicePath")
+        val screenshotFile = File(phoneScriptDir, "${baseScriptName.removeSuffix(".sh")}.png")
+        ShizukuAutomationManager.exec("screencap -p /data/local/tmp/last_screenshot.png && cp /data/local/tmp/last_screenshot.png ${screenshotFile.absolutePath} 2>/dev/null || screencap -p /data/local/tmp/last_screenshot.png")
 
         val durationMs = System.currentTimeMillis() - startTime
-        val isSuccess = execResult.isSuccess || extractedData.isNotEmpty()
+        val hasSecurityException = execResult.stderr.contains("SecurityException", ignoreCase = true)
+        val isSuccess = execResult.isSuccess && !hasSecurityException
         val summary = if (isSuccess) {
             "Autonomous task completed successfully in ${durationMs}ms with ${extractedData.size} extracted data points."
+        } else if (hasSecurityException) {
+            "Execution blocked by Android OS: Shell daemon or Shizuku required for INJECT_EVENTS permission."
         } else {
             "Script executed with exit code ${execResult.exitCode}: ${execResult.stderr.ifBlank { execResult.stdout }}"
         }
@@ -135,13 +140,13 @@ object AutonomousScriptEngine {
         AutonomousTaskResult(
             success = isSuccess,
             instruction = cleanInstruction,
-            scriptPath = deviceSharedPath,
+            scriptPath = phoneScriptFile.absolutePath,
             scriptCode = scriptCode,
             executionStdout = execResult.stdout,
             executionStderr = execResult.stderr,
             extractedData = extractedData,
             summary = summary,
-            screenshotPath = screenshotDevicePath,
+            screenshotPath = if (screenshotFile.exists()) screenshotFile.absolutePath else "/data/local/tmp/last_screenshot.png",
             durationMs = durationMs
         )
     }
@@ -171,7 +176,9 @@ object AutonomousScriptEngine {
                 lowerInstruction.contains("search") ||
                 lowerInstruction.contains("enter") ||
                 lowerInstruction.contains("write") ||
-                lowerInstruction.contains("input")
+                lowerInstruction.contains("input") ||
+                lowerInstruction.contains("find") ||
+                lowerInstruction.contains("goto")
 
         val textToType = extractTextToType(instruction)
 
@@ -179,6 +186,9 @@ object AutonomousScriptEngine {
             val searchInput = elements.firstOrNull { it.isEditable }
                 ?: SemanticElementMatcher.findBestElementMatch("search", elements)?.element
                 ?: SemanticElementMatcher.findBestElementMatch("find", elements)?.element
+                ?: SemanticElementMatcher.findBestElementMatch("station", elements)?.element
+                ?: SemanticElementMatcher.findBestElementMatch("address", elements)?.element
+                ?: SemanticElementMatcher.findBestElementMatch("url", elements)?.element
 
             if (searchInput != null) {
                 val cx = (searchInput.bounds.left + searchInput.bounds.right) / 2
@@ -195,7 +205,7 @@ object AutonomousScriptEngine {
             sb.append("input text \"$escaped\"\n")
             sb.append("sleep 1\n\n")
 
-            if (lowerInstruction.contains("search") || lowerInstruction.contains("send") || lowerInstruction.contains("submit")) {
+            if (lowerInstruction.contains("search") || lowerInstruction.contains("send") || lowerInstruction.contains("submit") || lowerInstruction.contains("goto") || lowerInstruction.contains("find")) {
                 sb.append("# Step: Submit query (ENTER)\n")
                 sb.append("input keyevent 66\n")
                 sb.append("sleep 2\n\n")
@@ -232,7 +242,24 @@ object AutonomousScriptEngine {
             sb.append("sleep 1\n\n")
         }
 
-        // 4. Verification and Data Dump
+        // 4. Fallback Action: If no action generated yet, interact with the primary clickable control or scroll
+        val hasAnyAction = sb.contains("input tap") || sb.contains("input text") || sb.contains("input swipe")
+        if (!hasAnyAction) {
+            val clickable = elements.firstOrNull { it.isClickable && it.text.isNotBlank() && it.text.length > 2 }
+            if (clickable != null) {
+                val cx = (clickable.bounds.left + clickable.bounds.right) / 2
+                val cy = (clickable.bounds.top + clickable.bounds.bottom) / 2
+                sb.append("# Step: Tap prominent control '${clickable.text}'\n")
+                sb.append("input tap $cx $cy\n")
+                sb.append("sleep 1\n\n")
+            } else {
+                sb.append("# Step: Perform exploratory swipe\n")
+                sb.append("input swipe 540 1600 540 800 300\n")
+                sb.append("sleep 1\n\n")
+            }
+        }
+
+        // 5. Verification and Data Dump
         sb.append("# Step: Dump final UI state for data extraction\n")
         sb.append("uiautomator dump /data/local/tmp/task_result_dump.xml >/dev/null 2>&1 || true\n")
         sb.append("echo 'ORBITAL_AUTONOMOUS_TASK_SUCCESS'\n")
@@ -245,6 +272,13 @@ object AutonomousScriptEngine {
      */
     fun resolveAppPackage(context: Context, appNameOrPkg: String): String? {
         val query = appNameOrPkg.trim().lowercase()
+        val normalizedQuery = when (query) {
+            "crome" -> "chrome"
+            "train" -> "where is my train"
+            "map", "maps" -> "google maps"
+            else -> query
+        }
+        val cleanQuery = normalizedQuery.replace(" ", "")
         val pm = context.packageManager
 
         // Direct package match
@@ -257,15 +291,20 @@ object AutonomousScriptEngine {
         val installedApps = pm.getInstalledApplications(PackageManager.GET_META_DATA)
         for (app in installedApps) {
             val label = pm.getApplicationLabel(app).toString().lowercase()
-            if (label == query || app.packageName.lowercase() == query) {
+            val pkg = app.packageName.lowercase()
+            if (label == normalizedQuery || pkg == normalizedQuery || pkg == cleanQuery) {
                 return app.packageName
             }
         }
 
-        // Substring match
+        // Substring / stripped space match
         for (app in installedApps) {
             val label = pm.getApplicationLabel(app).toString().lowercase()
-            if (label.contains(query) || query.contains(label)) {
+            val cleanLabel = label.replace(" ", "")
+            val pkg = app.packageName.lowercase()
+            if (label.contains(normalizedQuery) || normalizedQuery.contains(label) ||
+                cleanLabel.contains(cleanQuery) || cleanQuery.contains(cleanLabel) ||
+                pkg.contains(cleanQuery)) {
                 return app.packageName
             }
         }
@@ -282,11 +321,14 @@ object AutonomousScriptEngine {
         val singleQuoteMatch = singleQuoteRegex.find(instruction)
         if (singleQuoteMatch != null) return singleQuoteMatch.groupValues[1]
 
-        val keywords = listOf("search for ", "type ", "enter ", "input ")
+        val keywords = listOf("search for ", "search ", "find ", "type ", "enter ", "input ", "goto ", "navigate to ", "open url ")
         for (kw in keywords) {
             if (instruction.contains(kw, ignoreCase = true)) {
                 val after = instruction.substring(instruction.indexOf(kw, ignoreCase = true) + kw.length).trim()
-                return after.split(",", " and then", " then").first().trim()
+                val candidate = after.split(",", " and then", " then", " on ", " in ").first().trim()
+                if (candidate.isNotBlank() && !candidate.equals("trains", ignoreCase = true) && !candidate.equals("station", ignoreCase = true)) {
+                    return candidate
+                }
             }
         }
         return ""

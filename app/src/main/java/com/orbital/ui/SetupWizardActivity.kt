@@ -39,7 +39,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.orbital.R
-import com.orbital.automation.OrbitalAccessibilityService
 import com.orbital.data.LlmRepository
 import com.orbital.data.SecureStorage
 import com.orbital.overlay.OverlayService
@@ -47,7 +46,7 @@ import com.orbital.overlay.OverlayService
 enum class OnboardingStep {
     WELCOME,
     MODELS_AND_KEYS,
-    PERMISSIONS_AND_ACCESSIBILITY,
+    OVERLAY_PERMISSIONS,
     CHARACTER_SELECTION
 }
 
@@ -137,11 +136,11 @@ fun OnboardingWizard(
                     llmRepository = llmRepository,
                     isOnboarding = isOnboarding,
                     onBack = { if (isOnboarding) currentStep = OnboardingStep.WELCOME else onClose() },
-                    onContinue = { if (isOnboarding) currentStep = OnboardingStep.PERMISSIONS_AND_ACCESSIBILITY else onClose() }
+                    onContinue = { if (isOnboarding) currentStep = OnboardingStep.OVERLAY_PERMISSIONS else onClose() }
                 )
             }
-            OnboardingStep.PERMISSIONS_AND_ACCESSIBILITY -> {
-                PermissionsAndAccessibilityStepScreen(
+            OnboardingStep.OVERLAY_PERMISSIONS -> {
+                OverlayPermissionsStepScreen(
                     onBack = { currentStep = OnboardingStep.MODELS_AND_KEYS },
                     onNext = { currentStep = OnboardingStep.CHARACTER_SELECTION }
                 )
@@ -153,7 +152,7 @@ fun OnboardingWizard(
                         selectedCharacter = charId
                         secureStorage.saveSelectedCharacter(charId)
                     },
-                    onBack = { currentStep = OnboardingStep.PERMISSIONS_AND_ACCESSIBILITY },
+                    onBack = { currentStep = OnboardingStep.OVERLAY_PERMISSIONS },
                     onFinish = {
                         secureStorage.saveSelectedCharacter(selectedCharacter)
                         onComplete(selectedCharacter)
@@ -396,7 +395,7 @@ fun WelcomeStepScreen(onNext: () -> Unit) {
 }
 
 @Composable
-fun PermissionsAndAccessibilityStepScreen(
+fun OverlayPermissionsStepScreen(
     onBack: () -> Unit,
     onNext: () -> Unit
 ) {

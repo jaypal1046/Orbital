@@ -2,7 +2,7 @@ package com.orbital.bridge
 
 import android.content.Context
 import android.util.Log
-import com.orbital.automation.OrbitalAccessibilityService
+import com.orbital.automation.OrbitalAutomationEngine
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -260,10 +260,15 @@ class OrbitalBridgeClient @Inject constructor(
 
             "SCREENSHOT_REQUEST", "TAKE_SCREENSHOT" -> {
                 log("Received screenshot request from Laptop AI")
-                val service = OrbitalAccessibilityService.instance
+                val service = OrbitalAutomationEngine.instance
                 var file: java.io.File? = null
                 if (service != null && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
                     file = service.captureScreenshotAsync()
+                }
+                if (file == null || !file.exists()) {
+                    val tmp = java.io.File(context.cacheDir, "bridge_screencap_${System.currentTimeMillis()}.png")
+                    com.orbital.automation.ShizukuAutomationManager.exec("screencap -p ${tmp.absolutePath}")
+                    if (tmp.exists()) file = tmp
                 }
                 if (file != null && file.exists()) {
                     val bytes = file.readBytes()

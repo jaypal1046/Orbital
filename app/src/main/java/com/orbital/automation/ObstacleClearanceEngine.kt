@@ -102,7 +102,7 @@ class ObstacleClearanceEngine {
      * Attempts to autonomously clear the detected obstacle.
      */
     fun clearObstacle(
-        service: OrbitalAccessibilityService,
+        service: OrbitalAutomationEngine,
         obstacle: ObstacleInfo
     ): Boolean {
         Log.i(TAG, "Attempting to clear obstacle: ${obstacle.type} (${obstacle.dismissActionLabel})")
@@ -143,7 +143,7 @@ class ObstacleClearanceEngine {
     /**
      * Inspects screen and clears any obstacle if one is detected.
      */
-    fun autoClearIfPresent(service: OrbitalAccessibilityService): Boolean {
+    fun autoClearIfPresent(service: OrbitalAutomationEngine): Boolean {
         val snapshot = service.captureScreenHierarchy() ?: return false
         val obstacle = detectObstacle(snapshot) ?: return false
         return clearObstacle(service, obstacle)
