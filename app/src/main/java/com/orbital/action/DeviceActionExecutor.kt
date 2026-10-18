@@ -20,6 +20,8 @@ import android.net.wifi.WifiManager
 import android.util.Log
 import com.orbital.power.PowerAwareScheduler
 import com.orbital.automation.testStateHash
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.Serializable
 
 sealed class ActionResult {
@@ -100,6 +102,11 @@ open class DeviceActionExecutor(private val context: Context) {
                     body = action.message ?: action.query,
                     target = action.target
                 )
+                "STAGE_EMAIL_REPLY", "REPLY_EMAIL", "SMART_STAGE_EMAIL" -> stageEmailReply(
+                    draftBody = action.message ?: action.query ?: "",
+                    targetClient = action.target
+                )
+                "DISPATCH_EMAIL_SEND", "SEND_EMAIL_NOW" -> dispatchEmailSend()
                 "SET_TIMER", "TIMER" -> setTimer(action.seconds ?: 60, action.label ?: "Timer")
                 "SET_ALARM", "ALARM" -> setAlarm(action.hour, action.minutes, action.label ?: "Alarm")
                 "CREATE_CALENDAR_EVENT", "CALENDAR_EVENT" -> createCalendarEvent(action.title, action.startTimeMillis, action.notes)
@@ -492,6 +499,31 @@ open class DeviceActionExecutor(private val context: Context) {
             } catch (ex: Exception) {
                 ActionResult.Error("No email app found on device.")
             }
+        }
+    }
+
+    fun stageEmailReply(draftBody: String, targetClient: String? = null): ActionResult = runBlocking(Dispatchers.IO) {
+        if (draftBody.isBlank()) return@runBlocking ActionResult.Error("Draft message cannot be empty for email smart staging.")
+        val staged = com.orbital.automation.EmailSmartStagingEngine.stageReply(context, draftBody, targetClient)
+        val logs = staged.taskLogs.joinToString("\n")
+        val summary = buildString {
+            append("⚡ Smart Staging Active in ${staged.clientApp}\n")
+            if (!staged.sender.isNullOrBlank()) append("• Recipient: ${staged.sender}\n")
+            if (!staged.subject.isNullOrBlank()) append("• Subject: ${staged.subject}\n")
+            append("\n$logs\n\n[Staged Draft in Compose Window]:\n${staged.draftText}\n\n[Co-Pilot Staging HUD: Review on screen, then tap Send Now or edit with keyboard]")
+        }
+        ActionResult.Success(
+            message = "Staged reply in ${staged.clientApp}. Waiting for your review on screen.",
+            details = summary
+        )
+    }
+
+    fun dispatchEmailSend(): ActionResult = runBlocking(Dispatchers.IO) {
+        val sent = com.orbital.automation.EmailSmartStagingEngine.dispatchSendNow()
+        if (sent) {
+            ActionResult.Success("Email dispatched successfully on device.")
+        } else {
+            ActionResult.Error("Could not locate Send button on current screen.")
         }
     }
 

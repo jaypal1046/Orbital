@@ -86,7 +86,18 @@ fun FormattedMarkdownContent(
 ) {
     if (content.isBlank()) return
 
-    val blocks = remember(content) { parseMarkdownDocument(content) }
+    val blocks by androidx.compose.runtime.produceState(
+        initialValue = remember(content) {
+            if (content.length < 500) parseMarkdownDocument(content) else listOf(MarkdownBlock.TextBlock(content))
+        },
+        key1 = content
+    ) {
+        if (content.length >= 500) {
+            value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+                parseMarkdownDocument(content)
+            }
+        }
+    }
 
     Column(
         modifier = modifier.fillMaxWidth(),

@@ -293,8 +293,8 @@ object UniversalFileEngine {
     fun readXlsx(file: File): FileOperationResult {
         if (!file.exists()) return FileOperationResult.Error("File '${file.path}' does not exist.")
         return try {
-            val sheetXml = extractZipEntryText(file, "xl/worksheets/sheet1.xml")
-                ?: return FileOperationResult.Error("Invalid XLSX: 'xl/worksheets/sheet1.xml' not found.")
+            val sheetXml = extractFirstWorksheetXml(file)
+                ?: return FileOperationResult.Error("Invalid XLSX: No worksheet XML found in archive.")
             val sharedStringsXml = extractZipEntryText(file, "xl/sharedStrings.xml")
 
             val sharedStrings = if (sharedStringsXml != null) {
@@ -566,7 +566,7 @@ object UniversalFileEngine {
         } else {
             // Excel XLSX
             try {
-                val sheetXml = extractZipEntryText(file, "xl/worksheets/sheet1.xml") ?: return SpreadsheetGrid(file.nameWithoutExtension, emptyList(), emptyList())
+                val sheetXml = extractFirstWorksheetXml(file) ?: return SpreadsheetGrid(file.nameWithoutExtension, emptyList(), emptyList())
                 val sstXml = extractZipEntryText(file, "xl/sharedStrings.xml")
                 val sharedStrings = if (sstXml != null) {
                     Regex("<t(?:[^>]*)>([\\s\\S]*?)</t>").findAll(sstXml).map { decodeXmlEntities(it.groupValues[1]) }.toList()
@@ -1142,6 +1142,25 @@ object UniversalFileEngine {
             "\"" + cell.replace("\"", "\"\"") + "\""
         } else {
             cell
+        }
+    }
+
+    private fun extractFirstWorksheetXml(file: File): String? {
+        val direct = extractZipEntryText(file, "xl/worksheets/sheet1.xml")
+        if (direct != null) return direct
+        return try {
+            ZipInputStream(FileInputStream(file)).use { zip ->
+                var entry = zip.nextEntry
+                while (entry != null) {
+                    if (entry.name.startsWith("xl/worksheets/sheet") && entry.name.endsWith(".xml")) {
+                        return@use zip.readBytes().toString(StandardCharsets.UTF_8)
+                    }
+                    entry = zip.nextEntry
+                }
+                null
+            }
+        } catch (_: Exception) {
+            null
         }
     }
 

@@ -1,5 +1,10 @@
 package com.orbital.media
 
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.withContext
+
 object DocumentRagEngine {
 
     private const val MAX_DIRECT_CHARS = 16000
@@ -15,16 +20,17 @@ object DocumentRagEngine {
     /**
      * Builds an optimized, prompt-ready RAG context payload from a document
      * based on the user's specific query/request.
+     * Isolated on Dispatchers.Default with parallel chunk scoring across CPU cores.
      */
-    fun buildRagPayload(fileName: String, rawText: String, userQuery: String): String {
+    suspend fun buildRagPayload(fileName: String, rawText: String, userQuery: String): String = withContext(Dispatchers.Default) {
         val cleanText = rawText.trim()
         if (cleanText.isBlank()) {
-            return "--- [Attached Document: $fileName] ---\n(Empty document or no readable text extracted)"
+            return@withContext "--- [Attached Document: $fileName] ---\n(Empty document or no readable text extracted)"
         }
 
         // 1. Small / Medium Document: Inject Full Content Directly
         if (cleanText.length <= MAX_DIRECT_CHARS) {
-            return """
+            return@withContext """
                 --- [ATTACHED DOCUMENT CONTENT: $fileName] ---
                 $cleanText
                 
@@ -32,13 +38,20 @@ object DocumentRagEngine {
             """.trimIndent()
         }
 
-        // 2. Large Document: Chunk & Semantic Retrieval (RAG)
+        // 2. Large Document: Parallel Chunk & Semantic Retrieval (RAG)
         val chunks = splitIntoChunks(cleanText)
         val queryKeywords = extractKeywords(userQuery)
 
-        // Score chunks based on user query keywords (TF-IDF style relevance)
-        chunks.forEach { chunk ->
-            chunk.score = scoreChunk(chunk.text, queryKeywords)
+        // Parallel chunk scoring across available CPU threads
+        if (queryKeywords.isNotEmpty()) {
+            val batchSize = 10
+            chunks.chunked(batchSize).map { batch ->
+                async {
+                    batch.forEach { chunk ->
+                        chunk.score = scoreChunk(chunk.text, queryKeywords)
+                    }
+                }
+            }.awaitAll()
         }
 
         // Select top chunks sorted by relevance, up to max budget
@@ -59,7 +72,7 @@ object DocumentRagEngine {
             "[Section ${chunk.index + 1} / ${chunks.size}]:\n${chunk.text}"
         }
 
-        return """
+        """
             --- [ATTACHED DOCUMENT RAG CONTEXT: $fileName (${cleanText.length} characters, ${chunks.size} sections)] ---
             Executive Summary / Retrieved Sections based on your request:
             

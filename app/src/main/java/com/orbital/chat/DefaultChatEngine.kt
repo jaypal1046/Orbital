@@ -129,7 +129,7 @@ class DefaultChatEngine @Inject constructor(
     }
 
 
-    override suspend fun sendMessage(message: String) {
+    override suspend fun sendMessage(message: String, augmentedPrompt: String?) {
         sessionLoadJob?.join()
         isStreaming.value = true
         streamingContent.value = ""
@@ -138,7 +138,7 @@ class DefaultChatEngine @Inject constructor(
             currentSessionTitle = message.trim().take(60)
         }
 
-        // Add user message to memory
+        // Add user message to memory (stores clean user prompt, keeping UI light and non-blocking)
         _messages.update { currentMessages ->
             currentMessages + ChatMessage(
                 role = "user",
@@ -158,7 +158,8 @@ class DefaultChatEngine @Inject constructor(
         }
 
         // Intercept and handle Mobile Slash Commands
-        val slashResult = SlashCommandRouter.route(message, context)
+        val queryForSlash = augmentedPrompt ?: message
+        val slashResult = SlashCommandRouter.route(queryForSlash, context)
         when (slashResult) {
             is SlashCommandResult.HandledLocally -> {
                 _messages.update { currentMessages ->
@@ -176,7 +177,7 @@ class DefaultChatEngine @Inject constructor(
             }
         }
 
-        val effectiveQuery = (slashResult as? SlashCommandResult.PassThroughWithAugmentedPrompt)?.augmentedPrompt ?: message
+        val effectiveQuery = augmentedPrompt ?: (slashResult as? SlashCommandResult.PassThroughWithAugmentedPrompt)?.augmentedPrompt ?: message
 
         // 1. Check for immediate natural device action intents (zero-latency edge execution)
         val naturalAction = ActionParser.parseNaturalIntent(effectiveQuery)

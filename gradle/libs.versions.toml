@@ -35,7 +35,6 @@ androidxHiltWork = "1.2.0"
 androidxLifecycleViewmodelCompose = "2.8.0"
 room = "2.6.1"
 coil = "2.6.0"
-shizuku = "13.1.5"
 
 
 [libraries]
@@ -87,14 +86,13 @@ camerax-camera2 = { group = "androidx.camera", name = "camera-camera2", version 
 camerax-lifecycle = { group = "androidx.camera", name = "camera-lifecycle", version = "1.4.1" }
 camerax-view = { group = "androidx.camera", name = "camera-view", version = "1.4.1" }
 mlkit-barcode-scanning = { group = "com.google.mlkit", name = "barcode-scanning", version = "17.3.0" }
+mlkit-text-recognition = { group = "com.google.android.gms", name = "play-services-mlkit-text-recognition", version = "19.0.1" }
 coil-compose = { group = "io.coil-kt", name = "coil-compose", version.ref = "coil" }
 play-app-update = { group = "com.google.android.play", name = "app-update-ktx", version = "2.1.0" }
 androidx-browser = { group = "androidx.browser", name = "browser", version = "1.8.0" }
 firebase-bom = { group = "com.google.firebase", name = "firebase-bom", version = "33.4.0" }
 firebase-crashlytics = { group = "com.google.firebase", name = "firebase-crashlytics-ktx" }
 firebase-analytics = { group = "com.google.firebase", name = "firebase-analytics-ktx" }
-shizuku-api = { group = "dev.rikka.shizuku", name = "api", version.ref = "shizuku" }
-shizuku-provider = { group = "dev.rikka.shizuku", name = "provider", version.ref = "shizuku" }
 
 
 [plugins]

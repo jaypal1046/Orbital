@@ -170,8 +170,6 @@ object AutonomousScriptEngine {
         sb.append("# ========================================================\n\n")
 
         val lowerInstruction = instruction.lowercase()
-
-        // 1. Text Entry / Search Intent
         val isTyping = lowerInstruction.contains("type") ||
                 lowerInstruction.contains("search") ||
                 lowerInstruction.contains("enter") ||
@@ -182,7 +180,78 @@ object AutonomousScriptEngine {
 
         val textToType = extractTextToType(instruction)
 
-        if (isTyping && textToType.isNotBlank()) {
+        // 1. Multi-Input Origin -> Destination Intent (e.g. "from Mumbai to Pune")
+        val fromToRegex = "(?:from)\\s+([A-Za-z0-9 ]+?)\\s+(?:to)\\s+([A-Za-z0-9 ]+)".toRegex(RegexOption.IGNORE_CASE)
+        val fromToMatch = fromToRegex.find(instruction)
+
+        if (fromToMatch != null) {
+            val fromText = fromToMatch.groupValues[1].trim()
+            val toText = fromToMatch.groupValues[2].split(" and ", " then ", ",").first().trim()
+
+            val editableInputs = elements.filter { it.isEditable || it.className.contains("EditText", ignoreCase = true) }
+            val fromInput = editableInputs.firstOrNull()
+                ?: SemanticElementMatcher.findBestElementMatch("from", elements)?.element
+                ?: SemanticElementMatcher.findBestElementMatch("source", elements)?.element
+                ?: SemanticElementMatcher.findBestElementMatch("origin", elements)?.element
+
+            val toInput = if (editableInputs.size >= 2) editableInputs[1]
+                else SemanticElementMatcher.findBestElementMatch("to", elements)?.element
+                ?: SemanticElementMatcher.findBestElementMatch("destination", elements)?.element
+
+            if (fromInput != null) {
+                val cx = (fromInput.bounds.left + fromInput.bounds.right) / 2
+                val cy = (fromInput.bounds.top + fromInput.bounds.bottom) / 2
+                sb.append("# Step: Focus 'From/Source' input field\n")
+                sb.append("input tap $cx $cy\n")
+                sb.append("sleep 0.8\n")
+                // Clear existing text by moving to end and backspacing
+                sb.append("input keyevent 123\n")
+                sb.append("for i in \$(seq 1 45); do input keyevent 67; done\n")
+                sb.append("input text \"${fromText.replace(" ", "%s")}\"\n")
+                sb.append("sleep 1.2\n")
+                sb.append("input keyevent 66\n")
+                sb.append("sleep 1.0\n\n")
+            }
+
+            if (toInput != null) {
+                val cx = (toInput.bounds.left + toInput.bounds.right) / 2
+                val cy = (toInput.bounds.top + toInput.bounds.bottom) / 2
+                sb.append("# Step: Focus 'To/Destination' input field\n")
+                sb.append("input tap $cx $cy\n")
+                sb.append("sleep 0.8\n")
+                // Clear existing text by moving to end and backspacing
+                sb.append("input keyevent 123\n")
+                sb.append("for i in \$(seq 1 45); do input keyevent 67; done\n")
+                sb.append("input text \"${toText.replace(" ", "%s")}\"\n")
+                sb.append("sleep 1.2\n")
+                sb.append("input keyevent 66\n")
+                sb.append("sleep 1.0\n\n")
+            }
+
+            // Dismiss soft keyboard before tapping submit button so it's not occluded
+            sb.append("# Step: Dismiss keyboard if visible\n")
+            sb.append("input keyevent 111\n")
+            sb.append("sleep 0.5\n\n")
+
+            // Find submit / search button (e.g. "Find trains", "Search", "Directions")
+            val submitBtn = elements.firstOrNull { el ->
+                el.isClickable && (
+                    el.text.contains("find", ignoreCase = true) ||
+                    el.text.contains("search", ignoreCase = true) ||
+                    el.text.contains("train", ignoreCase = true) ||
+                    el.text.contains("go", ignoreCase = true)
+                )
+            } ?: SemanticElementMatcher.findBestElementMatch("find", elements)?.element
+              ?: SemanticElementMatcher.findBestElementMatch("search", elements)?.element
+
+            if (submitBtn != null) {
+                val cx = (submitBtn.bounds.left + submitBtn.bounds.right) / 2
+                val cy = (submitBtn.bounds.top + submitBtn.bounds.bottom) / 2
+                sb.append("# Step: Tap '${submitBtn.text.ifBlank { "Find Trains" }}'\n")
+                sb.append("input tap $cx $cy\n")
+                sb.append("sleep 3.0\n\n")
+            }
+        } else if (isTyping && textToType.isNotBlank()) {
             val searchInput = elements.firstOrNull { it.isEditable }
                 ?: SemanticElementMatcher.findBestElementMatch("search", elements)?.element
                 ?: SemanticElementMatcher.findBestElementMatch("find", elements)?.element

@@ -20,7 +20,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.orbital.automation.OrbitalAutomationEngine
-import com.orbital.automation.ShizukuAutomationManager
+import com.orbital.automation.ShellAutomationManager
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -78,7 +78,7 @@ fun DeviceAutomationDialog(
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 Text(
-                    text = "Orbital automates your device via rootless ADB scripts (Shizuku) and standard Android Intents. Zero Accessibility Services are registered, ensuring Google Pay, PhonePe, and banking apps are never blocked.",
+                    text = "Orbital automates your device via rootless privileged shell scripts and standard Android Intents. Zero Accessibility Services are registered, ensuring Google Pay, PhonePe, and banking apps are never blocked.",
                     color = Color(0xFFCBD5E1),
                     fontSize = 13.sp,
                     lineHeight = 18.sp
@@ -109,6 +109,11 @@ fun DeviceAutomationDialog(
                             icon = "🔒",
                             title = "Rootless & Wireless",
                             desc = "Works via standard Android 11+ Wireless Debugging without root or cable connection."
+                        )
+                        AutomationFeatureItem(
+                            icon = "✉️",
+                            title = "Email Smart Staging (Co-Pilot)",
+                            desc = "Zero notification listeners. Stages drafts directly in active Outlook or Gmail with an on-screen review HUD."
                         )
                     }
                 }
@@ -148,11 +153,6 @@ fun DeviceAutomationDialog(
         confirmButton = {
             Button(
                 onClick = {
-                    if (ShizukuAutomationManager.isRunning() && !ShizukuAutomationManager.hasPermission()) {
-                        ShizukuAutomationManager.requestPermission()
-                    } else {
-                        OrbitalAutomationEngine.openSettings(context)
-                    }
                     onEnableClicked()
                     onDismiss()
                 },
@@ -161,7 +161,7 @@ fun DeviceAutomationDialog(
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp)
             ) {
                 Text(
-                    text = if (ShizukuAutomationManager.isRunning()) "Authorize ADB / Shizuku" else "Open Shizuku App",
+                    text = if (ShellAutomationManager.isReady()) "Daemon Connected (Port 19876)" else "Connect Shell Daemon",
                     color = Color.White,
                     fontWeight = FontWeight.Bold,
                     fontSize = 13.sp

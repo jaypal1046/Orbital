@@ -21,7 +21,7 @@ interface ChatEngine {
     fun newSession(customSessionId: String? = null, customTitle: String? = null)
     fun loadSession(sessionId: String)
     fun renameSession(sessionId: String, title: String)
-    suspend fun sendMessage(message: String)
+    suspend fun sendMessage(message: String, augmentedPrompt: String? = null)
     suspend fun handleStreamCompletion()
     suspend fun executeTTSAndActions()
     fun confirmPendingAction()

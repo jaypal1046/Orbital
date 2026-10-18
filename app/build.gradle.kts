@@ -150,13 +150,10 @@ dependencies {
     implementation(libs.camerax.lifecycle)
     implementation(libs.camerax.view)
     implementation(libs.mlkit.barcode.scanning)
+    implementation(libs.mlkit.text.recognition)
     implementation(libs.coil.compose)
     implementation(libs.play.app.update)
     implementation(libs.androidx.browser)
-
-    // Shizuku (ADB Wireless Debugging / Root automation without Accessibility)
-    implementation(libs.shizuku.api)
-    implementation(libs.shizuku.provider)
 
 
     // Firebase Crashlytics & Analytics

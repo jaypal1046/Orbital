@@ -1,6 +1,7 @@
 package com.orbital.automation
 
 import android.content.Context
+import android.content.Intent
 import android.graphics.Rect
 import android.os.Build
 import android.util.Log
@@ -91,11 +92,16 @@ class OrbitalAutomationEngine {
         val lastScreenSnapshot: StateFlow<ScreenHierarchySnapshot?> = _lastScreenSnapshot.asStateFlow()
 
         fun isEnabled(context: Context): Boolean {
-            return ShizukuAutomationManager.isReady()
+            return ShellAutomationManager.isReady()
         }
 
         fun openSettings(context: Context) {
-            ShizukuAutomationManager.openShizuku(context)
+            try {
+                val intent = Intent(android.provider.Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                context.startActivity(intent)
+            } catch (_: Exception) {}
         }
     }
 

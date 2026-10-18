@@ -78,41 +78,23 @@ fun InAppChatScreen(
         return
     }
 
-    // Media & Document Pickers
+    // Media & Document Pickers - Fully isolated on background IO dispatcher
     val pdfLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri ->
-        uri?.let {
-            coroutineScope.launch {
-                val media = com.orbital.media.DocumentReader.readUri(context, it)
-                chatViewModel.attachMedia(media)
-                Toast.makeText(context, "Attached: ${media.name}", Toast.LENGTH_SHORT).show()
-            }
-        }
+        uri?.let { chatViewModel.processAndAttachUri(context, it, isImage = false) }
     }
 
     val docLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri ->
-        uri?.let {
-            coroutineScope.launch {
-                val media = com.orbital.media.DocumentReader.readUri(context, it)
-                chatViewModel.attachMedia(media)
-                Toast.makeText(context, "Attached: ${media.name}", Toast.LENGTH_SHORT).show()
-            }
-        }
+        uri?.let { chatViewModel.processAndAttachUri(context, it, isImage = false) }
     }
 
     val imageLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri ->
-        uri?.let {
-            coroutineScope.launch {
-                val media = com.orbital.media.ImageReader.readUri(context, it)
-                chatViewModel.attachMedia(media)
-                Toast.makeText(context, "Attached: ${media.name}", Toast.LENGTH_SHORT).show()
-            }
-        }
+        uri?.let { chatViewModel.processAndAttachUri(context, it, isImage = true) }
     }
 
     val cameraLauncher = rememberLauncherForActivityResult(
@@ -677,6 +659,7 @@ fun InAppChatScreen(
 
                 listOf(
                     "✦ Summarize current screen",
+                    "✉️ Reply to active email (Smart Staging)",
                     "🔎 Search an installed app",
                     "💬 Draft a message",
                     "⏱️ Set a focus timer",

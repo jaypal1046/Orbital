@@ -324,6 +324,32 @@ Whenever the user asks you to perform an action or confirms a plan, you MUST ALW
             }
         }
 
+        // Email Smart Staging Intents (e.g. "reply to this email saying I accept", "reply saying will send tomorrow", "stage reply on outlook saying ...")
+        val replyEmailMatch = Regex(
+            """^(?:stage\s+reply|reply(?:\s+to\s+this\s+email)?|reply\s+to\s+email|answer\s+email)(?:\s+on\s+([A-Za-z0-9\s]+?))?\s+(?:saying|with|that)\s+["']?(.+?)["']?$""",
+            RegexOption.IGNORE_CASE
+        ).find(text.trim())
+        if (replyEmailMatch != null) {
+            val targetClient = replyEmailMatch.groupValues[1].trim().takeIf { it.isNotBlank() }
+            val draft = replyEmailMatch.groupValues[2].trim().removeSurrounding("\"").removeSurrounding("'")
+            if (draft.isNotBlank()) {
+                return DeviceAction(action = "STAGE_EMAIL_REPLY", message = draft, target = targetClient)
+            }
+        }
+
+        // Generic reply to email (e.g. "reply to active email", "reply to this email", "stage email reply")
+        if (clean.matches(Regex("""^(?:stage\s+)?(?:reply|respond|answer)(?:\s+to)?(?:\s+this|\s+the|\s+active)?(?:\s+email|\s+thread)?(?:\s+on\s+([A-Za-z0-9\s]+?))?$"""))) {
+            return DeviceAction(
+                action = "STAGE_EMAIL_REPLY",
+                message = "Thank you for your email. I have reviewed the thread and will follow up shortly."
+            )
+        }
+
+        // Send Email Confirmation Intent (e.g. "send the email", "send email now", "confirm and send")
+        if (clean.matches(Regex(".*\\b(send\\s+(the\\s+)?email(\\s+now)?|send\\s+it\\s+now|confirm\\s+and\\s+send)\\b.*"))) {
+            return DeviceAction(action = "DISPATCH_EMAIL_SEND")
+        }
+
         // Scroll Intents (e.g. "scroll down", "scroll up")
         val scrollMatch = Regex("""^scroll\s+(down|up)$""", RegexOption.IGNORE_CASE).find(clean)
         if (scrollMatch != null) {

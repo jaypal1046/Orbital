@@ -1,14 +1,10 @@
 package com.orbital.automation
 
 import android.content.Context
-import android.content.Intent
-import android.content.pm.PackageManager
 import android.graphics.Rect
-import android.net.Uri
 import android.util.Log
 import android.util.Xml
 import org.xmlpull.v1.XmlPullParser
-import rikka.shizuku.Shizuku
 import java.io.File
 import java.io.StringReader
 import kotlinx.coroutines.Dispatchers
@@ -22,11 +18,9 @@ data class ShellResult(
     val isSuccess: Boolean get() = exitCode == 0
 }
 
-object ShizukuAutomationManager {
+object ShellAutomationManager {
 
-    private const val TAG = "ShizukuAutomation"
-    const val SHIZUKU_PACKAGE = "moe.shizuku.privileged.api"
-    const val SHIZUKU_REQUEST_CODE = 4821
+    private const val TAG = "ShellAutomation"
     const val LOCAL_DAEMON_PORT = 19876
 
     fun isLocalDaemonRunning(): Boolean {
@@ -40,69 +34,13 @@ object ShizukuAutomationManager {
         }
     }
 
-    fun isShizukuInstalled(context: Context): Boolean {
-        return try {
-            context.packageManager.getPackageInfo(SHIZUKU_PACKAGE, 0) != null
-        } catch (_: Exception) {
-            false
-        }
-    }
-
-    fun isRunning(): Boolean {
-        return try {
-            Shizuku.pingBinder()
-        } catch (e: Throwable) {
-            false
-        }
-    }
-
-    fun hasPermission(): Boolean {
-        return try {
-            if (!isRunning()) false
-            else Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED
-        } catch (e: Throwable) {
-            false
-        }
-    }
-
-    fun isReady(): Boolean = (isRunning() && hasPermission()) || isLocalDaemonRunning()
-
-    fun requestPermission(requestCode: Int = SHIZUKU_REQUEST_CODE) {
-        try {
-            if (isRunning() && !hasPermission()) {
-                Shizuku.requestPermission(requestCode)
-            }
-        } catch (e: Throwable) {
-            Log.e(TAG, "Failed to request Shizuku permission", e)
-        }
-    }
-
-    fun openShizuku(context: Context) {
-        val launchIntent = context.packageManager.getLaunchIntentForPackage(SHIZUKU_PACKAGE)
-        if (launchIntent != null) {
-            launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            context.startActivity(launchIntent)
-        } else {
-            // Open GitHub or Play Store for Shizuku installation
-            try {
-                val storeIntent = Intent(Intent.ACTION_VIEW, Uri.parse("https://play.google.com/store/apps/details?id=$SHIZUKU_PACKAGE")).apply {
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                }
-                context.startActivity(storeIntent)
-            } catch (_: Exception) {
-                val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse("https://shizuku.rikka.app/guide/setup/")).apply {
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                }
-                context.startActivity(browserIntent)
-            }
-        }
-    }
+    fun isReady(): Boolean = isLocalDaemonRunning()
 
     private fun execViaLocalDaemon(command: String): ShellResult? {
         return try {
             val socket = java.net.Socket()
-            socket.connect(java.net.InetSocketAddress("127.0.0.1", LOCAL_DAEMON_PORT), 400)
-            socket.soTimeout = 20000
+            socket.connect(java.net.InetSocketAddress("127.0.0.1", LOCAL_DAEMON_PORT), 1200)
+            socket.soTimeout = 30000
             val writer = java.io.BufferedWriter(java.io.OutputStreamWriter(socket.getOutputStream()))
             val reader = java.io.BufferedReader(java.io.InputStreamReader(socket.getInputStream()))
 
@@ -118,33 +56,13 @@ object ShizukuAutomationManager {
     }
 
     suspend fun exec(command: String): ShellResult = withContext(Dispatchers.IO) {
-        // Backend 0: Native Local Loopback Daemon (UID 2000 shell)
+        // Backend: Native Local Loopback Daemon (UID 2000 shell)
         val daemonResult = execViaLocalDaemon(command)
         if (daemonResult != null) {
             return@withContext daemonResult
         }
 
-        // Backend 1: Shizuku (Rootless ADB Wireless)
-        if (isRunning() && hasPermission()) {
-            try {
-                val method = Shizuku::class.java.getDeclaredMethod(
-                    "newProcess",
-                    Array<String>::class.java,
-                    Array<String>::class.java,
-                    String::class.java
-                )
-                method.isAccessible = true
-                val process = method.invoke(null, arrayOf("sh", "-c", command), null, null) as Process
-                val stdout = process.inputStream.bufferedReader().use { it.readText() }
-                val stderr = process.errorStream.bufferedReader().use { it.readText() }
-                val exitCode = process.waitFor()
-                return@withContext ShellResult(exitCode, stdout.trim(), stderr.trim())
-            } catch (e: Exception) {
-                Log.e(TAG, "Shizuku execution error: $command", e)
-            }
-        }
-
-        // Backend 2: Direct local shell / daemon process
+        // Direct local shell execution fallback
         try {
             val process = Runtime.getRuntime().exec(arrayOf("sh", "-c", command))
             val stdout = process.inputStream.bufferedReader().use { it.readText() }
@@ -224,12 +142,24 @@ object ShizukuAutomationManager {
         return result.isSuccess
     }
 
-    suspend fun captureScreenshot(targetFile: File): Boolean {
+    suspend fun captureScreenshot(targetFile: File): Boolean = withContext(Dispatchers.IO) {
         val parent = targetFile.parentFile
         if (parent != null && !parent.exists()) parent.mkdirs()
-        val tempPath = "/data/local/tmp/orbital_screenshot_${System.currentTimeMillis()}.png"
-        val capResult = exec("screencap -p $tempPath >/dev/null 2>&1; cat $tempPath > ${targetFile.absolutePath}; rm -f $tempPath")
-        return targetFile.exists() && targetFile.length() > 0
+        val tempPath = "/data/local/tmp/orbital_shot_${System.currentTimeMillis()}.png"
+        val cmd = exec("screencap -p $tempPath && base64 $tempPath && rm -f $tempPath")
+        if (cmd.isSuccess && cmd.stdout.isNotBlank()) {
+            try {
+                val cleanB64 = cmd.stdout.replace("\n", "").replace("\r", "").trim()
+                val bytes = android.util.Base64.decode(cleanB64, android.util.Base64.DEFAULT)
+                if (bytes != null && bytes.isNotEmpty()) {
+                    targetFile.writeBytes(bytes)
+                    return@withContext targetFile.exists() && targetFile.length() > 0
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to decode screenshot base64", e)
+            }
+        }
+        return@withContext false
     }
 
     suspend fun dumpScreenHierarchy(): ScreenHierarchySnapshot? = withContext(Dispatchers.IO) {
@@ -320,3 +250,5 @@ object ShizukuAutomationManager {
         }
     }
 }
+
+val ShizukuAutomationManager = ShellAutomationManager

@@ -213,8 +213,34 @@ class ChatViewModel @Inject constructor(
     private val _attachedMedia = MutableStateFlow<com.orbital.media.AttachedMedia?>(null)
     val attachedMedia: StateFlow<com.orbital.media.AttachedMedia?> = _attachedMedia.asStateFlow()
 
+    private val _isAttachingMedia = MutableStateFlow(false)
+    val isAttachingMedia: StateFlow<Boolean> = _isAttachingMedia.asStateFlow()
+
     fun attachMedia(media: com.orbital.media.AttachedMedia) {
         _attachedMedia.update { media }
+    }
+
+    fun processAndAttachUri(context: Context, uri: android.net.Uri, isImage: Boolean = false) {
+        viewModelScope.launch(Dispatchers.IO) {
+            _isAttachingMedia.update { true }
+            try {
+                val media = if (isImage) {
+                    com.orbital.media.ImageReader.readUri(context, uri)
+                } else {
+                    com.orbital.media.DocumentReader.readUri(context, uri)
+                }
+                _attachedMedia.update { media }
+                kotlinx.coroutines.withContext(Dispatchers.Main) {
+                    android.widget.Toast.makeText(context, "Attached: ${media.name}", android.widget.Toast.LENGTH_SHORT).show()
+                }
+            } catch (e: Exception) {
+                kotlinx.coroutines.withContext(Dispatchers.Main) {
+                    android.widget.Toast.makeText(context, "Error attaching: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
+                }
+            } finally {
+                _isAttachingMedia.update { false }
+            }
+        }
     }
 
     fun clearAttachment() {
@@ -235,26 +261,33 @@ class ChatViewModel @Inject constructor(
         val activeType = llmRepository.getCurrentProviderType() ?: ProviderType.GROQ
         _activeServingProvider.update { activeType.name }
 
-        val finalPrompt = if (media != null) {
-            val ragContent = com.orbital.media.DocumentRagEngine.buildRagPayload(
-                fileName = media.name,
-                rawText = media.textContent ?: "",
-                userQuery = cleanText
-            )
-            if (cleanText.isBlank()) {
-                "Please read, analyze, and summarize this attached ${media.type.displayName} (${media.name}):\n\n$ragContent"
-            } else {
-                "$cleanText\n\n$ragContent"
-            }
-        } else {
-            cleanText
-        }
-
         MascotEventBus.postEvent(MascotEvent.PromptSent(cleanText.ifBlank { "Analyze ${media?.name}" }))
 
-        viewModelScope.launch {
+        // Run heavy RAG and text synthesis asynchronously on IO dispatcher to keep the Main thread 100% fluid!
+        viewModelScope.launch(Dispatchers.IO) {
+            val userDisplayMessage = if (cleanText.isNotBlank()) {
+                cleanText
+            } else {
+                "Please analyze the attached ${media?.type?.displayName ?: "file"}: ${media?.name}"
+            }
+
+            val finalLlmPrompt = if (media != null) {
+                val ragContent = com.orbital.media.DocumentRagEngine.buildRagPayload(
+                    fileName = media.name,
+                    rawText = media.textContent ?: "",
+                    userQuery = cleanText
+                )
+                if (cleanText.isBlank()) {
+                    "Please read, analyze, and summarize this attached ${media.type.displayName} (${media.name}):\n\n$ragContent"
+                } else {
+                    "$cleanText\n\n$ragContent"
+                }
+            } else {
+                cleanText
+            }
+
             chatEngine.setCharacter(_currentCharacter.value)
-            chatEngine.sendMessage(finalPrompt)
+            chatEngine.sendMessage(message = userDisplayMessage, augmentedPrompt = finalLlmPrompt)
         }
     }
 

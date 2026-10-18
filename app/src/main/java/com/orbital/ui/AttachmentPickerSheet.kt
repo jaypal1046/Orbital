@@ -88,92 +88,149 @@ fun AttachmentPickerSheet(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            val options = listOf(
+            // 1. Documents Section
+            Text(
+                text = "📄 DOCUMENTS (P&L, Balance Sheet, PDF)",
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFF60A5FA),
+                modifier = Modifier.padding(start = 4.dp, bottom = 6.dp)
+            )
+            val docOptions = listOf(
                 AttachmentActionOption(
-                    title = "Read PDF Document",
-                    subtitle = "Extract pages, summarize contracts, papers, or textbooks",
+                    title = "PDF Financial & General Reports",
+                    subtitle = "P&L statements, balance sheets, annual reports, contracts",
                     icon = "📄",
                     gradient = listOf(Color(0xFFEF4444), Color(0xFFDC2626)),
                     onClick = { onDismiss(); onPickPdf() }
                 ),
                 AttachmentActionOption(
-                    title = "Read Text & Code Files",
-                    subtitle = "Analyze .txt, .md, .json, .csv, .docx, code, or logs",
+                    title = "Text, Markdown & Word Documents",
+                    subtitle = "Financial statements, text ledgers, notes, specifications",
                     icon = "📝",
                     gradient = listOf(Color(0xFF3B82F6), Color(0xFF1D4ED8)),
                     onClick = { onDismiss(); onPickDocument() }
-                ),
+                )
+            )
+
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                docOptions.forEach { opt -> RenderOptionCard(opt) }
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // 2. Images Section (On-Device OCR)
+            Text(
+                text = "🖼️ IMAGES (On-Device OCR & Vision)",
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFFA78BFA),
+                modifier = Modifier.padding(start = 4.dp, bottom = 6.dp)
+            )
+            val imageOptions = listOf(
                 AttachmentActionOption(
-                    title = "Read & Analyze Image",
-                    subtitle = "Ask questions, extract text, or describe photos from Gallery",
+                    title = "Gallery Image / Statement Photo",
+                    subtitle = "Extracts financial tables on-device via OCR before asking AI",
                     icon = "🖼️",
                     gradient = listOf(Color(0xFF8B5CF6), Color(0xFF6D28D9)),
                     onClick = { onDismiss(); onPickImage() }
                 ),
                 AttachmentActionOption(
-                    title = "Camera Capture",
-                    subtitle = "Take a live photo of math problems, receipts, or notes",
+                    title = "Camera Capture (Receipts & Invoices)",
+                    subtitle = "Take a photo of printed balance sheet, bill, or calculation",
                     icon = "📷",
                     gradient = listOf(Color(0xFF10B981), Color(0xFF047857)),
                     onClick = { onDismiss(); onTakePhoto() }
-                ),
-                AttachmentActionOption(
-                    title = "Read Live Screen",
-                    subtitle = "Inspect and summarize whatever is currently open on your phone",
-                    icon = "📱",
-                    gradient = listOf(Color(0xFFF59E0B), Color(0xFFD97706)),
-                    onClick = { onDismiss(); onReadLiveScreen() }
                 )
             )
 
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                options.forEach { opt ->
-                    Surface(
-                        shape = RoundedCornerShape(14.dp),
-                        color = Color(0xFF161A2C),
-                        border = BorderStroke(1.dp, Color(0xFF262E4A)),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { opt.onClick() }
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(42.dp)
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(Brush.linearGradient(opt.gradient)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(text = opt.icon, fontSize = 20.sp)
-                            }
-
-                            Spacer(modifier = Modifier.width(14.dp))
-
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = opt.title,
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = Color.White
-                                )
-                                Text(
-                                    text = opt.subtitle,
-                                    fontSize = 11.5.sp,
-                                    color = Color(0xFF94A3B8),
-                                    lineHeight = 15.sp
-                                )
-                            }
-                        }
-                    }
-                }
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                imageOptions.forEach { opt -> RenderOptionCard(opt) }
             }
 
-            Spacer(modifier = Modifier.height(20.dp))
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // 3. Other & Data Section
+            Text(
+                text = "📂 OTHER (Spreadsheets, Data & Live Screen)",
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFFFBBF24),
+                modifier = Modifier.padding(start = 4.dp, bottom = 6.dp)
+            )
+            val otherOptions = listOf(
+                AttachmentActionOption(
+                    title = "Read Live Screen",
+                    subtitle = "Inspect, OCR, and analyze whatever financial app is active",
+                    icon = "📱",
+                    gradient = listOf(Color(0xFFF59E0B), Color(0xFFD97706)),
+                    onClick = { onDismiss(); onReadLiveScreen() }
+                ),
+                AttachmentActionOption(
+                    title = "Email Smart Staging (Co-Pilot)",
+                    subtitle = "Draft reply into active email (Outlook, Gmail) with floating review HUD",
+                    icon = "✉️",
+                    gradient = listOf(Color(0xFF6366F1), Color(0xFF4338CA)),
+                    onClick = { onDismiss(); onQuickAction("Inspect the active email on screen, synthesize an appropriate reply, and stage it into the compose window.") }
+                ),
+                AttachmentActionOption(
+                    title = "CSV, JSON & Data Logs",
+                    subtitle = "Analyze raw tabular data, ledger exports, and data dumps",
+                    icon = "📊",
+                    gradient = listOf(Color(0xFF06B6D4), Color(0xFF0891B2)),
+                    onClick = { onDismiss(); onPickDocument() }
+                )
+            )
+
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                otherOptions.forEach { opt -> RenderOptionCard(opt) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RenderOptionCard(opt: AttachmentActionOption) {
+    Surface(
+        shape = RoundedCornerShape(14.dp),
+        color = Color(0xFF161A2C),
+        border = BorderStroke(1.dp, Color(0xFF262E4A)),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { opt.onClick() }
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(Brush.linearGradient(opt.gradient)),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(text = opt.icon, fontSize = 20.sp)
+            }
+
+            Spacer(modifier = Modifier.width(14.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = opt.title,
+                    fontSize = 13.5.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color.White
+                )
+                Text(
+                    text = opt.subtitle,
+                    fontSize = 11.sp,
+                    color = Color(0xFF94A3B8),
+                    lineHeight = 15.sp
+                )
+            }
         }
     }
 }

@@ -242,6 +242,18 @@ object ActionRegistry {
             type = "AUDIT_ACCESSIBILITY",
             description = "Run WCAG accessibility and touch target size audit on current screen",
             exampleJson = """{"action": "AUDIT_ACCESSIBILITY"}"""
+        ),
+        ActionDefinition(
+            type = "STAGE_EMAIL_REPLY",
+            description = "Smart Staging Co-Pilot: Inspects active email on screen (Outlook, Gmail, etc.), extracts conversation context, triggers Reply, injects draft into compose box, and shows on-screen Smart Staging HUD for user review. Never sends without confirmation. Zero notification permissions.",
+            requiredParams = listOf("message"),
+            optionalParams = listOf("target"),
+            exampleJson = """{"action": "STAGE_EMAIL_REPLY", "message": "Thanks for sharing the update. I have reviewed the timesheet and confirmed the hours. Best regards.", "target": "outlook"}"""
+        ),
+        ActionDefinition(
+            type = "DISPATCH_EMAIL_SEND",
+            description = "Confirms and dispatches sending the staged email in the active email client.",
+            exampleJson = """{"action": "DISPATCH_EMAIL_SEND"}"""
         )
     )
 

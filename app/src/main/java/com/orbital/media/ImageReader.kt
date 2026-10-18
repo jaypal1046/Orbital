@@ -8,6 +8,10 @@ import android.net.Uri
 import android.os.Build
 import android.provider.OpenableColumns
 import android.util.Base64
+import kotlin.coroutines.resume
+import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.text.TextRecognition
+import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
@@ -62,15 +66,54 @@ object ImageReader {
             Base64.encodeToString(stream.toByteArray(), Base64.NO_WRAP)
         }
 
+        // 1. On-Device Text & Table Extraction (Phone-Side OCR)
+        val extractedText = if (bitmap != null) {
+            extractTextOnDevice(bitmap)
+        } else ""
+
+        // 2. On-Device Financial Analysis (PAT, EBITDA, Sales, Balance Sheet)
+        val financialReport = if (extractedText.isNotBlank()) {
+            com.orbital.finance.FinancialDataEngine.analyzeText(extractedText)
+        } else null
+
+        val finalContent = buildString {
+            if (financialReport != null && financialReport.isFinancialDocument) {
+                append(financialReport.summaryMarkdown)
+                append("\n\n---\n#### 📄 Extracted On-Device OCR Text:\n")
+                append(extractedText)
+            } else if (extractedText.isNotBlank()) {
+                append("🖼️ **Image:** $name (Extracted On-Device via Vision OCR):\n\n")
+                append(extractedText)
+            } else {
+                append("🖼️ Image: $name attached for visual analysis.")
+            }
+        }
+
         AttachedMedia(
             name = name,
             type = AttachmentType.IMAGE,
             uri = uri,
             sizeBytes = sizeBytes,
-            textContent = "🖼️ Image: $name attached for visual analysis.",
+            textContent = finalContent,
             base64Image = base64,
             previewBitmap = bitmap
         )
+    }
+
+    suspend fun extractTextOnDevice(bitmap: Bitmap): String = kotlinx.coroutines.suspendCancellableCoroutine { cont ->
+        try {
+            val image = InputImage.fromBitmap(bitmap, 0)
+            val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+            recognizer.process(image)
+                .addOnSuccessListener { visionText ->
+                    if (cont.isActive) cont.resume(visionText.text)
+                }
+                .addOnFailureListener {
+                    if (cont.isActive) cont.resume("")
+                }
+        } catch (_: Throwable) {
+            if (cont.isActive) cont.resume("")
+        }
     }
 
     fun fromBitmap(bitmap: Bitmap, name: String = "screen_capture.jpg"): AttachedMedia {
