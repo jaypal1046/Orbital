@@ -53,7 +53,7 @@ class ChatViewModelTest {
             lastCharacter = character
         }
 
-        override suspend fun sendMessage(message: String) {
+        override suspend fun sendMessage(message: String, augmentedPrompt: String?) {
             lastSentMessage = message
             _messages.value = _messages.value + ChatMessage(role = "user", content = message)
         }

@@ -45,20 +45,24 @@ class ModelDiscovery(
     ) {
         val cleanKey = key.trim()
         val info = ProviderRegistry.getInfo(type)
-        val isKeyless = type == ProviderType.KILO || type == ProviderType.OVH || type == ProviderType.POLLINATIONS || type == ProviderType.AIHORDE
+        val isKeyless = type == ProviderType.KILO || type == ProviderType.OVH || type == ProviderType.POLLINATIONS || type == ProviderType.AIHORDE || type == ProviderType.PAISACHOICE
 
-        if (cleanKey.isBlank() && !isKeyless) {
+        val effectiveKey = if (cleanKey.isBlank() && type == ProviderType.PAISACHOICE) {
+            ProviderRegistry.PAISACHOICE_DEFAULT_KEY
+        } else cleanKey
+
+        if (effectiveKey.isBlank() && !isKeyless) {
             onResult(getAvailableCatalogModels(type))
             return
         }
 
-        val modelsUrl = getDiscoveryEndpoint(type, cleanKey)
+        val modelsUrl = getDiscoveryEndpoint(type, effectiveKey)
         val requestBuilder = Request.Builder().url(modelsUrl)
 
         if (info.isGemini) {
-            requestBuilder.addHeader("x-goog-api-key", cleanKey)
-        } else if (cleanKey.isNotBlank()) {
-            requestBuilder.addHeader("Authorization", "Bearer $cleanKey")
+            requestBuilder.addHeader("x-goog-api-key", effectiveKey)
+        } else if (effectiveKey.isNotBlank()) {
+            requestBuilder.addHeader("Authorization", "Bearer $effectiveKey")
         }
 
         okHttpClient.newCall(requestBuilder.build()).enqueue(object : okhttp3.Callback {
@@ -149,6 +153,7 @@ class ModelDiscovery(
             ProviderType.RADEON -> "https://developer.amd.com.cn/radeon/api/v1/models"
             ProviderType.MODELSCOPE -> "https://api-inference.modelscope.cn/v1/models"
             ProviderType.AIHORDE -> "https://aihorde.net/api/v2/workers"
+            ProviderType.PAISACHOICE -> "https://paisachoice.com/api/ai/models"
             ProviderType.CUSTOM -> "http://127.0.0.1:3001/v1/models"
         }
     }

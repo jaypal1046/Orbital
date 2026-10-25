@@ -101,7 +101,11 @@ fun TopBar(
                             RoutingMode.AUTO -> "Auto-Router"
                             RoutingMode.FAST -> "Fast Tier"
                             RoutingMode.FRONTIER -> "Frontier Tier"
-                            RoutingMode.PINNED -> (selectedPinnedProvider ?: "Pinned").take(12)
+                            RoutingMode.PINNED -> {
+                                val p = selectedPinnedProvider ?: "Pinned"
+                                if (p.equals("PAISACHOICE", ignoreCase = true)) "PaisaChoice AI"
+                                else p.take(12)
+                            }
                         },
                         fontSize = 11.5.sp,
                         fontWeight = FontWeight.Medium,

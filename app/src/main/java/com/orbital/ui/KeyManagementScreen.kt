@@ -139,6 +139,7 @@ fun KeyManagementScreen(
                                             ProviderType.CEREBRAS -> text.startsWith("csk-")
                                             ProviderType.COHERE -> text.length in 36..44
                                             ProviderType.HUGGINGFACE -> text.startsWith("hf_")
+                                            ProviderType.PAISACHOICE -> text.startsWith("sk_ai_live_")
                                             else -> false
                                         }
                                     }
@@ -1166,6 +1167,7 @@ private fun ProviderConfigurationCard(
         ProviderType.ZHIPU -> listOf(Color(0xFF3B82F6), Color(0xFF2563EB))
         ProviderType.ALPHAOX -> listOf(Color(0xFF8B5CF6), Color(0xFF7C3AED))
         ProviderType.HUGGINGFACE -> listOf(Color(0xFFFFD21E), Color(0xFFEAB308))
+        ProviderType.PAISACHOICE -> listOf(Color(0xFF10B981), Color(0xFF047857))
         else -> listOf(Color(0xFF334155), Color(0xFF1E293B))
     }
 
@@ -1538,6 +1540,7 @@ fun ModelsQuotaDashboard(
                     ProviderType.HUGGINGFACE -> Color(0xFFFFD21E)
                     ProviderType.KILO -> Color(0xFFA855F7)
                     ProviderType.OVH -> Color(0xFF0050D7)
+                    ProviderType.PAISACHOICE -> Color(0xFF10B981)
                     else -> Color(0xFF64748B)
                 }
                 QuotaModelData(

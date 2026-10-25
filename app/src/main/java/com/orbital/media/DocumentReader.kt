@@ -25,12 +25,16 @@ object DocumentReader {
         val isSpreadsheet = lowerName.endsWith(".xlsx") || lowerName.endsWith(".xls") || lowerName.endsWith(".csv") || lowerName.endsWith(".tsv")
         val isWord = lowerName.endsWith(".docx") || lowerName.endsWith(".doc")
         val isPpt = lowerName.endsWith(".pptx") || lowerName.endsWith(".ppt")
+        val isArchive = lowerName.endsWith(".zip") || lowerName.endsWith(".tar") || lowerName.endsWith(".gz") || lowerName.endsWith(".apk") || lowerName.endsWith(".jar")
+        val isHtml = lowerName.endsWith(".html") || lowerName.endsWith(".htm") || mimeType.contains("html", ignoreCase = true)
 
         when {
             isPdf -> readPdf(context, uri, name, sizeBytes)
             isSpreadsheet -> readSpreadsheet(context, uri, name, sizeBytes)
             isWord -> readWordDocument(context, uri, name, sizeBytes)
             isPpt -> readPptDocument(context, uri, name, sizeBytes)
+            isArchive -> readArchiveDocument(context, uri, name, sizeBytes)
+            isHtml -> readHtmlDocument(context, uri, name, sizeBytes)
             else -> readTextDocument(context, uri, name, sizeBytes)
         }
     }
@@ -229,6 +233,62 @@ object DocumentReader {
         )
     }
 
+    private fun readArchiveDocument(context: Context, uri: Uri, name: String, sizeBytes: Long): AttachedMedia {
+        val tempFile = java.io.File(context.cacheDir, "temp_archive_${System.currentTimeMillis()}_${name.replace(Regex("[^a-zA-Z0-9._-]"), "_")}")
+        var archiveMarkdown = ""
+
+        try {
+            context.contentResolver.openInputStream(uri)?.use { input ->
+                tempFile.outputStream().use { output -> input.copyTo(output) }
+            }
+
+            if (tempFile.exists() && tempFile.length() > 0) {
+                val result = com.orbital.file.UniversalFileEngine.readArchiveTree(tempFile)
+                if (result is com.orbital.file.FileOperationResult.Success) {
+                    archiveMarkdown = result.content ?: ""
+                }
+            }
+        } catch (_: Exception) {} finally {
+            try { tempFile.delete() } catch (_: Exception) {}
+        }
+
+        return AttachedMedia(
+            name = name,
+            type = AttachmentType.DOCUMENT,
+            uri = uri,
+            sizeBytes = sizeBytes,
+            textContent = archiveMarkdown.ifBlank { "📦 Archive: $name (${formatSize(sizeBytes)}) attached." }
+        )
+    }
+
+    private fun readHtmlDocument(context: Context, uri: Uri, name: String, sizeBytes: Long): AttachedMedia {
+        var htmlContent = ""
+        try {
+            context.contentResolver.openInputStream(uri)?.use { input ->
+                val raw = input.readBytes().toString(Charsets.UTF_8)
+                htmlContent = com.orbital.file.UniversalFileEngine.cleanHtmlToMarkdown(raw)
+            }
+        } catch (_: Exception) {}
+
+        val finReport = if (htmlContent.isNotBlank()) {
+            com.orbital.finance.FinancialDataEngine.analyzeText(htmlContent)
+        } else null
+
+        val finalMarkdown = if (finReport != null && finReport.isFinancialDocument) {
+            "${finReport.summaryMarkdown}\n\n---\n#### 🌐 Web / HTML Document:\n$htmlContent"
+        } else {
+            "### 🌐 Web / HTML Document: $name\n\n$htmlContent"
+        }
+
+        return AttachedMedia(
+            name = name,
+            type = AttachmentType.DOCUMENT,
+            uri = uri,
+            sizeBytes = sizeBytes,
+            textContent = finalMarkdown.ifBlank { "🌐 HTML Document: $name (${formatSize(sizeBytes)}) attached." }
+        )
+    }
+
     private fun readTextDocument(context: Context, uri: Uri, name: String, sizeBytes: Long): AttachedMedia {
         var inputStream: InputStream? = null
         val rawBytes = try {
@@ -240,11 +300,33 @@ object DocumentReader {
             try { inputStream?.close() } catch (_: Exception) {}
         }
 
+        val lower = name.lowercase()
+
         // Binary check: If file contains null bytes or zip signature PK\x03\x04 and wasn't parsed as office doc
         val isBinary = rawBytes.take(512).any { it == 0.toByte() } ||
                 (rawBytes.size >= 4 && rawBytes[0] == 0x50.toByte() && rawBytes[1] == 0x4B.toByte() && rawBytes[2] == 0x03.toByte() && rawBytes[3] == 0x04.toByte())
 
         if (isBinary) {
+            // Attempt legacy binary text extraction (for legacy .doc, .xls, .ppt, or binary log streams)
+            val tempFile = java.io.File(context.cacheDir, "temp_bin_${System.currentTimeMillis()}_${name.replace(Regex("[^a-zA-Z0-9._-]"), "_")}")
+            var extractedLegacy = ""
+            try {
+                tempFile.writeBytes(rawBytes)
+                extractedLegacy = com.orbital.file.UniversalFileEngine.extractPrintableStrings(tempFile)
+            } catch (_: Exception) {} finally {
+                try { tempFile.delete() } catch (_: Exception) {}
+            }
+
+            if (extractedLegacy.isNotBlank() && extractedLegacy.length > 50) {
+                return AttachedMedia(
+                    name = name,
+                    type = AttachmentType.DOCUMENT,
+                    uri = uri,
+                    sizeBytes = sizeBytes,
+                    textContent = "### 📄 Extracted Content from '$name':\n\n$extractedLegacy"
+                )
+            }
+
             return AttachedMedia(
                 name = name,
                 type = AttachmentType.DOCUMENT,
@@ -257,7 +339,15 @@ object DocumentReader {
         // Sanitize control characters (preserve tabs and newlines)
         val text = rawBytes.toString(Charsets.UTF_8).replace(Regex("[\\x00-\\x08\\x0B\\x0C\\x0E-\\x1F]"), "")
 
-        val parsedMarkdown = if (text.isNotBlank()) {
+        // Code formatting for developer / script files
+        val codeExtensions = setOf("kt", "java", "py", "js", "ts", "cpp", "c", "rs", "go", "sql", "sh", "properties", "gradle", "kts", "yml", "yaml")
+        val ext = lower.substringAfterLast('.', "")
+        val formattedContent = if (codeExtensions.contains(ext) && text.isNotBlank()) {
+            val lines = text.lines()
+            "### 💻 Source File: `$name` (${lines.size} lines)\n\n```$ext\n$text\n```"
+        } else if (lower.endsWith(".json") && text.isNotBlank()) {
+            "### 📋 JSON Data: `$name`\n\n```json\n$text\n```"
+        } else if (text.isNotBlank()) {
             com.orbital.media.parser.HybridDocumentPipeline().processRawText(name, text).fullMarkdown
         } else ""
 
@@ -266,9 +356,9 @@ object DocumentReader {
         } else null
 
         val withFinancialReport = if (finReport != null && finReport.isFinancialDocument) {
-            "${finReport.summaryMarkdown}\n\n---\n#### 📝 Document Content:\n$parsedMarkdown"
+            "${finReport.summaryMarkdown}\n\n---\n#### 📝 Document Content:\n$formattedContent"
         } else {
-            parsedMarkdown
+            formattedContent
         }
 
         val truncatedText = if (withFinancialReport.length > 30000) {

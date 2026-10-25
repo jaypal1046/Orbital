@@ -164,4 +164,19 @@ class LlmRepositoryTest {
         assertTrue(models.contains("llama-4-scout-17b-16e-instruct"))
         assertEquals(info.catalogModels.size, models.size)
     }
+
+    @Test
+    fun providerRegistry_paisaChoiceConfiguredProperly() {
+        val info = ProviderRegistry.getInfo(ProviderType.PAISACHOICE)
+        assertEquals("https://paisachoice.com/api/ai/chat", info.endpoint)
+        assertEquals("qwen2.5:0.5b", info.defaultModel)
+        assertTrue(info.models.contains("qwen2.5:0.5b"))
+        assertTrue(info.models.contains("qwen2.5:1.5b"))
+
+        val store = ProviderConfigStore()
+        assertTrue(store.isKeylessProvider(ProviderType.PAISACHOICE))
+        assertEquals(ProviderRegistry.PAISACHOICE_DEFAULT_KEY, store.getProviderKey(ProviderType.PAISACHOICE))
+        assertTrue(ProviderConfig.fastTierProviders.contains(ProviderType.PAISACHOICE))
+        assertTrue(ProviderConfig.defaultProviderOrder.contains(ProviderType.PAISACHOICE))
+    }
 }

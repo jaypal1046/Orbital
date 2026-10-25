@@ -37,6 +37,8 @@ import androidx.compose.ui.unit.sp
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import com.orbital.data.RoutingMode
+import com.orbital.data.ProviderType
+import com.orbital.data.ProviderRegistry
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -550,84 +552,337 @@ fun InAppChatScreen(
         }
     }
 
-    // Routing Mode Bottom Sheet
+    // AI Model & Routing Selection Bottom Sheet
     if (showRoutingSheet) {
+        val activeProviders = remember { chatViewModel.getActiveProviders() }
+        val otherActiveProviders = remember(activeProviders) {
+            activeProviders.filter { it.type != ProviderType.PAISACHOICE }
+        }
+        val paisaChoiceInfo = remember { ProviderRegistry.getInfo(ProviderType.PAISACHOICE) }
+        val currentPaisaModel = remember(selectedPinnedProvider) { chatViewModel.getSelectedModel(ProviderType.PAISACHOICE) }
+
         ModalBottomSheet(
             onDismissRequest = { showRoutingSheet = false },
-            containerColor = Color(0xFF131625),
+            containerColor = Color(0xFF101323),
             sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
         ) {
-            Column(
+            LazyColumn(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(20.dp)
+                    .heightIn(max = 560.dp)
+                    .padding(horizontal = 20.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Text(
-                    text = "🤖 AI Model Routing Mode",
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White
-                )
-                Spacer(modifier = Modifier.height(6.dp))
-                Text(
-                    text = "Orbital automatically routes requests based on speed, reasoning depth, and rate limits.",
-                    fontSize = 12.sp,
-                    color = Color(0xFF94A3B8)
-                )
-                Spacer(modifier = Modifier.height(16.dp))
-
-                listOf(
-                    RoutingMode.AUTO to Pair("⚡ Auto Router (Smart Tiering)", "Automatically falls back through 24+ providers with cooldown tracking"),
-                    RoutingMode.FAST to Pair("🚀 Fast Tier (Sub-second TTFT)", "Prioritizes Groq, Cerebras, Sambanova, and DeepInfra"),
-                    RoutingMode.FRONTIER to Pair("🧠 Frontier Tier (Reasoning)", "Routes to Claude 3.5 Sonnet, GPT-4o, and Gemini 1.5 Pro"),
-                    RoutingMode.PINNED to Pair("🎯 Pinned Provider", "Locks requests to your specifically selected provider")
-                ).forEach { (mode, details) ->
-                    val isSelected = currentRoutingMode == mode
-                    Surface(
-                        color = if (isSelected) Color(0xFF2E1B5B) else Color(0xFF1B1E30),
-                        shape = RoundedCornerShape(12.dp),
-                        border = BorderStroke(
-                            1.dp,
-                            if (isSelected) Color(0xFF8B5CF6) else Color(0xFF2B304C)
-                        ),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable {
-                                chatViewModel.onRoutingModeChanged(mode)
-                                showRoutingSheet = false
-                            }
-                            .padding(vertical = 4.dp)
+                item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(14.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = details.first,
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = Color.White
-                                )
-                                Text(
-                                    text = details.second,
-                                    fontSize = 11.sp,
-                                    color = Color(0xFF94A3B8)
-                                )
+                        Column {
+                            Text(
+                                text = "🤖 Select AI Model to Run",
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                            Text(
+                                text = "Choose our cloud server, an active provider, or auto-routing",
+                                fontSize = 12.sp,
+                                color = Color(0xFF94A3B8)
+                            )
+                        }
+                        IconButton(onClick = { showRoutingSheet = false }) {
+                            Icon(Icons.Default.Close, contentDescription = "Close", tint = Color(0xFF94A3B8))
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
+                }
+
+                // 1. Featured Built-In Cloud AI (PaisaChoice Server)
+                item {
+                    Text(
+                        text = "⭐ BUILT-IN CLOUD AI (OUR SERVER)",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF10B981),
+                        letterSpacing = 1.sp
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Surface(
+                        color = Color(0xFF0F241C),
+                        shape = RoundedCornerShape(14.dp),
+                        border = BorderStroke(1.dp, Color(0xFF10B981).copy(alpha = 0.5f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text("⚡", fontSize = 16.sp)
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "PaisaChoice Cloud Cluster",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 14.sp,
+                                        color = Color.White
+                                    )
+                                }
+                                Surface(
+                                    color = Color(0xFF10B981).copy(alpha = 0.2f),
+                                    shape = RoundedCornerShape(6.dp)
+                                ) {
+                                    Text(
+                                        text = "Active · 4 Slots",
+                                        color = Color(0xFF34D399),
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
                             }
-                            if (isSelected) {
-                                Icon(
-                                    Icons.Default.Check,
-                                    contentDescription = "Selected",
-                                    tint = Color(0xFFA78BFA)
-                                )
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            // Model Option 1: qwen2.5:0.5b (Fast)
+                            val is05bSelected = currentRoutingMode == RoutingMode.PINNED &&
+                                    selectedPinnedProvider == ProviderType.PAISACHOICE &&
+                                    currentPaisaModel == "qwen2.5:0.5b"
+
+                            Surface(
+                                color = if (is05bSelected) Color(0xFF064E3B) else Color(0xFF122E23),
+                                shape = RoundedCornerShape(10.dp),
+                                border = BorderStroke(1.dp, if (is05bSelected) Color(0xFF34D399) else Color(0xFF1A4635)),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        chatViewModel.onSelectModel(ProviderType.PAISACHOICE, "qwen2.5:0.5b")
+                                        showRoutingSheet = false
+                                        Toast.makeText(context, "Running PaisaChoice Qwen 2.5 0.5B (Fast)", Toast.LENGTH_SHORT).show()
+                                    }
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(10.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = "qwen2.5:0.5b (Fast Mobile)",
+                                            fontSize = 13.5.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color.White
+                                        )
+                                        Text(
+                                            text = "Blazing fast (~20 tok/sec) · Instant chat, FAQs, summaries",
+                                            fontSize = 11.sp,
+                                            color = Color(0xFF9AE6B4)
+                                        )
+                                    }
+                                    if (is05bSelected) {
+                                        Icon(Icons.Default.Check, contentDescription = "Active", tint = Color(0xFF34D399))
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            // Model Option 2: qwen2.5:1.5b (Reasoning)
+                            val is15bSelected = currentRoutingMode == RoutingMode.PINNED &&
+                                    selectedPinnedProvider == ProviderType.PAISACHOICE &&
+                                    currentPaisaModel == "qwen2.5:1.5b"
+
+                            Surface(
+                                color = if (is15bSelected) Color(0xFF064E3B) else Color(0xFF122E23),
+                                shape = RoundedCornerShape(10.dp),
+                                border = BorderStroke(1.dp, if (is15bSelected) Color(0xFF34D399) else Color(0xFF1A4635)),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        chatViewModel.onSelectModel(ProviderType.PAISACHOICE, "qwen2.5:1.5b")
+                                        showRoutingSheet = false
+                                        Toast.makeText(context, "Running PaisaChoice Qwen 2.5 1.5B (Reasoning)", Toast.LENGTH_SHORT).show()
+                                    }
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(10.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = "qwen2.5:1.5b (Deep Reasoning)",
+                                            fontSize = 13.5.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color.White
+                                        )
+                                        Text(
+                                            text = "Deeper reasoning (~12 tok/sec) · Complex logic, advice & planning",
+                                            fontSize = 11.sp,
+                                            color = Color(0xFF9AE6B4)
+                                        )
+                                    }
+                                    if (is15bSelected) {
+                                        Icon(Icons.Default.Check, contentDescription = "Active", tint = Color(0xFF34D399))
+                                    }
+                                }
                             }
                         }
                     }
                 }
-                Spacer(modifier = Modifier.height(24.dp))
+
+                // 2. Other Active Providers
+                if (otherActiveProviders.isNotEmpty()) {
+                    item {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "🌐 OTHER ACTIVE PROVIDERS",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF818CF8),
+                            letterSpacing = 1.sp
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                    }
+
+                    items(otherActiveProviders) { prov ->
+                        val provModel = chatViewModel.getSelectedModel(prov.type)
+                        val isProvSelected = currentRoutingMode == RoutingMode.PINNED && selectedPinnedProvider == prov.type
+
+                        Surface(
+                            color = if (isProvSelected) Color(0xFF231C4A) else Color(0xFF16192E),
+                            shape = RoundedCornerShape(12.dp),
+                            border = BorderStroke(
+                                1.dp,
+                                if (isProvSelected) Color(0xFF818CF8) else Color(0xFF262C4E)
+                            ),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    chatViewModel.onSelectModel(prov.type, provModel)
+                                    showRoutingSheet = false
+                                    Toast.makeText(context, "Pinned to ${prov.displayName} ($provModel)", Toast.LENGTH_SHORT).show()
+                                }
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(
+                                            text = prov.displayName,
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color.White
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Surface(
+                                            color = Color(0xFF38BDF8).copy(alpha = 0.15f),
+                                            shape = RoundedCornerShape(4.dp)
+                                        ) {
+                                            Text(
+                                                text = "Active",
+                                                color = Color(0xFF38BDF8),
+                                                fontSize = 9.5.sp,
+                                                fontWeight = FontWeight.Medium,
+                                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                            )
+                                        }
+                                    }
+                                    Text(
+                                        text = "Model: $provModel",
+                                        fontSize = 11.5.sp,
+                                        color = Color(0xFFA5B4FC)
+                                    )
+                                }
+                                if (isProvSelected) {
+                                    Icon(Icons.Default.Check, contentDescription = "Active", tint = Color(0xFF818CF8))
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 3. Automated Routing Strategies
+                item {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "⚡ AUTOMATED ROUTING TIERS",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF94A3B8),
+                        letterSpacing = 1.sp
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    listOf(
+                        RoutingMode.AUTO to Pair("Auto-Router (Smart Failover)", "Automatically fails over across all active providers with cooldown tracking"),
+                        RoutingMode.FAST to Pair("Fast Tier (Sub-Second)", "Prioritizes ultra-fast providers like Groq, Cerebras & PaisaChoice"),
+                        RoutingMode.FRONTIER to Pair("Frontier Tier (Highest Reasoning)", "Prioritizes high-parameter reasoning models (Gemini Pro, Claude, DeepSeek)")
+                    ).forEach { (mode, details) ->
+                        val isModeSelected = currentRoutingMode == mode
+                        Surface(
+                            color = if (isModeSelected) Color(0xFF2E1B5B) else Color(0xFF16192E),
+                            shape = RoundedCornerShape(12.dp),
+                            border = BorderStroke(1.dp, if (isModeSelected) Color(0xFF8B5CF6) else Color(0xFF262C4E)),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    chatViewModel.onRoutingModeChanged(mode)
+                                    showRoutingSheet = false
+                                }
+                                .padding(vertical = 2.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = details.first,
+                                        fontSize = 13.5.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = Color.White
+                                    )
+                                    Text(
+                                        text = details.second,
+                                        fontSize = 11.sp,
+                                        color = Color(0xFF94A3B8)
+                                    )
+                                }
+                                if (isModeSelected) {
+                                    Icon(Icons.Default.Check, contentDescription = "Selected", tint = Color(0xFFA78BFA))
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 4. Footer: Key Management Navigation
+                item {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    OutlinedButton(
+                        onClick = {
+                            showRoutingSheet = false
+                            onOpenKeys()
+                        },
+                        shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(1.dp, Color(0xFF334155)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = "🔑 Configure All 24+ Providers & Models in Settings",
+                            fontSize = 12.sp,
+                            color = Color(0xFFCBD5E1)
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(20.dp))
+                }
             }
         }
     }

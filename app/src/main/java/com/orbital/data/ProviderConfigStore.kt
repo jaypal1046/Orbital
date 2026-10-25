@@ -95,8 +95,13 @@ class ProviderConfigStore(
             is ProviderConfig.Sail -> cfg.apiKey
             is ProviderConfig.Radeon -> cfg.apiKey
             is ProviderConfig.ModelScope -> cfg.apiKey
+            is ProviderConfig.PaisaChoice -> cfg.apiKey
             is ProviderConfig.Custom -> cfg.apiKey
-            null -> if (isKeylessProvider(type)) "free" else ""
+            null -> if (type == ProviderType.PAISACHOICE) {
+                ProviderRegistry.PAISACHOICE_DEFAULT_KEY
+            } else if (isKeylessProvider(type)) {
+                "free"
+            } else ""
         }.trim()
     }
 
@@ -151,6 +156,7 @@ class ProviderConfigStore(
             is ProviderConfig.Sail -> config.baseUrl
             is ProviderConfig.Radeon -> config.baseUrl
             is ProviderConfig.ModelScope -> config.baseUrl
+            is ProviderConfig.PaisaChoice -> config.baseUrl
             is ProviderConfig.Custom -> config.baseUrl
             null -> ProviderRegistry.getInfo(type).endpoint
         }
@@ -182,6 +188,7 @@ class ProviderConfigStore(
             is ProviderConfig.Sail -> config.model
             is ProviderConfig.Radeon -> config.model
             is ProviderConfig.ModelScope -> config.model
+            is ProviderConfig.PaisaChoice -> config.model
             is ProviderConfig.Custom -> config.model
             null -> ProviderRegistry.getInfo(type).defaultModel
         }
@@ -190,7 +197,8 @@ class ProviderConfigStore(
     fun isKeylessProvider(type: ProviderType): Boolean {
         return type == ProviderType.POLLINATIONS ||
                 type == ProviderType.KILO ||
-                type == ProviderType.OVH
+                type == ProviderType.OVH ||
+                type == ProviderType.PAISACHOICE
     }
 
     fun allConfiguredTypes(): Set<ProviderType> = providerConfigs.keys
@@ -223,6 +231,10 @@ class ProviderConfigStore(
             ProviderType.SAIL -> ProviderConfig.Sail(key, model)
             ProviderType.RADEON -> ProviderConfig.Radeon(key, model)
             ProviderType.MODELSCOPE -> ProviderConfig.ModelScope(key, model)
+            ProviderType.PAISACHOICE -> ProviderConfig.PaisaChoice(
+                key.ifBlank { ProviderRegistry.PAISACHOICE_DEFAULT_KEY },
+                model.ifBlank { "qwen2.5:0.5b" }
+            )
             ProviderType.CUSTOM -> ProviderConfig.Custom(key, model, "http://127.0.0.1:3001/v1/chat/completions")
         }
     }

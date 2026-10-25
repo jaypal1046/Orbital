@@ -25,8 +25,13 @@ android {
         applicationId = "com.ai.orbital"
         minSdk = 24
         targetSdk = 36
-        versionCode = 10
-        versionName = "1.0.2"
+        versionCode = 11
+        versionName = "1.0.3"
+
+        val paisaChoiceApiKey = localProperties.getProperty("PAISACHOICE_API_KEY")
+            ?: System.getenv("PAISACHOICE_API_KEY")
+            ?: ""
+        buildConfigField("String", "PAISACHOICE_API_KEY", "\"$paisaChoiceApiKey\"")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         javaCompileOptions {
@@ -81,6 +86,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     testOptions {

@@ -31,7 +31,8 @@ data class PptSlideData(
 data class DocxParagraphData(
     val text: String,
     val isHeading: Boolean = false,
-    val isBullet: Boolean = false
+    val isBullet: Boolean = false,
+    val isTable: Boolean = false
 )
 
 data class SpreadsheetGrid(
@@ -381,15 +382,34 @@ object UniversalFileEngine {
     fun readDocxText(file: File): FileOperationResult {
         if (!file.exists()) return FileOperationResult.Error("File '${file.path}' does not exist.")
         return try {
-            val documentXml = extractZipEntryText(file, "word/document.xml")
-                ?: return FileOperationResult.Error("Invalid DOCX: 'word/document.xml' not found.")
-
-            val plainText = extractXmlTextContent(documentXml)
-            FileOperationResult.Success(
-                message = "Extracted text from Word document '${file.name}'",
-                content = plainText,
-                details = mapOf("charCount" to plainText.length)
-            )
+            val paragraphs = extractDocxParagraphs(file)
+            if (paragraphs.isNotEmpty()) {
+                val formatted = paragraphs.joinToString("\n\n") { el ->
+                    when {
+                        el.isTable -> el.text
+                        el.isHeading -> "### ${el.text}"
+                        el.isBullet -> "• ${el.text}"
+                        else -> el.text
+                    }
+                }
+                FileOperationResult.Success(
+                    message = "Extracted structured text from Word document '${file.name}'",
+                    content = formatted,
+                    details = mapOf("charCount" to formatted.length)
+                )
+            } else {
+                // Fallback: check legacy .doc binary file string extraction
+                val legacyText = extractPrintableStrings(file)
+                if (legacyText.isNotBlank()) {
+                    FileOperationResult.Success(
+                        message = "Extracted text from legacy Word document '${file.name}'",
+                        content = legacyText,
+                        details = mapOf("charCount" to legacyText.length, "legacy" to true)
+                    )
+                } else {
+                    FileOperationResult.Error("Unable to extract text from Word document '${file.name}'.")
+                }
+            }
         } catch (e: Exception) {
             FileOperationResult.Error("Failed to read Word document '${file.path}': ${e.message}")
         }
@@ -419,26 +439,41 @@ object UniversalFileEngine {
     fun readPptxText(file: File): FileOperationResult {
         if (!file.exists()) return FileOperationResult.Error("File '${file.path}' does not exist.")
         return try {
-            val slideTexts = mutableListOf<String>()
-            ZipInputStream(FileInputStream(file)).use { zip ->
-                var entry: ZipEntry? = zip.nextEntry
-                while (entry != null) {
-                    if (entry.name.startsWith("ppt/slides/slide") && entry.name.endsWith(".xml")) {
-                        val slideNumber = entry.name.substringAfter("slide").substringBefore(".").toIntOrNull() ?: 0
-                        val xmlContent = zip.readBytes().toString(StandardCharsets.UTF_8)
-                        val slideText = extractXmlTextContent(xmlContent)
-                        slideTexts.add("--- Slide $slideNumber ---\n$slideText")
+            val slides = extractPptxSlides(file)
+            if (slides.isNotEmpty()) {
+                val fullPresentation = buildString {
+                    append("### 📊 Presentation: '${file.name}' (${slides.size} slides)\n\n")
+                    slides.forEach { s ->
+                        append("#### Slide ${s.slideNumber}: ${s.title}\n")
+                        s.bullets.forEach { b ->
+                            if (b.startsWith("\n|") || b.startsWith("|")) {
+                                append("$b\n")
+                            } else {
+                                append("• $b\n")
+                            }
+                        }
+                        append("\n")
                     }
-                    entry = zip.nextEntry
+                }.trim()
+
+                FileOperationResult.Success(
+                    message = "Extracted ${slides.size} structured slide(s) from PowerPoint '${file.name}'",
+                    content = fullPresentation,
+                    details = mapOf("slideCount" to slides.size)
+                )
+            } else {
+                // Fallback for legacy .ppt binary file
+                val legacyText = extractPrintableStrings(file)
+                if (legacyText.isNotBlank()) {
+                    FileOperationResult.Success(
+                        message = "Extracted text from legacy PowerPoint presentation '${file.name}'",
+                        content = legacyText,
+                        details = mapOf("charCount" to legacyText.length, "legacy" to true)
+                    )
+                } else {
+                    FileOperationResult.Error("Unable to extract text from PowerPoint '${file.name}'.")
                 }
             }
-
-            val fullPresentation = slideTexts.joinToString("\n\n")
-            FileOperationResult.Success(
-                message = "Extracted ${slideTexts.size} slide(s) from PowerPoint '${file.name}'",
-                content = fullPresentation,
-                details = mapOf("slideCount" to slideTexts.size)
-            )
         } catch (e: Exception) {
             FileOperationResult.Error("Failed to read PowerPoint '${file.path}': ${e.message}")
         }
@@ -531,16 +566,43 @@ object UniversalFileEngine {
         val result = mutableListOf<DocxParagraphData>()
         try {
             val docXml = extractZipEntryText(file, "word/document.xml") ?: return emptyList()
-            val pMatches = Regex("<w:p[\\s\\S]*?</w:p>").findAll(docXml)
-            pMatches.forEach { pMatch ->
-                val pStr = pMatch.value
-                val tMatches = Regex("<w:t[^>]*>([\\s\\S]*?)</w:t>").findAll(pStr)
-                val fullText = decodeXmlEntities(tMatches.map { it.groupValues[1] }.joinToString("").trim())
-                if (fullText.isNotBlank()) {
-                    val isHeading = pStr.contains("Heading", ignoreCase = true) || pStr.contains("<w:sz w:val=\"3") || pStr.contains("<w:sz w:val=\"4") || pStr.contains("<w:sz w:val=\"48\"")
-                    val isBullet = pStr.contains("<w:numPr") || fullText.startsWith("•") || fullText.startsWith("-") || fullText.startsWith("*")
-                    val cleanText = if (isBullet) fullText.removePrefix("•").removePrefix("-").removePrefix("*").trim() else fullText
-                    result.add(DocxParagraphData(text = cleanText, isHeading = isHeading, isBullet = isBullet))
+            val blockMatches = Regex("<w:p[\\s\\S]*?</w:p>|<w:tbl[\\s\\S]*?</w:tbl>").findAll(docXml)
+            blockMatches.forEach { blockMatch ->
+                val blockXml = blockMatch.value
+                if (blockXml.startsWith("<w:tbl")) {
+                    val rowMatches = Regex("<w:tr[\\s\\S]*?</w:tr>").findAll(blockXml)
+                    val tableRows = mutableListOf<List<String>>()
+                    rowMatches.forEach { r ->
+                        val cellMatches = Regex("<w:tc[\\s\\S]*?</w:tc>").findAll(r.value)
+                        val cells = cellMatches.map { c ->
+                            val tMatches = Regex("<w:t[^>]*>([\\s\\S]*?)</w:t>").findAll(c.value)
+                            decodeXmlEntities(tMatches.map { it.groupValues[1] }.joinToString("").trim())
+                        }.toList()
+                        if (cells.any { it.isNotBlank() }) {
+                            tableRows.add(cells)
+                        }
+                    }
+                    if (tableRows.isNotEmpty()) {
+                        val tableMarkdown = buildString {
+                            val headers = tableRows.first()
+                            append("| " + headers.joinToString(" | ") + " |\n")
+                            append("|" + headers.joinToString("|") { "---" } + "|\n")
+                            tableRows.drop(1).forEach { row ->
+                                append("| " + row.joinToString(" | ") + " |\n")
+                            }
+                        }
+                        result.add(DocxParagraphData(text = tableMarkdown, isTable = true))
+                    }
+                } else {
+                    val pStr = blockXml
+                    val tMatches = Regex("<w:t[^>]*>([\\s\\S]*?)</w:t>").findAll(pStr)
+                    val fullText = decodeXmlEntities(tMatches.map { it.groupValues[1] }.joinToString("").trim())
+                    if (fullText.isNotBlank()) {
+                        val isHeading = pStr.contains("Heading", ignoreCase = true) || pStr.contains("<w:sz w:val=\"3") || pStr.contains("<w:sz w:val=\"4") || pStr.contains("<w:sz w:val=\"48\"")
+                        val isBullet = pStr.contains("<w:numPr") || fullText.startsWith("•") || fullText.startsWith("-") || fullText.startsWith("*")
+                        val cleanText = if (isBullet) fullText.removePrefix("•").removePrefix("-").removePrefix("*").trim() else fullText
+                        result.add(DocxParagraphData(text = cleanText, isHeading = isHeading, isBullet = isBullet))
+                    }
                 }
             }
         } catch (_: Exception) {}
@@ -1242,5 +1304,211 @@ object UniversalFileEngine {
         zipOut.putNextEntry(ZipEntry(entryName))
         zipOut.write(content.toByteArray(StandardCharsets.UTF_8))
         zipOut.closeEntry()
+    }
+
+    fun readArchiveTree(file: File, maxPreviewFiles: Int = 3): FileOperationResult {
+        if (!file.exists()) return FileOperationResult.Error("File '${file.path}' does not exist.")
+        return try {
+            val entries = mutableListOf<Pair<String, Long>>()
+            val textPreviews = mutableMapOf<String, String>()
+            val textExts = setOf(
+                "txt", "md", "json", "csv", "tsv", "py", "kt", "java", "ts", "js",
+                "html", "xml", "yaml", "yml", "sql", "sh", "properties", "gradle", "log", "conf", "env"
+            )
+
+            ZipInputStream(FileInputStream(file)).use { zip ->
+                var entry = zip.nextEntry
+                while (entry != null) {
+                    if (!entry.isDirectory && !entry.name.startsWith("__MACOSX/") && !entry.name.contains("/.")) {
+                        val size = entry.size.coerceAtLeast(0)
+                        entries.add(entry.name to size)
+
+                        val ext = entry.name.substringAfterLast('.', "").lowercase()
+                        if (textPreviews.size < maxPreviewFiles && textExts.contains(ext) && size < 500_000) {
+                            val content = zip.readBytes().toString(StandardCharsets.UTF_8).take(3000)
+                            if (content.isNotBlank()) {
+                                textPreviews[entry.name] = content
+                            }
+                        }
+                    }
+                    entry = zip.nextEntry
+                }
+            }
+
+            if (entries.isEmpty()) {
+                return FileOperationResult.Success("Archive '${file.name}' is empty or not in standard zip format.", "")
+            }
+
+            val totalSize = entries.sumOf { it.second }
+            val formatted = buildString {
+                append("### 📦 Archive: '${file.name}' (${entries.size} files, ~${formatBytes(totalSize)})\n\n")
+                append("#### 📂 Directory Structure:\n")
+                entries.take(50).forEach { (name, size) ->
+                    append("• `$name` (${formatBytes(size)})\n")
+                }
+                if (entries.size > 50) {
+                    append("... [${entries.size - 50} more files]\n")
+                }
+
+                if (textPreviews.isNotEmpty()) {
+                    append("\n---\n#### 📄 Embedded File Previews:\n")
+                    textPreviews.forEach { (name, content) ->
+                        val ext = name.substringAfterLast('.', "")
+                        append("##### Preview: `$name`\n```$ext\n$content\n```\n\n")
+                    }
+                }
+            }
+
+            FileOperationResult.Success(
+                message = "Extracted ${entries.size} file listings from archive '${file.name}'",
+                content = formatted,
+                details = mapOf("fileCount" to entries.size, "totalSize" to totalSize)
+            )
+        } catch (e: Exception) {
+            FileOperationResult.Error("Failed to inspect archive '${file.path}': ${e.message}")
+        }
+    }
+
+    fun cleanHtmlToMarkdown(html: String): String {
+        var clean = html
+            .replace(Regex("(?i)<script[\\s\\S]*?</script>"), "")
+            .replace(Regex("(?i)<style[\\s\\S]*?</style>"), "")
+            .replace(Regex("(?i)<meta[^>]*>"), "")
+            .replace(Regex("(?i)<link[^>]*>"), "")
+            .replace(Regex("(?i)<!--[\\s\\S]*?-->"), "")
+
+        // Headers
+        clean = clean.replace(Regex("(?i)<h1[^>]*>([\\s\\S]*?)</h1>"), "\n\n# $1\n\n")
+        clean = clean.replace(Regex("(?i)<h2[^>]*>([\\s\\S]*?)</h2>"), "\n\n## $1\n\n")
+        clean = clean.replace(Regex("(?i)<h3[^>]*>([\\s\\S]*?)</h3>"), "\n\n### $1\n\n")
+        clean = clean.replace(Regex("(?i)<h[4-6][^>]*>([\\s\\S]*?)</h[4-6]>"), "\n\n#### $1\n\n")
+
+        // Paragraphs & Line breaks
+        clean = clean.replace(Regex("(?i)<br\\s*/?>"), "\n")
+        clean = clean.replace(Regex("(?i)<p[^>]*>([\\s\\S]*?)</p>"), "\n\n$1\n\n")
+
+        // List items
+        clean = clean.replace(Regex("(?i)<li[^>]*>([\\s\\S]*?)</li>"), "\n• $1")
+
+        // Tables
+        val tableMatches = Regex("(?i)<table[\\s\\S]*?</table>").findAll(clean)
+        for (tableMatch in tableMatches) {
+            val tableHtml = tableMatch.value
+            val trMatches = Regex("(?i)<tr[\\s\\S]*?</tr>").findAll(tableHtml)
+            val rows = mutableListOf<List<String>>()
+            for (tr in trMatches) {
+                val tdMatches = Regex("(?i)<t[dh][^>]*>([\\s\\S]*?)</t[dh]>").findAll(tr.value)
+                val cells = tdMatches.map { it.groupValues[1].replace(Regex("<[^>]+>"), "").trim() }.filter { it.isNotBlank() }.toList()
+                if (cells.isNotEmpty()) {
+                    rows.add(cells)
+                }
+            }
+            if (rows.isNotEmpty()) {
+                val mdTable = buildString {
+                    append("\n")
+                    val headers = rows.first()
+                    append("| " + headers.joinToString(" | ") + " |\n")
+                    append("|" + headers.joinToString("|") { "---" } + "|\n")
+                    rows.drop(1).forEach { row ->
+                        append("| " + row.joinToString(" | ") + " |\n")
+                    }
+                    append("\n")
+                }
+                clean = clean.replace(tableHtml, mdTable)
+            }
+        }
+
+        // Bold & Italic
+        clean = clean.replace(Regex("(?i)<(b|strong)>([\\s\\S]*?)</\\1>"), "**$2**")
+        clean = clean.replace(Regex("(?i)<(i|em)>([\\s\\S]*?)</\\1>"), "*$2*")
+
+        // Links
+        clean = clean.replace(Regex("(?i)<a\\s+[^>]*href=[\"']([^\"']+)[\"'][^>]*>([\\s\\S]*?)</a>"), "[$2]($1)")
+
+        // Remove remaining tags
+        clean = clean.replace(Regex("<[^>]+>"), " ")
+
+        // Decode HTML entities
+        clean = decodeXmlEntities(clean)
+            .replace("&nbsp;", " ")
+            .replace("&quot;", "\"")
+            .replace("&#39;", "'")
+            .replace(Regex("[ \\t]+"), " ")
+            .replace(Regex("\\n{3,}"), "\n\n")
+            .trim()
+
+        return clean
+    }
+
+    fun extractPrintableStrings(file: File, minLength: Int = 4): String {
+        if (!file.exists()) return ""
+        val bytes = try { file.readBytes() } catch (_: Exception) { ByteArray(0) }
+        if (bytes.isEmpty()) return ""
+
+        val extracted = mutableListOf<String>()
+        val sb = StringBuilder()
+
+        // 1. Scan for UTF-16LE characters (common in Microsoft Office binary formats like .doc, .ppt, .xls)
+        var i = 0
+        while (i < bytes.size - 1) {
+            val b0 = bytes[i].toInt() and 0xFF
+            val b1 = bytes[i + 1].toInt() and 0xFF
+            if (b1 == 0 && (b0 in 32..126 || b0 in setOf(10, 13, 9))) {
+                sb.append(b0.toChar())
+                i += 2
+            } else {
+                if (sb.length >= minLength) {
+                    val str = sb.toString().trim()
+                    if (str.length >= minLength && str.any { it.isLetterOrDigit() }) {
+                        extracted.add(str)
+                    }
+                }
+                sb.clear()
+                i++
+            }
+        }
+        if (sb.length >= minLength) {
+            val str = sb.toString().trim()
+            if (str.length >= minLength && str.any { it.isLetterOrDigit() }) {
+                extracted.add(str)
+            }
+        }
+        sb.clear()
+
+        // 2. Scan for ASCII printable sequences
+        for (b in bytes) {
+            val v = b.toInt() and 0xFF
+            if (v in 32..126 || v in setOf(10, 13, 9)) {
+                sb.append(v.toChar())
+            } else {
+                if (sb.length >= minLength) {
+                    val str = sb.toString().trim()
+                    if (str.length >= minLength && str.any { it.isLetterOrDigit() }) {
+                        extracted.add(str)
+                    }
+                }
+                sb.clear()
+            }
+        }
+        if (sb.length >= minLength) {
+            val str = sb.toString().trim()
+            if (str.length >= minLength && str.any { it.isLetterOrDigit() }) {
+                extracted.add(str)
+            }
+        }
+
+        val cleanStrings = extracted
+            .filter { s -> s.length >= minLength && s.none { it < ' ' && it != '\n' && it != '\t' } }
+            .distinct()
+
+        return cleanStrings.joinToString("\n")
+    }
+
+    fun formatBytes(bytes: Long): String {
+        return when {
+            bytes < 1024 -> "$bytes B"
+            bytes < 1024 * 1024 -> "${bytes / 1024} KB"
+            else -> String.format(java.util.Locale.US, "%.1f MB", bytes.toDouble() / (1024 * 1024))
+        }
     }
 }

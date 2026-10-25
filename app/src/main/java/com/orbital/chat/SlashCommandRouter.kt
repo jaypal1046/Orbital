@@ -42,6 +42,7 @@ object SlashCommandRouter {
             "/help" -> {
                 val help = buildString {
                     append("⚡ **Orbital Slash Commands:**\n\n")
+                    append("- `/egm <task>`: Run autonomous task verified statelessly by Goldfish critic without hallucination.\n")
                     append("- `/goal <task>`: Execute long-running multi-step task autonomously until target is reached.\n")
                     append("- `/plan <task>`: Generate step-by-step UI plan for approval before taking any action.\n")
                     append("- `/doctor`: Run full system diagnostics on accessibility, sensors, and gateway.\n")
@@ -172,6 +173,21 @@ object SlashCommandRouter {
                         }
                         SlashCommandResult.HandledLocally(response)
                     }
+                }
+            }
+            "/egm" -> {
+                if (argument.isBlank()) {
+                    val info = buildString {
+                        append("🐘🐟 **Elephant-Goldfish Model (EGM) Engine:**\n\n")
+                        append("• **The Elephant (Deep-Context Planner):** Retains high-level user intent, multi-step history, and project constraints.\n")
+                        append("• **The Goldfish (Zero-Bias Critic):** Inspects live UI state statelessly with zero conversational priming, preventing hallucinated success.\n\n")
+                        append("💡 **Usage:** `/egm <task>`\n")
+                        append("Example: `/egm Check notifications and dismiss promotional alerts`")
+                    }
+                    SlashCommandResult.HandledLocally(info)
+                } else {
+                    val prompt = "[EGM Task]: Autonomous execution with Elephant planning and Goldfish zero-bias UI verification: $argument"
+                    SlashCommandResult.PassThroughWithAugmentedPrompt(prompt, ExecutionMode.GOAL_AUTONOMOUS)
                 }
             }
             "/goal" -> {

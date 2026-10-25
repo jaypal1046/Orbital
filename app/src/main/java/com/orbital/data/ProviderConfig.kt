@@ -169,6 +169,13 @@ sealed class ProviderConfig {
     ) : ProviderConfig()
 
     @Serializable
+    data class PaisaChoice(
+        val apiKey: String = "",
+        val model: String = "qwen2.5:0.5b",
+        val baseUrl: String = "https://paisachoice.com/api/ai/chat"
+    ) : ProviderConfig()
+
+    @Serializable
     data class Custom(
         val apiKey: String,
         val model: String,
@@ -180,6 +187,7 @@ sealed class ProviderConfig {
             ProviderType.GEMINI,
             ProviderType.GROQ,
             ProviderType.CEREBRAS,
+            ProviderType.PAISACHOICE,
             ProviderType.POLLINATIONS,
             ProviderType.ALPHAOX,
             ProviderType.NVIDIA_NIM,
@@ -204,6 +212,7 @@ sealed class ProviderConfig {
         val fastTierProviders = listOf(
             ProviderType.CEREBRAS,
             ProviderType.GROQ,
+            ProviderType.PAISACHOICE,
             ProviderType.GEMINI,
             ProviderType.ALPHAOX
         )
@@ -244,6 +253,7 @@ enum class ProviderType {
     RADEON,
     MODELSCOPE,
     AIHORDE,
+    PAISACHOICE,
     CUSTOM
 }
 

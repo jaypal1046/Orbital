@@ -11,6 +11,8 @@ import com.orbital.chat.ChatEngine
 import com.orbital.data.ChatMessage
 import com.orbital.data.LlmRepository
 import com.orbital.data.ProviderType
+import com.orbital.data.ProviderInfo
+import com.orbital.data.ProviderRegistry
 import com.orbital.data.RoutingMode
 import com.orbital.data.ActionApprovalMode
 import com.orbital.data.SecureStorage
@@ -304,6 +306,27 @@ class ChatViewModel @Inject constructor(
     fun onPinnedProviderChanged(provider: ProviderType) {
         _selectedPinnedProvider.update { provider }
         llmRepository.setCurrentProvider(provider)
+    }
+
+    fun getActiveProviders(): List<ProviderInfo> {
+        return ProviderRegistry.allProviders.filter { info ->
+            info.type == ProviderType.PAISACHOICE ||
+            llmRepository.configStore.isKeylessProvider(info.type) ||
+            llmRepository.getProviderKey(info.type).isNotBlank()
+        }
+    }
+
+    fun getSelectedModel(provider: ProviderType): String {
+        return secureStorage.getProviderSelectedModel(provider.name)
+            ?: ProviderRegistry.getInfo(provider).defaultModel
+    }
+
+    fun onSelectModel(provider: ProviderType, model: String) {
+        _selectedPinnedProvider.update { provider }
+        llmRepository.setCurrentProvider(provider)
+        llmRepository.setProviderModel(provider, model)
+        secureStorage.saveProviderSelectedModel(provider.name, model)
+        onRoutingModeChanged(RoutingMode.PINNED)
     }
 
     fun toggleVoiceListening() {

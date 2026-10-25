@@ -248,7 +248,11 @@ fun InputBar(
                                     RoutingMode.AUTO -> "Auto"
                                     RoutingMode.FAST -> "Fast"
                                     RoutingMode.FRONTIER -> "Frontier"
-                                    RoutingMode.PINNED -> (selectedPinnedProvider ?: "Pinned").take(8)
+                                    RoutingMode.PINNED -> {
+                                        val p = selectedPinnedProvider ?: "Pinned"
+                                        if (p.equals("PAISACHOICE", ignoreCase = true)) "Paisa AI"
+                                        else p.take(8)
+                                    }
                                 },
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.SemiBold,

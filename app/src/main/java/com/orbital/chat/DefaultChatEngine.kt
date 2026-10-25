@@ -441,8 +441,25 @@ class DefaultChatEngine @Inject constructor(
                         OrbitalAutomationEngine.instance?.captureScreenHierarchy()
                     } else null
                     val stateTransition = describeStateTransition(beforeSnapshot, snapshot)
+
+                    // Goldfish Critic: Stateless, zero-bias UI verification without conversational optimism
+                    val goldfishCritic = com.orbital.egm.GoldfishScreenCritic()
+                    val preHash = com.orbital.egm.GoldfishScreenCritic.computeStateHash(beforeSnapshot)
+                    val postHash = com.orbital.egm.GoldfishScreenCritic.computeStateHash(snapshot)
+                    val goldfishAssertion = when {
+                        !action.expectedUiText.isNullOrBlank() -> com.orbital.egm.GoldfishAssertion.TextPresent(action.expectedUiText)
+                        !action.target.isNullOrBlank() && action.action.uppercase() in setOf("OPEN_APP", "LAUNCH_APP") -> com.orbital.egm.GoldfishAssertion.PackageActive(action.target)
+                        else -> com.orbital.egm.GoldfishAssertion.ScreenMutated(preHash)
+                    }
+                    val goldfishVerdict = if (snapshot != null) {
+                        goldfishCritic.evaluate(snapshot, goldfishAssertion, preActionHash = preHash)
+                    } else null
+
                     val verificationFailure = if (result is ActionResult.Success) {
                         when {
+                            !action.expectedUiText.isNullOrBlank() && goldfishVerdict != null && !goldfishVerdict.isVerified -> {
+                                goldfishVerdict.explanation
+                            }
                             !action.expectedUiText.isNullOrBlank() -> {
                                 val verdict = StateVerificationEngine().verify(
                                     snapshot, StateVerificationCriterion.ContainsText(action.expectedUiText)
@@ -495,6 +512,16 @@ class DefaultChatEngine @Inject constructor(
                                 durationMs = actionDuration
                             )
 
+                            if (goldfishVerdict != null) {
+                                executionSteps += com.orbital.action.ExecutionStep(
+                                    title = if (goldfishVerdict.isVerified) "🐟 Goldfish Critic: Verified" else "🐟 Goldfish Critic: State Stalled",
+                                    status = if (goldfishVerdict.isVerified) com.orbital.action.StepStatus.SUCCESS else com.orbital.action.StepStatus.INFO,
+                                    toolName = "GoldfishCritic",
+                                    details = "${goldfishVerdict.explanation} (Hash: ${postHash.take(8)})",
+                                    durationMs = 20L
+                                )
+                            }
+
                             if (!checkedResult.details.isNullOrBlank()) {
                                 executionSteps += com.orbital.action.ExecutionStep(
                                     title = "Processed Outcome & Context",
@@ -520,6 +547,24 @@ class DefaultChatEngine @Inject constructor(
                                         summary = "Action ${action.action} encountered error: ${checkedResult.errorMessage}"
                                     )
                                 } catch (_: Exception) {}
+                            }
+
+                            executionSteps += com.orbital.action.ExecutionStep(
+                                title = "Action Failed: ${action.action.lowercase().replace('_', ' ')}",
+                                status = com.orbital.action.StepStatus.FAILED,
+                                toolName = "DeviceAction",
+                                details = checkedResult.errorMessage,
+                                durationMs = actionDuration
+                            )
+
+                            if (goldfishVerdict != null && !goldfishVerdict.isVerified) {
+                                executionSteps += com.orbital.action.ExecutionStep(
+                                    title = "🐟 Goldfish Critic: Hallucination / Failure Flagged",
+                                    status = com.orbital.action.StepStatus.FAILED,
+                                    toolName = "GoldfishCritic",
+                                    details = "Goldfish zero-bias audit: ${goldfishVerdict.explanation} (Pre: ${preHash.take(8)}, Post: ${postHash.take(8)})",
+                                    durationMs = 20L
+                                )
                             }
 
                             val failureLog = buildString {

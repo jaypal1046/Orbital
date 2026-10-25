@@ -380,6 +380,19 @@ object ProviderRegistry {
             endpoint = "https://aihorde.net/api/v2/generate/text/async"
         ),
         ProviderInfo(
+            type = ProviderType.PAISACHOICE,
+            displayName = "PaisaChoice (Private AI)",
+            catalogModels = listOf(
+                CatalogModel("qwen2.5:0.5b", "Qwen 2.5 0.5B (Fast)", "Fast", "32K ctx · 20 tok/s"),
+                CatalogModel("qwen2.5:1.5b", "Qwen 2.5 1.5B (Reasoning)", "Reasoning", "32K ctx · 12 tok/s")
+            ),
+            defaultModel = "qwen2.5:0.5b",
+            quotaDescription = "Private AI Cluster · 4 Slots · Zero-Config Built-in",
+            portalUrl = "https://paisachoice.com",
+            keyPlaceholder = "sk_ai_live_... (pre-configured)",
+            endpoint = "https://paisachoice.com/api/ai/chat"
+        ),
+        ProviderInfo(
             type = ProviderType.CUSTOM,
             displayName = "Custom / FreeLLMAPI",
             catalogModels = listOf(
@@ -394,6 +407,15 @@ object ProviderRegistry {
             endpoint = "http://127.0.0.1:3001/v1/chat/completions"
         )
     )
+
+    val PAISACHOICE_DEFAULT_KEY: String
+        get() = try {
+            com.orbital.BuildConfig.PAISACHOICE_API_KEY.ifBlank {
+                System.getenv("PAISACHOICE_API_KEY") ?: ""
+            }
+        } catch (_: Throwable) {
+            System.getenv("PAISACHOICE_API_KEY") ?: ""
+        }
 
     fun getInfo(type: ProviderType): ProviderInfo {
         return allProviders.find { it.type == type } ?: allProviders.first()
